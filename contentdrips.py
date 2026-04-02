@@ -11,7 +11,7 @@ Environment variables required:
   CONTENTDRIPS_TEMPLATE_ID  — Template to render with (required)
 
 Optional:
-  CONTENTDRIPS_API_BASE     — Override base URL (default: https://api.contentdrips.com)
+  CONTENTDRIPS_API_BASE     — Override base URL (default: https://generate.contentdrips.com)
 """
 
 import logging
@@ -27,7 +27,7 @@ logger = logging.getLogger("carousel.contentdrips")
 # ---------------------------------------------------------------------------
 
 def _base() -> str:
-    return os.environ.get("CONTENTDRIPS_API_BASE", "https://api.contentdrips.com").rstrip("/")
+    return os.environ.get("CONTENTDRIPS_API_BASE", "https://generate.contentdrips.com").rstrip("/")
 
 # ┌─────────────────────────────────────────────────────────────────────────┐
 # │  Endpoint paths — verified against Contentdrips docs.                   │

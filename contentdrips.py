@@ -303,7 +303,16 @@ def _poll(
             continue
 
         if status == "completed":
-            return _fetch_result(job_id)
+            logger.info("Job %s completed — full response: %s", job_id, data)
+            logger.info("Response keys: %s", list(data.keys()))
+            export_url = _extract_export_url(data)
+            if not export_url:
+                raise RuntimeError(
+                    f"Job {job_id} completed but no export URL found. "
+                    f"Keys present: {list(data.keys())} | Full response: {data}"
+                )
+            logger.info("Job %s → export URL: %s", job_id, export_url)
+            return export_url
 
         if status == "failed":
             reason = data.get("error") or data.get("message") or "no reason given"
@@ -316,38 +325,3 @@ def _poll(
         f"Job {job_id} did not complete after {max_retries} polls "
         f"({max_retries * poll_interval}s)."
     )
-
-
-def _fetch_result(job_id: str) -> str:
-    """
-    Fetch the final render result from GET /job/{job_id}.
-    Called after polling confirms status == completed.
-    Returns the export URL.
-    """
-    url = f"{_base()}/job/{job_id}"
-    logger.info("Fetching result — GET %s", url)
-
-    try:
-        resp = httpx.get(url, headers=_headers(), timeout=15)
-    except httpx.RequestError as exc:
-        raise RuntimeError(f"Network error fetching result for job {job_id}: {exc}") from exc
-
-    logger.info("Result response [%s]: %s", resp.status_code, resp.text[:2000])
-
-    if not resp.is_success:
-        raise RuntimeError(
-            f"Result fetch failed [{resp.status_code}] for job {job_id}: {resp.text}"
-        )
-
-    data = resp.json()
-    logger.info("Result keys: %s", list(data.keys()))
-
-    export_url = _extract_export_url(data)
-    if not export_url:
-        raise RuntimeError(
-            f"Job {job_id} result had no export URL. "
-            f"Keys present: {list(data.keys())} | Full response: {data}"
-        )
-
-    logger.info("Job %s → export URL: %s", job_id, export_url)
-    return export_url

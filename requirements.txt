@@ -1,0 +1,11 @@
+# Core automation
+playwright>=1.44.0
+
+# LLM backends (install at least one)
+anthropic>=0.28.0
+openai>=1.30.0
+
+# Environment & utilities
+python-dotenv>=1.0.0
+
+# Python 3.10+ is required (no additional compat shims needed)

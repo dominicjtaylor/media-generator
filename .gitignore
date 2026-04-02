@@ -1,0 +1,25 @@
+# Environment
+.env
+
+# Generated files
+csv_upload_feature.csv
+output/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# Playwright
+playwright/.local-browsers/
+
+# IDE
+.vscode/
+.idea/
+*.swp

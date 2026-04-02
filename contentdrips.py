@@ -16,7 +16,6 @@ Optional:
 
 import logging
 import os
-import time
 
 import httpx
 
@@ -70,7 +69,6 @@ def _base() -> str:
     return os.environ.get("CONTENTDRIPS_API_BASE", "https://generate.contentdrips.com").rstrip("/")
 
 _RENDER_PATH = "/render"
-_STATUS_PATH = "/status/{job_id}"
 
 
 def _api_key() -> str:
@@ -141,16 +139,18 @@ def format_for_contentdrips(slides: list[dict]) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Step 2: Submit render request → (job_id | None, raw_response)
+# Step 2: Submit render request → export_url
 # ---------------------------------------------------------------------------
 
-def request_render(carousel_payload: dict) -> tuple[str | None, dict]:
+def request_render(carousel_payload: dict) -> tuple[str, dict]:
     """
-    POST the render request to Contentdrips.
+    POST the render request to Contentdrips and return the image URL directly.
 
-    Returns (job_id, raw_response) where:
-      - job_id is None if the render completed synchronously
-      - raw_response is the full decoded JSON body
+    Contentdrips renders synchronously — the export URL is in the response body.
+    No polling required.
+
+    Returns (export_url, raw_response).
+    Raises RuntimeError with full context on any failure.
     """
     url  = f"{_base()}{_RENDER_PATH}"
     body = {
@@ -159,7 +159,6 @@ def request_render(carousel_payload: dict) -> tuple[str | None, dict]:
         **carousel_payload,
     }
 
-    # Build and log headers before sending (key is masked)
     headers = _headers()
 
     logger.info("─── Contentdrips request ───────────────────────────────")
@@ -167,7 +166,7 @@ def request_render(carousel_payload: dict) -> tuple[str | None, dict]:
     logger.info("Payload: %s", body)
 
     try:
-        resp = httpx.post(url, json=body, headers=headers, timeout=30)
+        resp = httpx.post(url, json=body, headers=headers, timeout=60)
     except httpx.RequestError as exc:
         raise RuntimeError(f"Network error reaching Contentdrips ({url}): {exc}") from exc
 
@@ -189,7 +188,7 @@ def request_render(carousel_payload: dict) -> tuple[str | None, dict]:
     content_type = resp.headers.get("content-type", "")
     if "html" in content_type or resp.text.lstrip().startswith("<"):
         raise RuntimeError(
-            f"Contentdrips returned HTML instead of JSON (likely wrong endpoint or auth wall). "
+            f"Contentdrips returned HTML instead of JSON (wrong endpoint or auth wall). "
             f"URL: {url} | Status: {resp.status_code}"
         )
 
@@ -198,74 +197,30 @@ def request_render(carousel_payload: dict) -> tuple[str | None, dict]:
             f"Contentdrips render request failed [{resp.status_code}]: {resp.text}"
         )
 
-    data   = resp.json()
-    job_id = data.get("job_id") or data.get("id")
+    data = resp.json()
+    logger.info("Response keys: %s", list(data.keys()))
 
-    if job_id:
-        logger.info("Job started: job_id=%s", job_id)
-    else:
-        export_url = data.get("export_url") or data.get("url") or data.get("download_url")
-        if export_url:
-            logger.info("Synchronous export_url returned: %s", export_url)
-        else:
-            logger.warning("No job_id or export_url in response: %s", data)
+    # ── Extract image URL from response ──────────────────────────────────
+    export_url = (
+        data.get("export_url")
+        or data.get("url")
+        or data.get("download_url")
+        or data.get("image_url")
+        or data.get("file_url")
+    )
 
-    return (str(job_id) if job_id else None), data
+    if export_url:
+        logger.info("Export URL: %s", export_url)
+        return str(export_url), data
 
+    # job_id-only response — no polling endpoint exists
+    if data.get("job_id") or data.get("id"):
+        raise RuntimeError(
+            f"Contentdrips returned a job_id with no polling endpoint available. "
+            f"Full response: {data}"
+        )
 
-# ---------------------------------------------------------------------------
-# Step 3: Poll job → export_url
-# ---------------------------------------------------------------------------
-
-def poll_job(
-    job_id: str,
-    poll_interval: int = 4,
-    max_retries: int = 30,
-) -> str:
-    """
-    Poll the Contentdrips job status endpoint until the render completes.
-    Default timeout: 4s × 30 = 120 seconds.
-    """
-    url = f"{_base()}{_STATUS_PATH.format(job_id=job_id)}"
-
-    for attempt in range(1, max_retries + 1):
-        logger.info("Polling job %s — attempt %d/%d", job_id, attempt, max_retries)
-
-        try:
-            resp = httpx.get(url, headers=_headers(), timeout=15)
-        except httpx.RequestError as exc:
-            logger.warning("Network error polling job %s: %s", job_id, exc)
-            time.sleep(poll_interval)
-            continue
-
-        logger.info("Poll response [%s]: %s", resp.status_code, resp.text[:500])
-
-        if not resp.is_success:
-            raise RuntimeError(
-                f"Contentdrips status check failed [{resp.status_code}]: {resp.text}"
-            )
-
-        data   = resp.json()
-        status = (data.get("status") or "").lower()
-        logger.info("Job %s status: %s", job_id, status)
-
-        if status == "completed":
-            export_url = data.get("export_url") or data.get("url") or data.get("download_url")
-            if not export_url:
-                raise RuntimeError(
-                    f"Job {job_id} completed but no export URL in response: {data}"
-                )
-            logger.info("Job %s complete → %s", job_id, export_url)
-            return str(export_url)
-
-        if status == "failed":
-            reason = data.get("error") or data.get("message") or "no reason given"
-            raise RuntimeError(f"Contentdrips job {job_id} failed: {reason}")
-
-        if attempt < max_retries:
-            time.sleep(poll_interval)
-
-    raise TimeoutError(
-        f"Contentdrips job {job_id} did not complete after "
-        f"{max_retries} polls ({max_retries * poll_interval}s)."
+    raise RuntimeError(
+        f"Contentdrips response contained no image URL. "
+        f"Keys present: {list(data.keys())} | Full response: {data}"
     )

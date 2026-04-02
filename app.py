@@ -33,7 +33,7 @@ load_dotenv()
 
 from utils import setup_logging
 from generator import generate_slides
-from contentdrips import format_for_contentdrips, request_render, poll_job
+from contentdrips import format_for_contentdrips, request_render
 
 setup_logging(os.environ.get("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("carousel.api")
@@ -95,31 +95,14 @@ def generate(req: GenerateRequest):
     if os.environ.get("CONTENTDRIPS_API_KEY"):
         try:
             carousel_payload      = format_for_contentdrips(slides)
-            job_id, raw_response  = request_render(carousel_payload)
-
-            # Some plans return export_url immediately (synchronous render)
-            images_url = (
-                raw_response.get("export_url")
-                or raw_response.get("url")
-                or raw_response.get("download_url")
-            )
-
-            if not images_url and job_id:
-                # Async path — poll until complete
-                images_url = poll_job(job_id)
-
-            if not images_url:
-                raise RuntimeError(
-                    f"Contentdrips gave no export URL and no job_id to poll. "
-                    f"Raw response: {raw_response}"
-                )
+            images_url, raw_response = request_render(carousel_payload)
 
             logger.info("Carousel ready: %s", images_url)
             return GenerateResponse(
                 slides=slide_models,
                 images_url=images_url,
                 csv=csv_text,
-                debug={"job_id": job_id, "raw_response": raw_response},
+                debug={"raw_response": raw_response},
             )
 
         except (RuntimeError, TimeoutError) as exc:

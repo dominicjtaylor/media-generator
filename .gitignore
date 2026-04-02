@@ -13,8 +13,9 @@ __pycache__/
 venv/
 env/
 *.egg-info/
-dist/
+/dist/          # root-level dist only; frontend/dist is committed
 build/
+frontend/node_modules/
 
 # Playwright
 playwright/.local-browsers/

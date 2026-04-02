@@ -1,17 +1,11 @@
-# Railway build config — installs Node + Python, builds frontend, starts API
-[phases.setup]
-nixPkgs = ["nodejs_20", "python311"]
+# Railway build config
+#
+# The React frontend is pre-built and committed to frontend/dist/.
+# To update the frontend: cd frontend && npm run build  →  commit  →  push.
+# Railway only needs Python to run the API.
 
 [phases.install]
-cmds = [
-  "pip install -r requirements.txt",
-  "npm --prefix frontend install"
-]
-
-[phases.build]
-cmds = [
-  "npm --prefix frontend run build"
-]
+cmds = ["pip install -r requirements.txt"]
 
 [start]
 cmd = "uvicorn app:app --host 0.0.0.0 --port $PORT"

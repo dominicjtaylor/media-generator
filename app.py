@@ -1,10 +1,15 @@
 """
-app.py — FastAPI carousel generator, serves the React frontend.
+app.py — FastAPI carousel generator + React frontend.
 
-POST /generate  { "topic": "..." }  →  { "csv": "..." }
-GET  /          → React SPA (built frontend)
-GET  /healthz   → health check
-GET  /docs      → Swagger UI (still available)
+API routes
+  POST /generate  { "topic": "..." }  →  { "csv": "..." }
+  GET  /healthz   → { "status": "ok" }
+  GET  /docs      → Swagger UI
+
+Frontend (SPA)
+  GET  /          → React app (index.html)
+  GET  /*         → React app (client-side routing fallback)
+  GET  /assets/*  → JS/CSS bundles (served as static files)
 """
 
 import logging
@@ -14,6 +19,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -25,13 +31,11 @@ from generator import generate_csv
 setup_logging(os.environ.get("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("carousel.api")
 
-app = FastAPI(
-    title="Carousel Generator API",
-    version="1.0.0",
-    # Keep docs accessible at /docs even after mounting static files
-    docs_url="/docs",
-    redoc_url="/redoc",
-)
+# Docs are still reachable at /docs for debugging — they take priority
+# over the SPA catch-all route because FastAPI registers them as explicit routes.
+app = FastAPI(title="Carousel Generator API", version="1.0.0")
+
+DIST = Path(__file__).parent / "frontend" / "dist"
 
 
 # ---------------------------------------------------------------------------
@@ -47,7 +51,7 @@ class GenerateResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# API routes  (must be registered BEFORE the static files mount)
+# API routes  — registered first, always take priority over the SPA catch-all
 # ---------------------------------------------------------------------------
 
 @app.get("/healthz", tags=["meta"])
@@ -78,19 +82,37 @@ def generate(req: GenerateRequest):
 
 
 # ---------------------------------------------------------------------------
-# Serve the React frontend (built by `npm run build` in frontend/)
-# Mounted last so all API routes above take priority.
-# html=True → unknown paths return index.html (client-side routing support).
+# Static asset files  (/assets/index-abc123.js, /assets/index-abc123.css)
+# Mounted before the catch-all so Starlette serves them as real files.
 # ---------------------------------------------------------------------------
 
-_frontend_dist = Path(__file__).parent / "frontend" / "dist"
-if _frontend_dist.exists():
-    app.mount("/", StaticFiles(directory=str(_frontend_dist), html=True), name="frontend")
-    logger.info("Serving frontend from %s", _frontend_dist)
+_assets = DIST / "assets"
+if _assets.exists():
+    app.mount("/assets", StaticFiles(directory=str(_assets)), name="assets")
+    logger.info("Serving frontend assets from %s", _assets)
 else:
-    logger.warning(
-        "Frontend not built — run `npm --prefix frontend run build`. "
-        "API-only mode active; visit /docs."
+    logger.warning("frontend/dist/assets not found — run: cd frontend && npm run build")
+
+
+# ---------------------------------------------------------------------------
+# SPA catch-all  — serves index.html for every path not matched above.
+# FastAPI's explicit routes (/docs, /healthz, /generate, /assets/*) all take
+# priority; this only fires for paths that nothing else matched.
+# ---------------------------------------------------------------------------
+
+@app.get("/{full_path:path}", include_in_schema=False)
+async def serve_spa(full_path: str):
+    index = DIST / "index.html"
+    if index.exists():
+        return FileResponse(str(index))
+    return HTMLResponse(
+        content=(
+            "<h2>Frontend not built</h2>"
+            "<p>Run <code>cd frontend &amp;&amp; npm run build</code> "
+            "then restart the server.</p>"
+            "<p>API docs: <a href='/docs'>/docs</a></p>"
+        ),
+        status_code=503,
     )
 
 

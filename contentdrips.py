@@ -16,6 +16,7 @@ Optional:
 
 import logging
 import os
+import time
 
 import httpx
 
@@ -139,18 +140,51 @@ def format_for_contentdrips(slides: list[dict]) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Step 2: Submit render request → export_url
+# Helpers
+# ---------------------------------------------------------------------------
+
+# Field names that carry a final image/download URL
+_EXPORT_URL_KEYS = ("export_url", "url", "download_url", "image_url", "file_url", "result_url")
+
+# Field names that carry a polling URL provided BY the API
+_POLLING_URL_KEYS = ("status_url", "polling_url", "result_url", "check_url")
+
+def _extract_export_url(data: dict) -> str | None:
+    for key in _EXPORT_URL_KEYS:
+        if data.get(key):
+            return str(data[key])
+    # Check inside a "links" object if present
+    links = data.get("links") or {}
+    for key in _EXPORT_URL_KEYS + _POLLING_URL_KEYS:
+        if links.get(key):
+            return str(links[key])
+    return None
+
+def _extract_polling_url(data: dict) -> str | None:
+    for key in _POLLING_URL_KEYS:
+        if data.get(key):
+            return str(data[key])
+    links = data.get("links") or {}
+    for key in _POLLING_URL_KEYS:
+        if links.get(key):
+            return str(links[key])
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Step 2: Submit render request → export_url (sync or async)
 # ---------------------------------------------------------------------------
 
 def request_render(carousel_payload: dict) -> tuple[str, dict]:
     """
-    POST the render request to Contentdrips and return the image URL directly.
+    POST to Contentdrips and return (export_url, raw_response).
 
-    Contentdrips renders synchronously — the export URL is in the response body.
-    No polling required.
+    Handles both response shapes:
+      Sync  — export_url present immediately → return it.
+      Async — job_id present + polling URL provided by API → poll it.
 
-    Returns (export_url, raw_response).
-    Raises RuntimeError with full context on any failure.
+    Never constructs a polling URL manually; only uses URLs from the response.
+    Raises RuntimeError with the full response if neither path is possible.
     """
     url  = f"{_base()}{_RENDER_PATH}"
     body = {
@@ -159,14 +193,12 @@ def request_render(carousel_payload: dict) -> tuple[str, dict]:
         **carousel_payload,
     }
 
-    headers = _headers()
-
     logger.info("─── Contentdrips request ───────────────────────────────")
     logger.info("POST %s", url)
     logger.info("Payload: %s", body)
 
     try:
-        resp = httpx.post(url, json=body, headers=headers, timeout=60)
+        resp = httpx.post(url, json=body, headers=_headers(), timeout=60)
     except httpx.RequestError as exc:
         raise RuntimeError(f"Network error reaching Contentdrips ({url}): {exc}") from exc
 
@@ -175,7 +207,6 @@ def request_render(carousel_payload: dict) -> tuple[str, dict]:
     logger.info("Response headers: %s", dict(resp.headers))
     logger.info("Response body:    %s", resp.text[:2000])
 
-    # ── Auth failure detection ────────────────────────────────────────────
     if "token not found" in resp.text.lower() or resp.status_code == 403:
         logger.error(
             "Auth failed — token not received by API. "
@@ -184,7 +215,6 @@ def request_render(carousel_payload: dict) -> tuple[str, dict]:
             resp.status_code, resp.text,
         )
 
-    # ── HTML guard ────────────────────────────────────────────────────────
     content_type = resp.headers.get("content-type", "")
     if "html" in content_type or resp.text.lstrip().startswith("<"):
         raise RuntimeError(
@@ -200,27 +230,86 @@ def request_render(carousel_payload: dict) -> tuple[str, dict]:
     data = resp.json()
     logger.info("Response keys: %s", list(data.keys()))
 
-    # ── Extract image URL from response ──────────────────────────────────
-    export_url = (
-        data.get("export_url")
-        or data.get("url")
-        or data.get("download_url")
-        or data.get("image_url")
-        or data.get("file_url")
+    # ── Path A: synchronous — export URL already in response ─────────────
+    export_url = _extract_export_url(data)
+    if export_url:
+        logger.info("Sync response — export URL: %s", export_url)
+        return export_url, data
+
+    # ── Path B: async — job_id present, look for a polling URL ───────────
+    job_id = data.get("job_id") or data.get("id")
+    if job_id:
+        logger.info("Async response — job_id: %s", job_id)
+        polling_url = _extract_polling_url(data)
+
+        if not polling_url:
+            raise RuntimeError(
+                f"Async job returned (job_id={job_id}) but no polling URL found in response. "
+                f"Keys present: {list(data.keys())} | Full response: {data}"
+            )
+
+        logger.info("Polling URL provided by API: %s", polling_url)
+        return _poll(polling_url, job_id), data
+
+    # ── Neither path matched ──────────────────────────────────────────────
+    raise RuntimeError(
+        f"Contentdrips response contained no export URL and no job_id. "
+        f"Keys present: {list(data.keys())} | Full response: {data}"
     )
 
-    if export_url:
-        logger.info("Export URL: %s", export_url)
-        return str(export_url), data
 
-    # job_id-only response — no polling endpoint exists
-    if data.get("job_id") or data.get("id"):
-        raise RuntimeError(
-            f"Contentdrips returned a job_id with no polling endpoint available. "
-            f"Full response: {data}"
-        )
+# ---------------------------------------------------------------------------
+# Step 3: Poll a URL provided by the API (never constructed manually)
+# ---------------------------------------------------------------------------
 
-    raise RuntimeError(
-        f"Contentdrips response contained no image URL. "
-        f"Keys present: {list(data.keys())} | Full response: {data}"
+def _poll(
+    polling_url: str,
+    job_id: str,
+    poll_interval: int = 4,
+    max_retries: int = 30,
+) -> str:
+    """
+    Poll *polling_url* (given by the API) until the job completes.
+    Returns the export URL. Default timeout: 4s × 30 = 120s.
+    """
+    for attempt in range(1, max_retries + 1):
+        logger.info("Polling attempt %d/%d — GET %s", attempt, max_retries, polling_url)
+
+        try:
+            resp = httpx.get(polling_url, headers=_headers(), timeout=15)
+        except httpx.RequestError as exc:
+            logger.warning("Network error on poll attempt %d: %s", attempt, exc)
+            time.sleep(poll_interval)
+            continue
+
+        logger.info("Poll response [%s]: %s", resp.status_code, resp.text[:500])
+
+        if not resp.is_success:
+            raise RuntimeError(
+                f"Poll failed [{resp.status_code}] for job {job_id}: {resp.text}"
+            )
+
+        data   = resp.json()
+        status = (data.get("status") or "").lower()
+        logger.info("Job %s status: %s", job_id, status)
+
+        if status == "completed":
+            export_url = _extract_export_url(data)
+            if not export_url:
+                raise RuntimeError(
+                    f"Job {job_id} completed but no export URL in response: {data}"
+                )
+            logger.info("Job %s complete → %s", job_id, export_url)
+            return export_url
+
+        if status == "failed":
+            reason = data.get("error") or data.get("message") or "no reason given"
+            raise RuntimeError(f"Job {job_id} failed: {reason}")
+
+        if attempt < max_retries:
+            time.sleep(poll_interval)
+
+    raise TimeoutError(
+        f"Job {job_id} did not complete after {max_retries} polls "
+        f"({max_retries * poll_interval}s)."
     )

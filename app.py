@@ -57,9 +57,10 @@ class Slide(BaseModel):
 
 
 class GenerateResponse(BaseModel):
-    slides:     list[Slide]     = []    # structured slides (always present)
-    images_url: Optional[str]  = None  # Contentdrips export URL (when API key set)
-    csv:        Optional[str]  = None  # raw CSV (fallback when no API key)
+    slides:     list[Slide]           = []    # structured slides (always present)
+    images_url: Optional[str]        = None  # Contentdrips export URL (when API key set)
+    csv:        Optional[str]        = None  # raw CSV (fallback when no API key)
+    debug:      Optional[dict]       = None  # temporary: raw Contentdrips response
 
 
 # ---------------------------------------------------------------------------
@@ -93,15 +94,32 @@ def generate(req: GenerateRequest):
     # ── Step 2: Send to Contentdrips (if API key is configured) ──────────
     if os.environ.get("CONTENTDRIPS_API_KEY"):
         try:
-            carousel_payload = format_for_contentdrips(slides)
-            job_id           = request_render(carousel_payload)
-            images_url       = poll_job(job_id)
+            carousel_payload      = format_for_contentdrips(slides)
+            job_id, raw_response  = request_render(carousel_payload)
+
+            # Some plans return export_url immediately (synchronous render)
+            images_url = (
+                raw_response.get("export_url")
+                or raw_response.get("url")
+                or raw_response.get("download_url")
+            )
+
+            if not images_url and job_id:
+                # Async path — poll until complete
+                images_url = poll_job(job_id)
+
+            if not images_url:
+                raise RuntimeError(
+                    f"Contentdrips gave no export URL and no job_id to poll. "
+                    f"Raw response: {raw_response}"
+                )
 
             logger.info("Carousel ready: %s", images_url)
             return GenerateResponse(
                 slides=slide_models,
                 images_url=images_url,
-                csv=csv_text,           # included for debug convenience
+                csv=csv_text,
+                debug={"job_id": job_id, "raw_response": raw_response},
             )
 
         except (RuntimeError, TimeoutError) as exc:

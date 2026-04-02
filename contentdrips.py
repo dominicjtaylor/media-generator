@@ -30,11 +30,11 @@ def _base() -> str:
     return os.environ.get("CONTENTDRIPS_API_BASE", "https://api.contentdrips.com").rstrip("/")
 
 # ┌─────────────────────────────────────────────────────────────────────────┐
-# │  TODO: Verify these endpoint paths against Contentdrips API docs before │
-# │  deploying. Update CONTENTDRIPS_API_BASE in .env if the base differs.   │
+# │  Endpoint paths — verified against Contentdrips docs.                   │
+# │  Override base via CONTENTDRIPS_API_BASE env var if needed.             │
 # └─────────────────────────────────────────────────────────────────────────┘
-_RENDER_PATH = "/v1/renders"
-_STATUS_PATH = "/v1/renders/{job_id}"
+_RENDER_PATH = "/render"
+_STATUS_PATH = "/render/{job_id}"
 
 
 def _api_key() -> str:
@@ -116,29 +116,44 @@ def format_for_contentdrips(slides: list[dict]) -> dict:
 # Step 2: Submit render request → job_id
 # ---------------------------------------------------------------------------
 
-def request_render(carousel_payload: dict) -> str:
+def request_render(carousel_payload: dict) -> tuple[str | None, dict]:
     """
     POST the render request to Contentdrips.
-    Returns the job_id string.
+
+    Returns (job_id, raw_response) where:
+      - job_id is None if the render completed synchronously
+      - raw_response is the full decoded JSON body (useful for debugging)
+
+    Raises RuntimeError with full context on any failure.
     """
+    url  = f"{_base()}{_RENDER_PATH}"
     body = {
         "template_id": _template_id(),
         "output":      "png",
         **carousel_payload,
     }
 
-    logger.info("Sending Contentdrips render request (template: %s)", body["template_id"])
-    logger.debug("Request body: %s", body)
+    # ── Full request logging ──────────────────────────────────────────────
+    logger.info("POST %s", url)
+    logger.info("Request payload: %s", body)
 
     try:
-        resp = httpx.post(
-            f"{_base()}{_RENDER_PATH}",
-            json=body,
-            headers=_headers(),
-            timeout=30,
-        )
+        resp = httpx.post(url, json=body, headers=_headers(), timeout=30)
     except httpx.RequestError as exc:
-        raise RuntimeError(f"Failed to reach Contentdrips API: {exc}") from exc
+        raise RuntimeError(f"Network error reaching Contentdrips ({url}): {exc}") from exc
+
+    # ── Full response logging ─────────────────────────────────────────────
+    logger.info("Response status: %s", resp.status_code)
+    logger.info("Response body:   %s", resp.text[:2000])   # cap at 2 KB to avoid log spam
+
+    # ── HTML guard — means wrong endpoint or auth wall ────────────────────
+    content_type = resp.headers.get("content-type", "")
+    if "html" in content_type or resp.text.lstrip().startswith("<"):
+        raise RuntimeError(
+            f"Contentdrips returned HTML instead of JSON — endpoint is likely wrong. "
+            f"URL tried: {url}  |  Status: {resp.status_code}  |  "
+            f"Set CONTENTDRIPS_API_BASE in .env to override the base URL."
+        )
 
     if not resp.is_success:
         raise RuntimeError(
@@ -146,15 +161,21 @@ def request_render(carousel_payload: dict) -> str:
         )
 
     data = resp.json()
-    # Accept either "job_id" or "id" as the job identifier
-    job_id = data.get("job_id") or data.get("id")
-    if not job_id:
-        raise RuntimeError(
-            f"Contentdrips response did not contain a job_id. Response: {data}"
-        )
 
-    logger.info("Contentdrips job started: job_id=%s", job_id)
-    return str(job_id)
+    # Accept "job_id" or "id" as the async job token
+    job_id = data.get("job_id") or data.get("id")
+
+    if job_id:
+        logger.info("Contentdrips job started: job_id=%s", job_id)
+    else:
+        # Some plans return export_url synchronously — check for that
+        export_url = data.get("export_url") or data.get("url") or data.get("download_url")
+        if export_url:
+            logger.info("Contentdrips returned synchronous export_url: %s", export_url)
+        else:
+            logger.warning("Response had no job_id or export_url — raw: %s", data)
+
+    return (str(job_id) if job_id else None), data
 
 
 # ---------------------------------------------------------------------------

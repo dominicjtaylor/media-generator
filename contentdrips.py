@@ -23,44 +23,88 @@ import httpx
 logger = logging.getLogger("carousel.contentdrips")
 
 # ---------------------------------------------------------------------------
+# Startup environment diagnostic — runs once at import time.
+# Helps confirm Railway is actually injecting the expected variables.
+# ---------------------------------------------------------------------------
+
+def _log_env_diagnostic() -> None:
+    env_name = os.environ.get("ENVIRONMENT") or os.environ.get("RAILWAY_ENVIRONMENT") or "unknown"
+    logger.info("Running in environment: %s", env_name)
+
+    key_raw = os.environ.get("CONTENTDRIPS_API_KEY")      # no .strip() yet — want raw value
+    tid_raw = os.environ.get("CONTENTDRIPS_TEMPLATE_ID")
+
+    if key_raw is None:
+        logger.error("CONTENTDRIPS_API_KEY — NOT FOUND in environment")
+        logger.info("All env keys present: %s", sorted(os.environ.keys()))
+    else:
+        key_stripped = key_raw.strip()
+        logger.info(
+            "CONTENTDRIPS_API_KEY — exists: True | raw length: %d | stripped length: %d | prefix: %s",
+            len(key_raw),
+            len(key_stripped),
+            key_stripped[:7] + "…" if len(key_stripped) >= 7 else "(too short)",
+        )
+        if len(key_raw) != len(key_stripped):
+            logger.warning(
+                "CONTENTDRIPS_API_KEY has leading/trailing whitespace! "
+                "Raw len=%d, stripped len=%d. This will be stripped before use.",
+                len(key_raw), len(key_stripped),
+            )
+
+    if tid_raw is None:
+        logger.error("CONTENTDRIPS_TEMPLATE_ID — NOT FOUND in environment")
+    else:
+        logger.info(
+            "CONTENTDRIPS_TEMPLATE_ID — exists: True | value: %s", tid_raw.strip()
+        )
+
+_log_env_diagnostic()
+
+
+# ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
 
 def _base() -> str:
     return os.environ.get("CONTENTDRIPS_API_BASE", "https://generate.contentdrips.com").rstrip("/")
 
-# ┌─────────────────────────────────────────────────────────────────────────┐
-# │  Endpoint paths — verified against Contentdrips docs.                   │
-# │  Override base via CONTENTDRIPS_API_BASE env var if needed.             │
-# └─────────────────────────────────────────────────────────────────────────┘
 _RENDER_PATH = "/render"
 _STATUS_PATH = "/render/{job_id}"
 
 
 def _api_key() -> str:
-    key = os.environ.get("CONTENTDRIPS_API_KEY", "").strip()
+    raw = os.environ.get("CONTENTDRIPS_API_KEY")
+    if raw is None:
+        raise RuntimeError("CONTENTDRIPS_API_KEY not found in environment")
+    key = raw.strip()
     if not key:
-        raise RuntimeError(
-            "CONTENTDRIPS_API_KEY is not set. "
-            "Add it to your .env file or Railway environment variables."
-        )
+        raise RuntimeError("CONTENTDRIPS_API_KEY is set but empty")
     return key
 
 
 def _template_id() -> str:
-    tid = os.environ.get("CONTENTDRIPS_TEMPLATE_ID", "").strip()
+    raw = os.environ.get("CONTENTDRIPS_TEMPLATE_ID")
+    if raw is None:
+        raise RuntimeError("CONTENTDRIPS_TEMPLATE_ID not found in environment")
+    tid = raw.strip()
     if not tid:
-        raise RuntimeError(
-            "CONTENTDRIPS_TEMPLATE_ID is not set. "
-            "Add the template ID from your Contentdrips account to .env."
-        )
+        raise RuntimeError("CONTENTDRIPS_TEMPLATE_ID is set but empty")
     return tid
 
 
 def _headers() -> dict:
+    key = _api_key()
+    masked = key[:5] + ("*" * max(0, len(key) - 5))
+    auth_value = f"Bearer {key}"
+    logger.info(
+        "Authorization header — format: 'Bearer <token>' | masked: 'Bearer %s' | total length: %d",
+        masked,
+        len(auth_value),
+    )
     return {
-        "Authorization": f"Bearer {_api_key()}",
-        "Content-Type": "application/json",
+        "Authorization": auth_value,
+        "Content-Type":  "application/json",
     }
 
 
@@ -74,11 +118,6 @@ def format_for_contentdrips(slides: list[dict]) -> dict:
       first  → intro_slide
       middle → slides[]
       last   → ending_slide
-
-    Handles edge cases:
-      1 slide  → intro == ending, no middle slides
-      2 slides → first is intro, second is ending, no middle
-      3+ slides → normal split
     """
     if not slides:
         raise ValueError("Cannot format an empty slides list")
@@ -90,30 +129,19 @@ def format_for_contentdrips(slides: list[dict]) -> dict:
         }
 
     if len(slides) == 1:
-        intro  = _slide(slides[0])
-        middle = []
-        ending = _slide(slides[0])          # duplicate single slide as fallback
+        intro, middle, ending = _slide(slides[0]), [], _slide(slides[0])
     elif len(slides) == 2:
-        intro  = _slide(slides[0])
-        middle = []
-        ending = _slide(slides[1])
+        intro, middle, ending = _slide(slides[0]), [], _slide(slides[1])
     else:
         intro  = _slide(slides[0])
         middle = [_slide(s) for s in slides[1:-1]]
         ending = _slide(slides[-1])
 
-    payload = {
-        "intro_slide":  intro,
-        "slides":       middle,
-        "ending_slide": ending,
-    }
-
-    logger.debug("Contentdrips payload: %s", payload)
-    return payload
+    return {"intro_slide": intro, "slides": middle, "ending_slide": ending}
 
 
 # ---------------------------------------------------------------------------
-# Step 2: Submit render request → job_id
+# Step 2: Submit render request → (job_id | None, raw_response)
 # ---------------------------------------------------------------------------
 
 def request_render(carousel_payload: dict) -> tuple[str | None, dict]:
@@ -122,9 +150,7 @@ def request_render(carousel_payload: dict) -> tuple[str | None, dict]:
 
     Returns (job_id, raw_response) where:
       - job_id is None if the render completed synchronously
-      - raw_response is the full decoded JSON body (useful for debugging)
-
-    Raises RuntimeError with full context on any failure.
+      - raw_response is the full decoded JSON body
     """
     url  = f"{_base()}{_RENDER_PATH}"
     body = {
@@ -133,26 +159,38 @@ def request_render(carousel_payload: dict) -> tuple[str | None, dict]:
         **carousel_payload,
     }
 
-    # ── Full request logging ──────────────────────────────────────────────
+    # Build and log headers before sending (key is masked)
+    headers = _headers()
+
+    logger.info("─── Contentdrips request ───────────────────────────────")
     logger.info("POST %s", url)
-    logger.info("Request payload: %s", body)
+    logger.info("Payload: %s", body)
 
     try:
-        resp = httpx.post(url, json=body, headers=_headers(), timeout=30)
+        resp = httpx.post(url, json=body, headers=headers, timeout=30)
     except httpx.RequestError as exc:
         raise RuntimeError(f"Network error reaching Contentdrips ({url}): {exc}") from exc
 
-    # ── Full response logging ─────────────────────────────────────────────
-    logger.info("Response status: %s", resp.status_code)
-    logger.info("Response body:   %s", resp.text[:2000])   # cap at 2 KB to avoid log spam
+    logger.info("─── Contentdrips response ──────────────────────────────")
+    logger.info("Status:           %s", resp.status_code)
+    logger.info("Response headers: %s", dict(resp.headers))
+    logger.info("Response body:    %s", resp.text[:2000])
 
-    # ── HTML guard — means wrong endpoint or auth wall ────────────────────
+    # ── Auth failure detection ────────────────────────────────────────────
+    if "token not found" in resp.text.lower() or resp.status_code == 403:
+        logger.error(
+            "Auth failed — token not received by API. "
+            "Status: %s | Body: %s | "
+            "Check CONTENTDRIPS_API_KEY in Railway environment variables.",
+            resp.status_code, resp.text,
+        )
+
+    # ── HTML guard ────────────────────────────────────────────────────────
     content_type = resp.headers.get("content-type", "")
     if "html" in content_type or resp.text.lstrip().startswith("<"):
         raise RuntimeError(
-            f"Contentdrips returned HTML instead of JSON — endpoint is likely wrong. "
-            f"URL tried: {url}  |  Status: {resp.status_code}  |  "
-            f"Set CONTENTDRIPS_API_BASE in .env to override the base URL."
+            f"Contentdrips returned HTML instead of JSON (likely wrong endpoint or auth wall). "
+            f"URL: {url} | Status: {resp.status_code}"
         )
 
     if not resp.is_success:
@@ -160,20 +198,17 @@ def request_render(carousel_payload: dict) -> tuple[str | None, dict]:
             f"Contentdrips render request failed [{resp.status_code}]: {resp.text}"
         )
 
-    data = resp.json()
-
-    # Accept "job_id" or "id" as the async job token
+    data   = resp.json()
     job_id = data.get("job_id") or data.get("id")
 
     if job_id:
-        logger.info("Contentdrips job started: job_id=%s", job_id)
+        logger.info("Job started: job_id=%s", job_id)
     else:
-        # Some plans return export_url synchronously — check for that
         export_url = data.get("export_url") or data.get("url") or data.get("download_url")
         if export_url:
-            logger.info("Contentdrips returned synchronous export_url: %s", export_url)
+            logger.info("Synchronous export_url returned: %s", export_url)
         else:
-            logger.warning("Response had no job_id or export_url — raw: %s", data)
+            logger.warning("No job_id or export_url in response: %s", data)
 
     return (str(job_id) if job_id else None), data
 
@@ -189,10 +224,6 @@ def poll_job(
 ) -> str:
     """
     Poll the Contentdrips job status endpoint until the render completes.
-
-    Returns the export_url on success.
-    Raises RuntimeError on failure or TimeoutError if max_retries is exceeded.
-
     Default timeout: 4s × 30 = 120 seconds.
     """
     url = f"{_base()}{_STATUS_PATH.format(job_id=job_id)}"
@@ -207,6 +238,8 @@ def poll_job(
             time.sleep(poll_interval)
             continue
 
+        logger.info("Poll response [%s]: %s", resp.status_code, resp.text[:500])
+
         if not resp.is_success:
             raise RuntimeError(
                 f"Contentdrips status check failed [{resp.status_code}]: {resp.text}"
@@ -214,14 +247,13 @@ def poll_job(
 
         data   = resp.json()
         status = (data.get("status") or "").lower()
-
         logger.info("Job %s status: %s", job_id, status)
 
         if status == "completed":
             export_url = data.get("export_url") or data.get("url") or data.get("download_url")
             if not export_url:
                 raise RuntimeError(
-                    f"Job {job_id} completed but response had no export URL. Response: {data}"
+                    f"Job {job_id} completed but no export URL in response: {data}"
                 )
             logger.info("Job %s complete → %s", job_id, export_url)
             return str(export_url)
@@ -230,12 +262,10 @@ def poll_job(
             reason = data.get("error") or data.get("message") or "no reason given"
             raise RuntimeError(f"Contentdrips job {job_id} failed: {reason}")
 
-        # Still pending/processing — wait and retry
         if attempt < max_retries:
             time.sleep(poll_interval)
 
     raise TimeoutError(
         f"Contentdrips job {job_id} did not complete after "
-        f"{max_retries} polls ({max_retries * poll_interval}s). "
-        "Check your Contentdrips dashboard for the job status."
+        f"{max_retries} polls ({max_retries * poll_interval}s)."
     )

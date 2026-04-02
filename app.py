@@ -11,6 +11,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
 load_dotenv()
@@ -39,6 +40,11 @@ class GenerateResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+
+@app.get("/")
+def root():
+    return RedirectResponse(url="/docs")
+
 
 @app.get("/healthz")
 def healthz():

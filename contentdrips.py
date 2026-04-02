@@ -147,7 +147,7 @@ def format_for_contentdrips(slides: list[dict]) -> dict:
 _EXPORT_URL_KEYS = ("export_url", "url", "download_url", "image_url", "file_url", "result_url")
 
 # Field names that carry a polling URL provided BY the API
-_POLLING_URL_KEYS = ("status_url", "polling_url", "result_url", "check_url")
+_POLLING_URL_KEYS = ("check_status_url", "status_url", "polling_url", "result_url", "check_url")
 
 def _extract_export_url(data: dict) -> str | None:
     for key in _EXPORT_URL_KEYS:
@@ -248,7 +248,11 @@ def request_render(carousel_payload: dict) -> tuple[str, dict]:
                 f"Keys present: {list(data.keys())} | Full response: {data}"
             )
 
-        logger.info("Polling URL provided by API: %s", polling_url)
+        # Resolve relative paths (e.g. "/job/<id>/status" → full URL)
+        if polling_url.startswith("/"):
+            polling_url = _base() + polling_url
+
+        logger.info("Polling URL (resolved): %s", polling_url)
         return _poll(polling_url, job_id), data
 
     # ── Neither path matched ──────────────────────────────────────────────
@@ -265,8 +269,8 @@ def request_render(carousel_payload: dict) -> tuple[str, dict]:
 def _poll(
     polling_url: str,
     job_id: str,
-    poll_interval: int = 4,
-    max_retries: int = 30,
+    poll_interval: int = 3,
+    max_retries: int = 40,
 ) -> str:
     """
     Poll *polling_url* (given by the API) until the job completes.
@@ -292,6 +296,11 @@ def _poll(
         data   = resp.json()
         status = (data.get("status") or "").lower()
         logger.info("Job %s status: %s", job_id, status)
+
+        if status in ("queued", "processing"):
+            if attempt < max_retries:
+                time.sleep(poll_interval)
+            continue
 
         if status == "completed":
             export_url = _extract_export_url(data)

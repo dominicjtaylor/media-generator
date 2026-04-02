@@ -8,4 +8,7 @@ openai>=1.30.0
 # Environment & utilities
 python-dotenv>=1.0.0
 
+# Web UI (phone control)
+flask>=3.0.0
+
 # Python 3.10+ is required (no additional compat shims needed)

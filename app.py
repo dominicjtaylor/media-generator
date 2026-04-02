@@ -2,7 +2,7 @@
 app.py — FastAPI carousel generator + React frontend.
 
 API routes
-  POST /generate  { "topic": "..." }  →  { "csv": "..." }
+  POST /generate  { "topic": "..." }  →  { "images_url", "slides", "csv" }
   GET  /healthz   → { "status": "ok" }
   GET  /docs      → Swagger UI
 
@@ -10,12 +10,18 @@ Frontend (SPA)
   GET  /          → React app (index.html)
   GET  /*         → React app (client-side routing fallback)
   GET  /assets/*  → JS/CSS bundles (served as static files)
+
+Pipeline
+  1. Claude generates slides (CSV validated internally)
+  2. If CONTENTDRIPS_API_KEY is set:
+       format slides → POST to Contentdrips → poll → return images_url
+  3. Else: return CSV as fallback (useful during development)
 """
 
 import logging
 import os
-import tempfile
 from pathlib import Path
+from typing import Optional
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
@@ -26,32 +32,38 @@ from pydantic import BaseModel
 load_dotenv()
 
 from utils import setup_logging
-from generator import generate_csv
+from generator import generate_slides
+from contentdrips import format_for_contentdrips, request_render, poll_job
 
 setup_logging(os.environ.get("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("carousel.api")
 
-# Docs are still reachable at /docs for debugging — they take priority
-# over the SPA catch-all route because FastAPI registers them as explicit routes.
 app = FastAPI(title="Carousel Generator API", version="1.0.0")
 
 DIST = Path(__file__).parent / "frontend" / "dist"
 
 
 # ---------------------------------------------------------------------------
-# Schema
+# Schemas
 # ---------------------------------------------------------------------------
 
 class GenerateRequest(BaseModel):
     topic: str
 
 
+class Slide(BaseModel):
+    heading:     str
+    description: str
+
+
 class GenerateResponse(BaseModel):
-    csv: str
+    slides:     list[Slide]     = []    # structured slides (always present)
+    images_url: Optional[str]  = None  # Contentdrips export URL (when API key set)
+    csv:        Optional[str]  = None  # raw CSV (fallback when no API key)
 
 
 # ---------------------------------------------------------------------------
-# API routes  — registered first, always take priority over the SPA catch-all
+# API routes  — registered before static file mounts
 # ---------------------------------------------------------------------------
 
 @app.get("/healthz", tags=["meta"])
@@ -65,25 +77,44 @@ def generate(req: GenerateRequest):
     if not topic:
         raise HTTPException(status_code=422, detail="topic must not be empty")
 
-    tmp = tempfile.NamedTemporaryFile(suffix=".csv", delete=False)
-    tmp_path = Path(tmp.name)
-    tmp.close()
-
+    # ── Step 1: Generate slides via Claude ───────────────────────────────
+    logger.info("Generating slides for topic: %r", topic)
     try:
-        csv_file = generate_csv(topic, output_path=tmp_path)
-        content = csv_file.read_text(encoding="utf-8")
+        slides, csv_text = generate_slides(topic)
     except Exception as exc:
-        logger.error("Generation failed for topic %r: %s", topic, exc)
-        raise HTTPException(status_code=500, detail=str(exc))
-    finally:
-        tmp_path.unlink(missing_ok=True)
+        logger.error("Slide generation failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Generation failed: {exc}")
 
-    return GenerateResponse(csv=content)
+    logger.info("Generated %d slides", len(slides))
+    logger.debug("Slides: %s", slides)
+
+    slide_models = [Slide(heading=s["heading"], description=s["description"]) for s in slides]
+
+    # ── Step 2: Send to Contentdrips (if API key is configured) ──────────
+    if os.environ.get("CONTENTDRIPS_API_KEY"):
+        try:
+            carousel_payload = format_for_contentdrips(slides)
+            job_id           = request_render(carousel_payload)
+            images_url       = poll_job(job_id)
+
+            logger.info("Carousel ready: %s", images_url)
+            return GenerateResponse(
+                slides=slide_models,
+                images_url=images_url,
+                csv=csv_text,           # included for debug convenience
+            )
+
+        except (RuntimeError, TimeoutError) as exc:
+            logger.error("Contentdrips pipeline failed: %s", exc)
+            raise HTTPException(status_code=502, detail=str(exc))
+
+    # ── Step 3: CSV fallback (no Contentdrips key) ───────────────────────
+    logger.info("CONTENTDRIPS_API_KEY not set — returning CSV fallback")
+    return GenerateResponse(slides=slide_models, csv=csv_text)
 
 
 # ---------------------------------------------------------------------------
-# Static asset files  (/assets/index-abc123.js, /assets/index-abc123.css)
-# Mounted before the catch-all so Starlette serves them as real files.
+# Static assets (/assets/index-abc123.js, /assets/index-abc123.css)
 # ---------------------------------------------------------------------------
 
 _assets = DIST / "assets"
@@ -95,9 +126,7 @@ else:
 
 
 # ---------------------------------------------------------------------------
-# SPA catch-all  — serves index.html for every path not matched above.
-# FastAPI's explicit routes (/docs, /healthz, /generate, /assets/*) all take
-# priority; this only fires for paths that nothing else matched.
+# SPA catch-all
 # ---------------------------------------------------------------------------
 
 @app.get("/{full_path:path}", include_in_schema=False)

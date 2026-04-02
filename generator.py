@@ -3,10 +3,18 @@ generator.py — LLM-powered CSV generation for Instagram carousels.
 
 Supports both Anthropic (default) and OpenAI backends, selected via the
 LLM_PROVIDER env var ("anthropic" | "openai").
+
+Public API
+----------
+generate_csv(topic)    → Path          — original: saves CSV file, returns path
+generate_slides(topic) → (list, str)   — new: returns (slides, csv_text) tuple
 """
 
+import csv
+import io
 import logging
 import os
+import tempfile
 import time
 from pathlib import Path
 from typing import Optional
@@ -179,3 +187,47 @@ def generate_csv(
         f"CSV generation failed after {max_retries} attempts. "
         f"Last error: {last_error}"
     )
+
+
+def generate_slides(
+    topic: str,
+    max_retries: int = 3,
+) -> tuple[list[dict], str]:
+    """
+    Generate carousel slides for *topic* and return structured data.
+
+    Internally calls generate_csv() (single LLM call, validated), then
+    parses the result into a list of slide dicts.
+
+    Returns
+    -------
+    slides : list[dict]
+        Each dict has "heading" and "description" keys.
+    csv_text : str
+        The raw validated CSV string (kept for fallback/debug use).
+    """
+    tmp = tempfile.NamedTemporaryFile(suffix=".csv", delete=False)
+    tmp_path = Path(tmp.name)
+    tmp.close()
+
+    try:
+        csv_file = generate_csv(topic, max_retries=max_retries, output_path=tmp_path)
+        csv_text = csv_file.read_text(encoding="utf-8")
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+    reader = csv.DictReader(io.StringIO(csv_text))
+    slides = [
+        {
+            "heading":     (row.get("Heading") or "").strip(),
+            "description": (row.get("Description") or "").strip(),
+        }
+        for row in reader
+        if (row.get("Heading") or "").strip()
+    ]
+
+    if not slides:
+        raise RuntimeError("LLM returned a CSV with no valid slide rows")
+
+    logger.info("Parsed %d slides from CSV", len(slides))
+    return slides, csv_text

@@ -4,24 +4,29 @@ import Output from './components/Output.jsx'
 import Toast from './components/Toast.jsx'
 
 // ---------------------------------------------------------------------------
-// Mock CSV — shown when VITE_MOCK=true or when the API is unreachable in dev
+// Mock response — used when VITE_MOCK=true (bypasses API in dev)
 // ---------------------------------------------------------------------------
-const MOCK_CSV = `"Topic","Slide","Heading","Description"
-"Daily Journaling","1","Transform Your Life Daily","Start journaling today and unlock clarity, creativity, and personal growth you never imagined possible."
-"Daily Journaling","2","Reduce Stress Instantly","Writing your thoughts daily lowers cortisol levels and helps you process emotions before they overwhelm you."
-"Daily Journaling","3","Boost Your Creativity","Journaling sparks new ideas by connecting thoughts freely, giving your creative mind space to breathe and explore."
-"Daily Journaling","4","Track Real Progress","Reviewing past entries reveals patterns, celebrates wins, and shows how far you have grown over time."
-"Daily Journaling","5","Start Your Journey Today","Grab a notebook, write three sentences daily. Your future self will thank you. Begin tonight."`
+const MOCK_DATA = {
+  slides: [
+    { heading: 'Transform Your Life Daily',   description: 'Start journaling today and unlock clarity, creativity, and personal growth you never imagined possible.' },
+    { heading: 'Reduce Stress Instantly',      description: 'Writing your thoughts daily lowers cortisol levels and helps you process emotions before they overwhelm you.' },
+    { heading: 'Boost Your Creativity',        description: 'Journaling sparks new ideas by connecting thoughts freely, giving your creative mind space to breathe and explore.' },
+    { heading: 'Track Real Progress',          description: 'Reviewing past entries reveals patterns, celebrates wins, and shows how far you have grown over time.' },
+    { heading: 'Start Your Journey Tonight',   description: 'Grab a notebook, write three sentences. Your future self will thank you. Begin tonight.' },
+  ],
+  images_url: null,   // set to a URL string to test the Contentdrips download UI
+  csv: null,
+}
 
 // ---------------------------------------------------------------------------
 // App
 // ---------------------------------------------------------------------------
 export default function App() {
-  const [dark, setDark]     = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
-  const [status, setStatus] = useState('idle')   // idle | loading | done | error
-  const [csv, setCsv]       = useState('')
+  const [dark, setDark]         = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
+  const [status, setStatus]     = useState('idle')   // idle | loading | done | error
+  const [responseData, setData] = useState(null)     // full API response object
   const [errorMsg, setErrorMsg] = useState('')
-  const [toast, setToast]   = useState(null)      // { message, type }
+  const [toast, setToast]       = useState(null)     // { message, type }
 
   // Sync dark class on <html>
   useEffect(() => {
@@ -35,18 +40,18 @@ export default function App() {
 
   const handleGenerate = useCallback(async ({ topic, tone, slides }) => {
     setStatus('loading')
-    setCsv('')
+    setData(null)
     setErrorMsg('')
 
-    // Build the full prompt string — the backend takes a plain topic string
+    // Append settings to the topic string — the backend takes a plain string
     let fullTopic = topic.trim()
-    if (slides !== 5)               fullTopic += `. Create exactly ${slides} slides.`
-    if (tone !== 'professional')    fullTopic += ` Use a ${tone} tone.`
+    if (slides !== 5)            fullTopic += `. Create exactly ${slides} slides.`
+    if (tone !== 'professional') fullTopic += ` Use a ${tone} tone.`
 
     // Mock mode (set VITE_MOCK=true in .env.local to bypass the API)
     if (import.meta.env.VITE_MOCK === 'true') {
       await new Promise(r => setTimeout(r, 1800))
-      setCsv(MOCK_CSV)
+      setData(MOCK_DATA)
       setStatus('done')
       showToast('Carousel generated! (demo mode)')
       return
@@ -65,9 +70,9 @@ export default function App() {
       }
 
       const data = await res.json()
-      setCsv(data.csv)
+      setData(data)
       setStatus('done')
-      showToast('Carousel generated!')
+      showToast(data.images_url ? 'Carousel rendered!' : 'Slides generated!')
     } catch (err) {
       const message = err.message?.includes('Failed to fetch')
         ? 'Could not reach the server. Check your connection.'
@@ -80,7 +85,7 @@ export default function App() {
 
   const handleReset = useCallback(() => {
     setStatus('idle')
-    setCsv('')
+    setData(null)
     setErrorMsg('')
   }, [])
 
@@ -147,7 +152,7 @@ export default function App() {
         {(status === 'loading' || status === 'done' || status === 'error') && (
           <Output
             status={status}
-            csv={csv}
+            data={responseData}
             errorMsg={errorMsg}
             onToast={showToast}
           />

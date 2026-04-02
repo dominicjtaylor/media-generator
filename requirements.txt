@@ -15,5 +15,6 @@ flask>=3.0.0
 fastapi>=0.111.0
 uvicorn[standard]>=0.30.0
 aiofiles>=23.2.1          # required by FastAPI StaticFiles
+httpx>=0.27.0             # Contentdrips API calls
 
 # Python 3.10+ is required (no additional compat shims needed)

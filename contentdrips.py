@@ -70,7 +70,7 @@ def _base() -> str:
     return os.environ.get("CONTENTDRIPS_API_BASE", "https://generate.contentdrips.com").rstrip("/")
 
 _RENDER_PATH = "/render"
-_STATUS_PATH = "/render/{job_id}"
+_STATUS_PATH = "/status/{job_id}"
 
 
 def _api_key() -> str:

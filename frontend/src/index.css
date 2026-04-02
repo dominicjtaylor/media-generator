@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    @apply bg-gray-50 text-gray-900 dark:bg-gray-950 dark:text-gray-50;
+    transition: background-color 0.2s, color 0.2s;
+  }
+}
+
+@layer utilities {
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      theme('colors.gray.100') 25%,
+      theme('colors.gray.200') 50%,
+      theme('colors.gray.100') 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.6s infinite linear;
+  }
+
+  .dark .skeleton {
+    background: linear-gradient(
+      90deg,
+      theme('colors.gray.800') 25%,
+      theme('colors.gray.700') 50%,
+      theme('colors.gray.800') 75%
+    );
+    background-size: 200% 100%;
+  }
+}

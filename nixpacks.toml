@@ -1,0 +1,17 @@
+# Railway build config — installs Node + Python, builds frontend, starts API
+[phases.setup]
+nixPkgs = ["nodejs_20", "python311"]
+
+[phases.install]
+cmds = [
+  "pip install -r requirements.txt",
+  "npm --prefix frontend install"
+]
+
+[phases.build]
+cmds = [
+  "npm --prefix frontend run build"
+]
+
+[start]
+cmd = "uvicorn app:app --host 0.0.0.0 --port $PORT"

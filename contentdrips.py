@@ -142,7 +142,15 @@ def format_for_contentdrips(slides: list[dict]) -> dict:
         middle = [_content_slide(s, i + 2) for i, s in enumerate(slides[1:-1])]
         ending = _content_slide(slides[-1], n)
 
-    return {"intro_slide": intro, "slides": middle, "ending_slide": ending}
+    payload = {"intro_slide": intro, "slides": middle, "ending_slide": ending}
+
+    logger.info("Formatted payload for template 161759 (N=%d slides)", n)
+    logger.info("  intro_slide:  %s", intro)
+    for m in middle:
+        logger.info("  slide:        %s", m)
+    logger.info("  ending_slide: %s", ending)
+
+    return payload
 
 
 # ---------------------------------------------------------------------------

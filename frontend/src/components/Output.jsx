@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 
 // ---------------------------------------------------------------------------
 // Download helpers
@@ -12,6 +12,19 @@ function downloadCSV(csvContent, topic) {
   a.download = `${slug}.csv`
   a.click()
   URL.revokeObjectURL(url)
+}
+
+function triggerDownload(href) {
+  // For cross-origin URLs the browser ignores the download attribute, so we
+  // open in a new tab as a reliable fallback — no page navigation occurs.
+  const a = document.createElement('a')
+  a.href   = href
+  a.download = 'carousel'       // hint only; browser may ignore for cross-origin
+  a.target = '_blank'
+  a.rel    = 'noopener noreferrer'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
 }
 
 async function copyText(text) {
@@ -49,6 +62,17 @@ function Skeleton() {
 // Rendered images section (when Contentdrips returns images_url)
 // ---------------------------------------------------------------------------
 function ImagesOutput({ imagesUrl, onToast }) {
+  const [downloading, setDownloading] = useState(false)
+
+  function handleDownload(e) {
+    e.preventDefault()
+    if (downloading) return
+    setDownloading(true)
+    triggerDownload(imagesUrl)
+    setTimeout(() => setDownloading(false), 2000)
+    onToast('Opening download…')
+  }
+
   return (
     <div className="rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/30 p-5 space-y-4 animate-slide-up">
       <div className="flex items-center gap-2.5">
@@ -63,13 +87,14 @@ function ImagesOutput({ imagesUrl, onToast }) {
         </div>
       </div>
 
-      <a
-        href={imagesUrl}
-        target="_blank"
-        rel="noopener noreferrer"
+      <button
+        type="button"
+        onClick={handleDownload}
+        disabled={downloading}
         className="
           flex items-center justify-center gap-2.5 w-full
           bg-accent hover:bg-accent-hover
+          disabled:opacity-60 disabled:cursor-not-allowed
           text-white font-semibold text-sm
           px-5 py-3.5 rounded-xl
           transition-all active:scale-[0.98] shadow-sm hover:shadow-md
@@ -80,10 +105,11 @@ function ImagesOutput({ imagesUrl, onToast }) {
           <polyline points="7 10 12 15 17 10"/>
           <line x1="12" y1="15" x2="12" y2="3"/>
         </svg>
-        Download carousel images
-      </a>
+        {downloading ? 'Opening…' : 'Download carousel images'}
+      </button>
 
       <button
+        type="button"
         onClick={() => { copyText(imagesUrl); onToast('Link copied!') }}
         className="w-full text-xs text-center text-emerald-600 dark:text-emerald-400 hover:underline truncate"
       >

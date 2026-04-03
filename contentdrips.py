@@ -113,28 +113,34 @@ def _headers() -> dict:
 
 def format_for_contentdrips(slides: list[dict]) -> dict:
     """
-    Map a flat slides list to the Contentdrips carousel structure:
-      first  → intro_slide
-      middle → slides[]
-      last   → ending_slide
+    Format slides for template 161759.
+
+    Slide 1  → intro_slide  { heading }
+    Slides 2–(N-1) → slides[]  { description, page: "X/N" }
+    Slide N  → ending_slide { description, page: "N/N" }
     """
     if not slides:
         raise ValueError("Cannot format an empty slides list")
 
-    def _slide(s: dict) -> dict:
+    n = len(slides)
+
+    intro = {"heading": slides[0].get("heading", "").strip()}
+
+    def _content_slide(s: dict, position: int) -> dict:
         return {
-            "heading":     s.get("heading", "").strip(),
             "description": s.get("description", "").strip(),
+            "page":        f"{position}/{n}",
         }
 
-    if len(slides) == 1:
-        intro, middle, ending = _slide(slides[0]), [], _slide(slides[0])
-    elif len(slides) == 2:
-        intro, middle, ending = _slide(slides[0]), [], _slide(slides[1])
+    if n == 1:
+        ending = _content_slide(slides[0], 1)
+        middle = []
+    elif n == 2:
+        ending = _content_slide(slides[1], 2)
+        middle = []
     else:
-        intro  = _slide(slides[0])
-        middle = [_slide(s) for s in slides[1:-1]]
-        ending = _slide(slides[-1])
+        middle = [_content_slide(s, i + 2) for i, s in enumerate(slides[1:-1])]
+        ending = _content_slide(slides[-1], n)
 
     return {"intro_slide": intro, "slides": middle, "ending_slide": ending}
 

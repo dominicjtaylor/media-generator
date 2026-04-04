@@ -1,25 +1,22 @@
 """
-generator.py — LLM-powered CSV generation for Instagram carousels.
+generator.py — LLM-powered slide generation for Instagram carousels.
 
 Supports both Anthropic (default) and OpenAI backends, selected via the
 LLM_PROVIDER env var ("anthropic" | "openai").
 
 Public API
 ----------
-generate_csv(topic)    → Path          — original: saves CSV file, returns path
-generate_slides(topic) → (list, str)   — new: returns (slides, csv_text) tuple
+generate_slides(topic) → (list[dict], str)
+    Returns (slides, csv_text) where slides is a list of dicts with
+    "heading" and "description" keys, and csv_text is empty (kept for
+    backward compatibility with callers that ignore it).
 """
 
-import csv
-import io
+import json
 import logging
 import os
-import tempfile
 import time
-from pathlib import Path
 from typing import Optional
-
-from utils import sanitise_csv_text, save_csv, validate_csv, csv_path
 
 logger = logging.getLogger("carousel.generator")
 
@@ -27,32 +24,28 @@ logger = logging.getLogger("carousel.generator")
 # Prompt
 # ---------------------------------------------------------------------------
 
-SYSTEM_PROMPT = (
-    "You are an expert social media strategist with a specialization in "
-    "high-engagement Instagram carousel content. You are also a CSV generator "
-    "for Contentdrips.\n"
-    "I want to create an Instagram carousel, exported as a real downloadable "
-    "CSV file named csv_upload_feature.csv.\n\n"
-    "HOW TO USE:\n"
-    "After reading this prompt, the user will provide a single topic\n\n"
-    "RULES:\n"
-    "• If slide count not specified → create 5 slides total\n"
-    "• Do not ask follow-up questions\n"
-    "• Do not add commentary\n"
-    "• Output ONLY CSV\n\n"
-    'CSV COLUMNS:\n"Topic","Slide","Heading","Description"\n\n'
-    "SLIDE STRUCTURE:\n"
-    "Slide 1: Hook\n"
-    "Slides 2–4: Content\n"
-    "Slide 5: CTA\n\n"
-    "CONTENT RULES:\n"
-    "• Heading < 10 words\n"
-    "• Description < 25 words\n"
-    "• 20–30 words per slide\n"
-    "• Professional, friendly, educational tone\n"
-    "• Must be comma-safe CSV\n"
-    "• Optimized for engagement"
-)
+SYSTEM_PROMPT = """\
+You are an expert social media strategist specializing in high-engagement Instagram carousel posts.
+Generate EXACTLY 5 slides for the topic the user provides.
+
+Return EXACTLY this JSON structure — no extra text, no markdown, no code fences:
+[
+  { "heading": "...", "description": "..." },
+  { "heading": "...", "description": "..." },
+  { "heading": "...", "description": "..." },
+  { "heading": "...", "description": "..." },
+  { "heading": "...", "description": "..." }
+]
+
+Rules:
+- Slide 1: Hook — grab attention immediately
+- Slides 2–4: Content — deliver value
+- Slide 5: CTA — call to action
+- heading: under 10 words
+- description: under 25 words
+- Professional, friendly, educational tone
+- Do not add any extra text.\
+"""
 
 
 # ---------------------------------------------------------------------------
@@ -115,119 +108,94 @@ def _generate_openai(topic: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Public API
+# JSON parsing
 # ---------------------------------------------------------------------------
 
-def generate_csv(
-    topic: str,
-    max_retries: int = 3,
-    output_path: Optional[Path] = None,
-) -> Path:
-    """
-    Generate an Instagram carousel CSV for *topic* using the configured LLM.
+def _parse_json_slides(raw: str) -> list[dict]:
+    """Parse LLM JSON output into a validated list of slide dicts."""
+    text = raw.strip()
 
-    Parameters
-    ----------
-    topic:
-        The carousel topic string.
-    max_retries:
-        Number of LLM call attempts before raising.
-    output_path:
-        Where to save the CSV. Defaults to csv_upload_feature.csv.
+    # Strip markdown code fences if the model wrapped output anyway
+    if text.startswith("```"):
+        parts = text.split("```")
+        # parts[1] is the content between first pair of fences
+        text = parts[1].strip()
+        if text.startswith("json"):
+            text = text[4:].strip()
 
-    Returns
-    -------
-    Path
-        Path to the saved, validated CSV file.
-    """
-    provider = os.environ.get("LLM_PROVIDER", "anthropic").lower()
-    _backends = {
-        "anthropic": _generate_anthropic,
-        "openai": _generate_openai,
-    }
+    try:
+        slides = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"LLM returned invalid JSON: {exc}\nRaw output:\n{raw[:500]}") from exc
 
-    if provider not in _backends:
-        raise ValueError(
-            f"Unknown LLM_PROVIDER {provider!r}. Choose 'anthropic' or 'openai'."
-        )
+    if not isinstance(slides, list):
+        raise ValueError(f"Expected JSON array, got {type(slides).__name__}")
 
-    backend = _backends[provider]
-    dest = output_path or csv_path()
+    if len(slides) != 5:
+        raise ValueError(f"Expected exactly 5 slides, got {len(slides)}")
 
-    last_error: Optional[Exception] = None
+    result = []
+    for i, s in enumerate(slides):
+        if not isinstance(s, dict):
+            raise ValueError(f"Slide {i} is not a JSON object")
+        heading     = (s.get("heading")     or "").strip()
+        description = (s.get("description") or "").strip()
+        if not heading:
+            raise ValueError(f"Slide {i} is missing a non-empty 'heading'")
+        result.append({"heading": heading, "description": description})
 
-    for attempt in range(1, max_retries + 1):
-        try:
-            logger.info("CSV generation attempt %d/%d", attempt, max_retries)
-            raw = backend(topic)
-            cleaned = sanitise_csv_text(raw)
-            save_csv(cleaned, dest)
+    return result
 
-            if validate_csv(dest):
-                logger.info("CSV generated and validated successfully")
-                return dest
 
-            # Validation failed — log and retry
-            logger.warning(
-                "Generated CSV failed validation (attempt %d). Retrying…",
-                attempt,
-            )
-            last_error = ValueError("CSV validation failed after generation")
-
-        except Exception as exc:
-            logger.warning("LLM call failed (attempt %d): %s", attempt, exc)
-            last_error = exc
-
-        if attempt < max_retries:
-            wait = 2 ** attempt  # 2s, 4s, 8s …
-            logger.info("Waiting %ds before retry…", wait)
-            time.sleep(wait)
-
-    raise RuntimeError(
-        f"CSV generation failed after {max_retries} attempts. "
-        f"Last error: {last_error}"
-    )
-
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
 def generate_slides(
     topic: str,
     max_retries: int = 3,
 ) -> tuple[list[dict], str]:
     """
-    Generate carousel slides for *topic* and return structured data.
-
-    Internally calls generate_csv() (single LLM call, validated), then
-    parses the result into a list of slide dicts.
+    Generate carousel slides for *topic* using the configured LLM.
 
     Returns
     -------
     slides : list[dict]
-        Each dict has "heading" and "description" keys.
+        Each dict has "heading" and "description" keys. Always 5 items.
     csv_text : str
-        The raw validated CSV string (kept for fallback/debug use).
+        Empty string (kept for API compatibility with callers that ignore it).
     """
-    tmp = tempfile.NamedTemporaryFile(suffix=".csv", delete=False)
-    tmp_path = Path(tmp.name)
-    tmp.close()
+    provider = os.environ.get("LLM_PROVIDER", "anthropic").lower()
+    backends = {
+        "anthropic": _generate_anthropic,
+        "openai":    _generate_openai,
+    }
 
-    try:
-        csv_file = generate_csv(topic, max_retries=max_retries, output_path=tmp_path)
-        csv_text = csv_file.read_text(encoding="utf-8")
-    finally:
-        tmp_path.unlink(missing_ok=True)
+    if provider not in backends:
+        raise ValueError(
+            f"Unknown LLM_PROVIDER {provider!r}. Choose 'anthropic' or 'openai'."
+        )
 
-    reader = csv.DictReader(io.StringIO(csv_text))
-    slides = [
-        {
-            "heading":     (row.get("Heading") or "").strip(),
-            "description": (row.get("Description") or "").strip(),
-        }
-        for row in reader
-        if (row.get("Heading") or "").strip()
-    ]
+    backend    = backends[provider]
+    last_error: Optional[Exception] = None
 
-    if not slides:
-        raise RuntimeError("LLM returned a CSV with no valid slide rows")
+    for attempt in range(1, max_retries + 1):
+        try:
+            logger.info("Slide generation attempt %d/%d", attempt, max_retries)
+            raw    = backend(topic)
+            logger.debug("Raw LLM output: %s", raw[:500])
+            slides = _parse_json_slides(raw)
+            logger.info("Parsed %d slides from JSON response", len(slides))
+            return slides, ""
+        except Exception as exc:
+            logger.warning("Attempt %d/%d failed: %s", attempt, max_retries, exc)
+            last_error = exc
+            if attempt < max_retries:
+                wait = 2 ** attempt
+                logger.info("Waiting %ds before retry…", wait)
+                time.sleep(wait)
 
-    logger.info("Parsed %d slides from CSV", len(slides))
-    return slides, csv_text
+    raise RuntimeError(
+        f"Slide generation failed after {max_retries} attempts. "
+        f"Last error: {last_error}"
+    )

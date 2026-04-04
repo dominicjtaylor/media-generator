@@ -14,17 +14,14 @@ function downloadCSV(csvContent, topic) {
   URL.revokeObjectURL(url)
 }
 
-function triggerDownload(href) {
-  // For cross-origin URLs the browser ignores the download attribute, so we
-  // open in a new tab as a reliable fallback — no page navigation occurs.
-  const a = document.createElement('a')
-  a.href   = href
-  a.download = 'carousel'       // hint only; browser may ignore for cross-origin
-  a.target = '_blank'
-  a.rel    = 'noopener noreferrer'
-  document.body.appendChild(a)
+async function downloadImage(url, index) {
+  const res  = await fetch(url)
+  const blob = await res.blob()
+  const a    = document.createElement('a')
+  a.href     = URL.createObjectURL(blob)
+  a.download = `carousel-slide-${index + 1}.png`
   a.click()
-  document.body.removeChild(a)
+  URL.revokeObjectURL(a.href)
 }
 
 async function copyText(text) {
@@ -59,62 +56,100 @@ function Skeleton() {
 }
 
 // ---------------------------------------------------------------------------
-// Rendered images section (when Contentdrips returns images_url)
+// Single image card with download button
 // ---------------------------------------------------------------------------
-function ImagesOutput({ imagesUrl, onToast }) {
+function ImageCard({ url, index }) {
   const [downloading, setDownloading] = useState(false)
 
-  function handleDownload(e) {
-    e.preventDefault()
+  const handleDownload = async (e) => {
+    e.stopPropagation()
     if (downloading) return
     setDownloading(true)
-    triggerDownload(imagesUrl)
-    setTimeout(() => setDownloading(false), 2000)
-    onToast('Opening download…')
+    try {
+      await downloadImage(url, index)
+    } finally {
+      setTimeout(() => setDownloading(false), 1500)
+    }
   }
 
   return (
-    <div className="rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/30 p-5 space-y-4 animate-slide-up">
+    <div className="flex flex-col gap-2">
+      {/* Clicking the image opens it full-size in a new tab */}
+      <button
+        type="button"
+        onClick={() => window.open(url, '_blank')}
+        className="block w-full cursor-zoom-in rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow duration-150 border border-gray-100 dark:border-gray-800"
+      >
+        <img
+          src={url}
+          alt={`Carousel slide ${index + 1}`}
+          className="w-full h-auto block"
+          loading="lazy"
+        />
+      </button>
+
+      {/* Per-image download button */}
+      <button
+        type="button"
+        onClick={handleDownload}
+        disabled={downloading}
+        className="
+          w-full flex items-center justify-center gap-2
+          bg-gray-900 dark:bg-gray-100 hover:bg-gray-700 dark:hover:bg-gray-300
+          disabled:opacity-50 disabled:cursor-not-allowed
+          text-white dark:text-gray-900 text-xs font-semibold
+          py-2.5 rounded-xl
+          transition-colors duration-150
+        "
+      >
+        {downloading ? (
+          <>
+            <svg className="animate-spin h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+            </svg>
+            Saving…
+          </>
+        ) : (
+          <>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            Download
+          </>
+        )}
+      </button>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Image gallery (shown when Contentdrips returns direct image URLs)
+// ---------------------------------------------------------------------------
+function ImagesGallery({ images, onToast }) {
+  return (
+    <div className="space-y-4 animate-slide-up">
       <div className="flex items-center gap-2.5">
-        <span className="w-7 h-7 rounded-full bg-emerald-100 dark:bg-emerald-900 flex items-center justify-center">
+        <span className="w-7 h-7 rounded-full bg-emerald-100 dark:bg-emerald-900 flex items-center justify-center shrink-0">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="20 6 9 17 4 12"/>
           </svg>
         </span>
         <div>
           <p className="font-semibold text-sm text-emerald-900 dark:text-emerald-100">Carousel rendered!</p>
-          <p className="text-xs text-emerald-600 dark:text-emerald-400">Your images are ready to download.</p>
+          <p className="text-xs text-emerald-600 dark:text-emerald-400">
+            Tap an image to view full-size · Download each slide below.
+          </p>
         </div>
       </div>
 
-      <button
-        type="button"
-        onClick={handleDownload}
-        disabled={downloading}
-        className="
-          flex items-center justify-center gap-2.5 w-full
-          bg-accent hover:bg-accent-hover
-          disabled:opacity-60 disabled:cursor-not-allowed
-          text-white font-semibold text-sm
-          px-5 py-3.5 rounded-xl
-          transition-all active:scale-[0.98] shadow-sm hover:shadow-md
-        "
-      >
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-          <polyline points="7 10 12 15 17 10"/>
-          <line x1="12" y1="15" x2="12" y2="3"/>
-        </svg>
-        {downloading ? 'Opening…' : 'Download carousel images'}
-      </button>
-
-      <button
-        type="button"
-        onClick={() => { copyText(imagesUrl); onToast('Link copied!') }}
-        className="w-full text-xs text-center text-emerald-600 dark:text-emerald-400 hover:underline truncate"
-      >
-        {imagesUrl}
-      </button>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {images.map((url, i) => (
+          <ImageCard key={url} url={url} index={i} />
+        ))}
+      </div>
     </div>
   )
 }
@@ -170,7 +205,7 @@ function SlidesPreview({ slides, csv, onToast }) {
         })}
       </div>
 
-      {/* CSV download — shown only in fallback mode (no images_url) */}
+      {/* CSV download — shown only in fallback mode (no images) */}
       {csv && (
         <button
           onClick={() => { downloadCSV(csv, topic); onToast('CSV downloaded!') }}
@@ -209,18 +244,20 @@ export default function Output({ status, data, errorMsg, onToast }) {
 
   if (status !== 'done' || !data) return null
 
-  const { images_url, slides = [], csv } = data
+  const { images = [], slides = [], csv } = data
 
   return (
-    <div className="space-y-6">
-      {/* Rendered images download (Contentdrips mode) */}
-      {images_url && <ImagesOutput imagesUrl={images_url} onToast={onToast} />}
+    <div className="space-y-8">
+      {/* Rendered image gallery (Contentdrips mode) */}
+      {images.length > 0 && (
+        <ImagesGallery images={images} onToast={onToast} />
+      )}
 
       {/* Slide cards preview (always shown when slides present) */}
       {slides.length > 0 && (
         <SlidesPreview
           slides={slides}
-          csv={images_url ? null : csv}   // hide CSV download when images available
+          csv={images.length > 0 ? null : csv}  // hide CSV download when images available
           onToast={onToast}
         />
       )}

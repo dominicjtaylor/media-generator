@@ -58,7 +58,8 @@ class Slide(BaseModel):
 
 class GenerateResponse(BaseModel):
     slides:     list[Slide]           = []    # structured slides (always present)
-    images_url: Optional[str]        = None  # Contentdrips export URL (when API key set)
+    images:     list[str]            = []    # direct PNG URLs (from Contentdrips S3)
+    images_url: Optional[str]        = None  # Contentdrips export page URL (kept for compat)
     csv:        Optional[str]        = None  # raw CSV (fallback when no API key)
     debug:      Optional[dict]       = None  # temporary: raw Contentdrips response
 
@@ -94,13 +95,14 @@ def generate(req: GenerateRequest):
     # ── Step 2: Send to Contentdrips (if API key is configured) ──────────
     if os.environ.get("CONTENTDRIPS_API_KEY"):
         try:
-            carousel_payload      = format_for_contentdrips(slides)
-            images_url, raw_response = request_render(carousel_payload)
+            carousel_payload         = format_for_contentdrips(slides)
+            image_urls, raw_response = request_render(carousel_payload)
 
-            logger.info("Carousel ready: %s", images_url)
+            logger.info("Carousel ready: %d images", len(image_urls))
             return GenerateResponse(
                 slides=slide_models,
-                images_url=images_url,
+                images=image_urls,
+                images_url=image_urls[0] if image_urls else None,
                 csv=csv_text,
                 debug={"raw_response": raw_response},
             )

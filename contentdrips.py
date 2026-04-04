@@ -4,7 +4,8 @@ contentdrips.py — Contentdrips API integration.
 Handles:
   1. Formatting slides into the Contentdrips carousel payload
   2. Sending the render request
-  3. Polling until the job completes and returning the export URL
+  3. Polling until the job completes
+  4. Fetching the result page and extracting direct S3 image URLs
 
 Environment variables required:
   CONTENTDRIPS_API_KEY      — Bearer token (required)
@@ -17,6 +18,7 @@ Optional:
 import logging
 import os
 import time
+from html.parser import HTMLParser
 
 import httpx
 
@@ -24,14 +26,13 @@ logger = logging.getLogger("carousel.contentdrips")
 
 # ---------------------------------------------------------------------------
 # Startup environment diagnostic — runs once at import time.
-# Helps confirm Railway is actually injecting the expected variables.
 # ---------------------------------------------------------------------------
 
 def _log_env_diagnostic() -> None:
     env_name = os.environ.get("ENVIRONMENT") or os.environ.get("RAILWAY_ENVIRONMENT") or "unknown"
     logger.info("Running in environment: %s", env_name)
 
-    key_raw = os.environ.get("CONTENTDRIPS_API_KEY")      # no .strip() yet — want raw value
+    key_raw = os.environ.get("CONTENTDRIPS_API_KEY")
     tid_raw = os.environ.get("CONTENTDRIPS_TEMPLATE_ID")
 
     if key_raw is None:
@@ -113,7 +114,7 @@ def _headers() -> dict:
 
 def format_for_contentdrips(slides: list[dict]) -> dict:
     """
-    Map slides to the Contentdrips carousel structure for template 161759.
+    Map slides to the Contentdrips carousel structure for template 161792.
 
     Expects exactly 5 slides:
       slides[0] → intro_slide  { heading }
@@ -127,7 +128,7 @@ def format_for_contentdrips(slides: list[dict]) -> dict:
 
     if len(slides) != 5:
         raise ValueError(
-            f"Template 161759 requires exactly 5 slides, got {len(slides)}. "
+            f"Template 161792 requires exactly 5 slides, got {len(slides)}. "
             "Check the LLM prompt slide count."
         )
 
@@ -152,7 +153,7 @@ def format_for_contentdrips(slides: list[dict]) -> dict:
         },
     }
 
-    logger.info("Carousel payload (template 161759, 5 slides):")
+    logger.info("Carousel payload (template 161792, 5 slides):")
     logger.info("  intro_slide:  %s", carousel["intro_slide"])
     for i, s in enumerate(carousel["slides"]):
         logger.info("  slide[%d]:     %s", i, s)
@@ -175,7 +176,6 @@ def _extract_export_url(data: dict) -> str | None:
     for key in _EXPORT_URL_KEYS:
         if data.get(key):
             return str(data[key])
-    # Check inside a "links" object if present
     links = data.get("links") or {}
     for key in _EXPORT_URL_KEYS + _POLLING_URL_KEYS:
         if links.get(key):
@@ -194,18 +194,83 @@ def _extract_polling_url(data: dict) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Step 2: Submit render request → export_url (sync or async)
+# Image extraction from HTML export page
 # ---------------------------------------------------------------------------
 
-def request_render(carousel_payload: dict) -> tuple[str, dict]:
+class _ImgSrcParser(HTMLParser):
+    """Minimal HTML parser that collects <img src> values containing amazonaws.com."""
+
+    def __init__(self):
+        super().__init__()
+        self.urls: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list) -> None:
+        if tag == "img":
+            for name, value in attrs:
+                if name == "src" and value and "amazonaws.com" in value:
+                    self.urls.append(value)
+
+
+def _extract_images_from_export(export_url: str) -> list[str]:
     """
-    POST to Contentdrips and return (export_url, raw_response).
+    Fetch the HTML export page returned by Contentdrips and extract the
+    direct S3 (amazonaws.com) PNG image URLs embedded in <img> tags.
+    """
+    logger.info("Fetching export page to extract images: %s", export_url)
+    try:
+        resp = httpx.get(export_url, headers=_headers(), timeout=30, follow_redirects=True)
+    except httpx.RequestError as exc:
+        raise RuntimeError(f"Network error fetching export page: {exc}") from exc
+
+    logger.info(
+        "Export page response [%s] | content-type: %s | body length: %d",
+        resp.status_code,
+        resp.headers.get("content-type", ""),
+        len(resp.text),
+    )
+
+    if not resp.is_success:
+        raise RuntimeError(
+            f"Export page fetch failed [{resp.status_code}]: {resp.text[:500]}"
+        )
+
+    content_type = resp.headers.get("content-type", "")
+    if "html" not in content_type and not resp.text.lstrip().startswith("<"):
+        # Not HTML — maybe the URL already is a direct image or JSON
+        logger.warning("Export URL did not return HTML (content-type: %s). Returning as single image.", content_type)
+        return [export_url]
+
+    parser = _ImgSrcParser()
+    parser.feed(resp.text)
+    urls = parser.urls
+
+    logger.info("Found %d S3 image URLs in export page", len(urls))
+    for i, u in enumerate(urls):
+        logger.info("  image[%d]: %s", i, u)
+
+    if not urls:
+        logger.warning(
+            "No amazonaws.com <img> tags found in export page. "
+            "Page snippet: %s", resp.text[:1000]
+        )
+
+    return urls
+
+
+# ---------------------------------------------------------------------------
+# Step 2: Submit render request → list[str] of image URLs (sync or async)
+# ---------------------------------------------------------------------------
+
+def request_render(carousel_payload: dict) -> tuple[list[str], dict]:
+    """
+    POST to Contentdrips and return (image_urls, raw_response).
+
+    image_urls is a list of direct PNG URLs extracted from the export page.
 
     Handles both response shapes:
-      Sync  — export_url present immediately → return it.
-      Async — job_id present + polling URL provided by API → poll it.
+      Sync  — export_url present immediately → extract images.
+      Async — job_id present + polling URL → poll → fetch result → extract images.
 
-    Never constructs a polling URL manually; only uses URLs from the response.
     Raises RuntimeError with the full response if neither path is possible.
     """
     url  = f"{_base()}{_RENDER_PATH}"
@@ -256,7 +321,8 @@ def request_render(carousel_payload: dict) -> tuple[str, dict]:
     export_url = _extract_export_url(data)
     if export_url:
         logger.info("Sync response — export URL: %s", export_url)
-        return export_url, data
+        images = _extract_images_from_export(export_url)
+        return images, data
 
     # ── Path B: async — job_id present, look for a polling URL ───────────
     job_id = data.get("job_id") or data.get("id")
@@ -270,12 +336,12 @@ def request_render(carousel_payload: dict) -> tuple[str, dict]:
                 f"Keys present: {list(data.keys())} | Full response: {data}"
             )
 
-        # Resolve relative paths (e.g. "/job/<id>/status" → full URL)
         if polling_url.startswith("/"):
             polling_url = _base() + polling_url
 
         logger.info("Polling URL (resolved): %s", polling_url)
-        return _poll(polling_url, job_id), data
+        images = _poll(polling_url, job_id)
+        return images, data
 
     # ── Neither path matched ──────────────────────────────────────────────
     raise RuntimeError(
@@ -293,10 +359,10 @@ def _poll(
     job_id: str,
     poll_interval: int = 3,
     max_retries: int = 40,
-) -> str:
+) -> list[str]:
     """
     Poll *polling_url* (given by the API) until the job completes.
-    Returns the export URL. Default timeout: 4s × 30 = 120s.
+    Returns a list of direct image URLs.
     """
     for attempt in range(1, max_retries + 1):
         logger.info("Polling attempt %d/%d — GET %s", attempt, max_retries, polling_url)
@@ -340,7 +406,7 @@ def _poll(
     )
 
 
-def _fetch_result(job_id: str) -> str:
+def _fetch_result(job_id: str) -> list[str]:
     """GET /job/{job_id}/result — called once polling confirms completed."""
     url = f"{_base()}/job/{job_id}/result"
     logger.info("Fetching result — GET %s", url)
@@ -369,5 +435,5 @@ def _fetch_result(job_id: str) -> str:
             f"Keys present: {list(data.keys())} | Full response: {data}"
         )
 
-    logger.info("Job %s → export URL: %s", job_id, export_url)
-    return export_url
+    logger.info("Job %s → export URL: %s — extracting images", job_id, export_url)
+    return _extract_images_from_export(export_url)

@@ -14,8 +14,9 @@ const MOCK_DATA = {
     { heading: 'Track Real Progress',          description: 'Reviewing past entries reveals patterns, celebrates wins, and shows how far you have grown over time.' },
     { heading: 'Start Your Journey Tonight',   description: 'Grab a notebook, write three sentences. Your future self will thank you. Begin tonight.' },
   ],
-  images_url: null,   // set to a URL string to test the Contentdrips download UI
-  csv: null,
+  images:     [],    // set to array of PNG URLs to test image gallery
+  images_url: null,
+  csv:        null,
 }
 
 // ---------------------------------------------------------------------------
@@ -72,7 +73,9 @@ export default function App() {
       const data = await res.json()
       setData(data)
       setStatus('done')
-      showToast(data.images_url ? 'Carousel rendered!' : 'Slides generated!')
+      showToast(
+        data.images?.length > 0 ? 'Carousel rendered!' : 'Slides generated!'
+      )
     } catch (err) {
       const message = err.message?.includes('Failed to fetch')
         ? 'Could not reach the server. Check your connection.'

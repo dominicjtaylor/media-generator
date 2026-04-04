@@ -113,44 +113,52 @@ def _headers() -> dict:
 
 def format_for_contentdrips(slides: list[dict]) -> dict:
     """
-    Format slides for template 161759.
+    Map slides to the Contentdrips carousel structure for template 161759.
 
-    Slide 1  → intro_slide  { heading }
-    Slides 2–(N-1) → slides[]  { description, page: "X/N" }
-    Slide N  → ending_slide { description, page: "N/N" }
+    Expects exactly 5 slides:
+      slides[0] → intro_slide  { heading }
+      slides[1] → slides[0]   { description }
+      slides[2] → slides[1]   { description }
+      slides[3] → slides[2]   { description }
+      slides[4] → ending_slide { description }
     """
     if not slides:
         raise ValueError("Cannot format an empty slides list")
 
-    n = len(slides)
+    if len(slides) != 5:
+        raise ValueError(
+            f"Template 161759 requires exactly 5 slides, got {len(slides)}. "
+            "Check the LLM prompt slide count."
+        )
 
-    intro = {"heading": slides[0].get("heading", "").strip()}
+    if not slides[0].get("heading", "").strip():
+        raise ValueError("slides[0].heading is missing or empty")
 
-    def _content_slide(s: dict, position: int) -> dict:
-        return {
-            "description": s.get("description", "").strip(),
-            "page":        f"{position}/{n}",
-        }
+    for i in range(1, 5):
+        if not slides[i].get("description", "").strip():
+            raise ValueError(f"slides[{i}].description is missing or empty")
 
-    if n == 1:
-        ending = _content_slide(slides[0], 1)
-        middle = []
-    elif n == 2:
-        ending = _content_slide(slides[1], 2)
-        middle = []
-    else:
-        middle = [_content_slide(s, i + 2) for i, s in enumerate(slides[1:-1])]
-        ending = _content_slide(slides[-1], n)
+    carousel = {
+        "intro_slide": {
+            "heading": slides[0]["heading"].strip(),
+        },
+        "slides": [
+            {"description": slides[1]["description"].strip()},
+            {"description": slides[2]["description"].strip()},
+            {"description": slides[3]["description"].strip()},
+        ],
+        "ending_slide": {
+            "description": slides[4]["description"].strip(),
+        },
+    }
 
-    payload = {"intro_slide": intro, "slides": middle, "ending_slide": ending}
+    logger.info("Carousel payload (template 161759, 5 slides):")
+    logger.info("  intro_slide:  %s", carousel["intro_slide"])
+    for i, s in enumerate(carousel["slides"]):
+        logger.info("  slide[%d]:     %s", i, s)
+    logger.info("  ending_slide: %s", carousel["ending_slide"])
 
-    logger.info("Formatted payload for template 161759 (N=%d slides)", n)
-    logger.info("  intro_slide:  %s", intro)
-    for m in middle:
-        logger.info("  slide:        %s", m)
-    logger.info("  ending_slide: %s", ending)
-
-    return payload
+    return carousel
 
 
 # ---------------------------------------------------------------------------
@@ -204,7 +212,7 @@ def request_render(carousel_payload: dict) -> tuple[str, dict]:
     body = {
         "template_id": _template_id(),
         "output":      "png",
-        **carousel_payload,
+        "carousel":    carousel_payload,
     }
 
     logger.info("─── Contentdrips request ───────────────────────────────")

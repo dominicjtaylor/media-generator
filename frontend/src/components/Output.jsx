@@ -38,19 +38,21 @@ function slideLabel(index, total) {
 }
 
 // ---------------------------------------------------------------------------
-// Skeleton loader
+// Single animated status message (replaces skeleton during SSE streaming)
 // ---------------------------------------------------------------------------
-function Skeleton() {
+function StatusMessage({ message }) {
   return (
-    <div className="space-y-3 animate-fade-in">
-      {[100, 85, 90, 80, 95].map((w, i) => (
-        <div key={i} className="rounded-xl border border-gray-100 dark:border-gray-800 p-5 space-y-3">
-          <div className="skeleton h-3 w-12 rounded-full" />
-          <div className={`skeleton h-5 rounded-lg`} style={{ width: `${w}%` }} />
-          <div className="skeleton h-3.5 w-full rounded" />
-          <div className="skeleton h-3.5 w-4/5 rounded" />
-        </div>
-      ))}
+    <div className="flex flex-col items-center justify-center py-16 gap-4 animate-fade-in">
+      <svg className="animate-spin h-6 w-6 text-accent" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+      </svg>
+      <p
+        key={message}
+        className="text-sm text-gray-500 dark:text-gray-400 animate-fade-in"
+      >
+        {message || 'Starting…'}
+      </p>
     </div>
   )
 }
@@ -226,8 +228,8 @@ function SlidesPreview({ slides, csv, onToast }) {
 // ---------------------------------------------------------------------------
 // Main Output component
 // ---------------------------------------------------------------------------
-export default function Output({ status, data, errorMsg, onToast }) {
-  if (status === 'loading') return <Skeleton />
+export default function Output({ status, data, errorMsg, stepMessage, onToast }) {
+  if (status === 'loading') return <StatusMessage message={stepMessage} />
 
   if (status === 'error') {
     return (

@@ -18,14 +18,15 @@ Pipeline
   3. Else: return CSV as fallback (useful during development)
 """
 
+import json
 import logging
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Generator
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -51,19 +52,6 @@ class GenerateRequest(BaseModel):
     topic: str
 
 
-class Slide(BaseModel):
-    heading:     str
-    description: str
-
-
-class GenerateResponse(BaseModel):
-    slides:     list[Slide]           = []    # structured slides (always present)
-    images:     list[str]            = []    # direct PNG URLs (from Contentdrips S3)
-    images_url: Optional[str]        = None  # Contentdrips export page URL (kept for compat)
-    csv:        Optional[str]        = None  # raw CSV (fallback when no API key)
-    debug:      Optional[dict]       = None  # temporary: raw Contentdrips response
-
-
 # ---------------------------------------------------------------------------
 # API routes  — registered before static file mounts
 # ---------------------------------------------------------------------------
@@ -73,47 +61,69 @@ def healthz():
     return {"status": "ok"}
 
 
-@app.post("/generate", response_model=GenerateResponse, tags=["carousel"])
+def _sse(payload: dict) -> str:
+    return f"data: {json.dumps(payload)}\n\n"
+
+
+def _stream(topic: str) -> Generator[str, None, None]:
+    """Sync generator that emits SSE events at each real pipeline stage."""
+    # ── Step 1: Generate slides via Claude ───────────────────────────────
+    logger.info("Generating slides for topic: %r", topic)
+    yield _sse({"step": "generating", "message": "Generating carousel content..."})
+
+    try:
+        slides, csv_text = generate_slides(topic)
+    except Exception as exc:
+        logger.error("Slide generation failed: %s", exc)
+        yield _sse({"step": "error", "message": f"Content generation failed: {exc}"})
+        return
+
+    logger.info("Generated %d slides", len(slides))
+    slide_models = [{"heading": s["heading"], "description": s["description"]} for s in slides]
+
+    # ── Step 2: Send to Contentdrips (if API key is configured) ──────────
+    yield _sse({"step": "designing", "message": "Designing slides..."})
+
+    if os.environ.get("CONTENTDRIPS_API_KEY"):
+        buffered_events: list[dict] = []
+
+        def on_progress(event: dict) -> None:
+            buffered_events.append(event)
+
+        try:
+            carousel_payload = format_for_contentdrips(slides)
+            yield _sse({"step": "rendering", "message": "Rendering images..."})
+
+            image_urls, _ = request_render(carousel_payload, progress_callback=on_progress)
+
+            # Emit any progress events collected during polling
+            for ev in buffered_events:
+                yield _sse(ev)
+
+            logger.info("Carousel ready: %d images", len(image_urls))
+            yield _sse({"step": "complete", "images": image_urls, "slides": slide_models})
+
+        except (RuntimeError, TimeoutError) as exc:
+            logger.error("Contentdrips pipeline failed: %s", exc)
+            yield _sse({"step": "error", "message": str(exc)})
+
+    else:
+        # ── Step 3: CSV fallback (no Contentdrips key) ───────────────────
+        logger.info("CONTENTDRIPS_API_KEY not set — returning CSV fallback")
+        yield _sse({"step": "complete", "images": [], "slides": slide_models, "csv": csv_text})
+
+
+@app.post("/generate", tags=["carousel"])
 def generate(req: GenerateRequest):
     topic = req.topic.strip()
     if not topic:
         raise HTTPException(status_code=422, detail="topic must not be empty")
 
-    # ── Step 1: Generate slides via Claude ───────────────────────────────
-    logger.info("Generating slides for topic: %r", topic)
-    try:
-        slides, csv_text = generate_slides(topic)
-    except Exception as exc:
-        logger.error("Slide generation failed: %s", exc)
-        raise HTTPException(status_code=500, detail=f"Generation failed: {exc}")
-
-    logger.info("Generated %d slides", len(slides))
-    logger.debug("Slides: %s", slides)
-
-    slide_models = [Slide(heading=s["heading"], description=s["description"]) for s in slides]
-
-    # ── Step 2: Send to Contentdrips (if API key is configured) ──────────
-    if os.environ.get("CONTENTDRIPS_API_KEY"):
-        try:
-            carousel_payload         = format_for_contentdrips(slides)
-            image_urls, raw_response = request_render(carousel_payload)
-
-            logger.info("Carousel ready: %d images", len(image_urls))
-            return GenerateResponse(
-                slides=slide_models,
-                images=image_urls,
-                images_url=image_urls[0] if image_urls else None,
-                csv=csv_text,
-                debug={"raw_response": raw_response},
-            )
-
-        except (RuntimeError, TimeoutError) as exc:
-            logger.error("Contentdrips pipeline failed: %s", exc)
-            raise HTTPException(status_code=502, detail=str(exc))
-
-    # ── Step 3: CSV fallback (no Contentdrips key) ───────────────────────
-    logger.info("CONTENTDRIPS_API_KEY not set — returning CSV fallback")
-    return GenerateResponse(slides=slide_models, csv=csv_text)
+    return StreamingResponse(
+        _stream(topic),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 # ---------------------------------------------------------------------------

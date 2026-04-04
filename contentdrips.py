@@ -261,7 +261,7 @@ def _extract_images_from_export(export_url: str) -> list[str]:
 # Step 2: Submit render request → list[str] of image URLs (sync or async)
 # ---------------------------------------------------------------------------
 
-def request_render(carousel_payload: dict) -> tuple[list[str], dict]:
+def request_render(carousel_payload: dict, progress_callback=None) -> tuple[list[str], dict]:
     """
     POST to Contentdrips and return (image_urls, raw_response).
 
@@ -340,7 +340,7 @@ def request_render(carousel_payload: dict) -> tuple[list[str], dict]:
             polling_url = _base() + polling_url
 
         logger.info("Polling URL (resolved): %s", polling_url)
-        images = _poll(polling_url, job_id)
+        images = _poll(polling_url, job_id, progress_callback=progress_callback)
         return images, data
 
     # ── Neither path matched ──────────────────────────────────────────────
@@ -359,6 +359,7 @@ def _poll(
     job_id: str,
     poll_interval: int = 3,
     max_retries: int = 40,
+    progress_callback=None,
 ) -> list[str]:
     """
     Poll *polling_url* (given by the API) until the job completes.
@@ -386,6 +387,8 @@ def _poll(
         logger.info("Job %s status: %s", job_id, status)
 
         if status in ("queued", "processing"):
+            if progress_callback:
+                progress_callback({"step": "processing", "message": "Processing design..."})
             if attempt < max_retries:
                 time.sleep(poll_interval)
             continue

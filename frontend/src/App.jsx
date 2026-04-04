@@ -27,6 +27,7 @@ export default function App() {
   const [status, setStatus]     = useState('idle')   // idle | loading | done | error
   const [responseData, setData] = useState(null)     // full API response object
   const [errorMsg, setErrorMsg] = useState('')
+  const [stepMessage, setStepMessage] = useState('') // current SSE progress message
   const [toast, setToast]       = useState(null)     // { message, type }
 
   // Sync dark class on <html>
@@ -43,6 +44,7 @@ export default function App() {
     setStatus('loading')
     setData(null)
     setErrorMsg('')
+    setStepMessage('')
 
     // Append settings to the topic string — the backend takes a plain string
     let fullTopic = topic.trim()
@@ -70,12 +72,36 @@ export default function App() {
         throw new Error(body.detail || `Server error (${res.status})`)
       }
 
-      const data = await res.json()
-      setData(data)
-      setStatus('done')
-      showToast(
-        data.images?.length > 0 ? 'Carousel rendered!' : 'Slides generated!'
-      )
+      // Stream SSE events from the response body
+      const reader  = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer    = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() // keep any incomplete line for next chunk
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          let event
+          try { event = JSON.parse(line.slice(6)) } catch { continue }
+
+          if (event.step === 'complete') {
+            setData({ images: event.images ?? [], slides: event.slides ?? [], csv: event.csv ?? null })
+            setStatus('done')
+            showToast(event.images?.length > 0 ? 'Carousel rendered!' : 'Slides generated!')
+          } else if (event.step === 'error') {
+            setErrorMsg(event.message || 'Something went wrong.')
+            setStatus('error')
+            showToast(event.message || 'Something went wrong.', 'error')
+          } else {
+            setStepMessage(event.message || '')
+          }
+        }
+      }
     } catch (err) {
       const message = err.message?.includes('Failed to fetch')
         ? 'Could not reach the server. Check your connection.'
@@ -157,6 +183,7 @@ export default function App() {
             status={status}
             data={responseData}
             errorMsg={errorMsg}
+            stepMessage={stepMessage}
             onToast={showToast}
           />
         )}

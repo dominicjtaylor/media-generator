@@ -128,7 +128,7 @@ function ImageCard({ url, index }) {
 }
 
 // ---------------------------------------------------------------------------
-// Image gallery (shown when Contentdrips returns direct image URLs)
+// Image gallery — rendered PNG slides from the local Playwright pipeline
 // ---------------------------------------------------------------------------
 function ImagesGallery({ images, onToast }) {
   return (
@@ -250,7 +250,7 @@ export default function Output({ status, data, errorMsg, stepMessage, onToast })
 
   return (
     <div className="space-y-8">
-      {/* Rendered image gallery (Contentdrips mode) */}
+      {/* Rendered image gallery (Playwright PNG pipeline) */}
       {images.length > 0 && (
         <ImagesGallery images={images} onToast={onToast} />
       )}

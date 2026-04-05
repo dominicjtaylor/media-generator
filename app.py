@@ -62,6 +62,7 @@ def _sse(payload: dict) -> str:
 
 def _stream(topic: str) -> Generator[str, None, None]:
     """Sync generator that emits SSE events at each real pipeline stage."""
+    print("HTML PIPELINE ACTIVE")
 
     # Step 1: Generate slides via Claude
     logger.info("Generating slides for topic: %r", topic)
@@ -78,6 +79,7 @@ def _stream(topic: str) -> Generator[str, None, None]:
     slide_models = [{"heading": s["heading"], "description": s["description"]} for s in slides]
 
     # Step 2: Render slides to PNG via Playwright
+    print("Rendering slides via Playwright")
     yield _sse({"step": "rendering", "message": "Rendering slides..."})
 
     try:

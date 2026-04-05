@@ -124,11 +124,19 @@ def render_slides(
     # Screenshot each slide
     png_paths: list[str] = []
     try:
+        import os
+        print("PLAYWRIGHT PATH:", os.environ.get("PLAYWRIGHT_BROWSERS_PATH"))
         with sync_playwright() as pw:
-            # --no-sandbox is required in Railway/Docker environments where
-            # the process runs as root inside a container.
+            # --no-sandbox / --disable-setuid-sandbox: required in Railway/Docker
+            #   because the process runs as root inside the container.
+            # --disable-dev-shm-usage: /dev/shm is often only 64 MB in containers;
+            #   without this flag Chromium crashes on memory-intensive pages.
             browser = pw.chromium.launch(
-                args=["--no-sandbox", "--disable-setuid-sandbox"],
+                args=[
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                ],
             )
             try:
                 context = browser.new_context(

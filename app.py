@@ -106,6 +106,7 @@ def healthz():
 
 @app.post("/generate", tags=["carousel"])
 def generate(req: GenerateRequest):
+    print("=== NEW BACKEND RUNNING ===")
     topic = req.topic.strip()
     if not topic:
         raise HTTPException(status_code=422, detail="topic must not be empty")

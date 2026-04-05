@@ -61,6 +61,13 @@ def _generate_anthropic(topic: str) -> str:
         ) from exc
 
     api_key = os.environ.get("ANTHROPIC_API_KEY")
+
+    print("=== ANTHROPIC DEBUG ===")
+    print("KEY EXISTS:", api_key is not None)
+    print("KEY LENGTH:", len(api_key) if api_key else None)
+    print("KEY PREFIX:", api_key[:10] if api_key else None)
+    print("=======================")
+
     if not api_key:
         raise RuntimeError("ANTHROPIC_API_KEY not set in environment")
 

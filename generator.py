@@ -36,29 +36,43 @@ WORD_LIMITS = {
 # ---------------------------------------------------------------------------
 
 SYSTEM_PROMPT = """\
-You are an expert social media strategist creating high-impact Instagram carousel posts.
-Generate between 4 and 7 slides for the topic the user provides.
+You create high-performing Instagram carousel content.
 
-Structure:
-- Slide 1: type "hook" — one punchy phrase that stops the scroll
-- Slides 2 to (n-1): type "content" — one insight or tip per slide
-- Last slide: type "cta" — one clear call to action
+RULES:
+
+- Generate 4–7 slides
+- Slide structure:
+    Slide 1:      type "hook"    — one punchy phrase that stops the scroll
+    Slides 2–n-1: type "content" — one insight or tip per slide
+    Slide n:      type "cta"    — one clear call to action
+
+- MUST include at least one actionable tip using the pattern:
+    Instead of X → Try Y
+  (e.g. "Instead of long prompts → Try one clear instruction")
+
+- STRICT word limits (hard limits — never exceed):
+    hook:    max 8 words
+    content: max 15 words
+    cta:     max 12 words
+
+- Style:
+    - Short, punchy phrases only
+    - No fluff, no filler (just, really, very, simply, basically)
+    - No generic claims — be specific
+    - Beginner-friendly language
+
+- Every carousel must provide immediate, actionable value
 
 Return ONLY a JSON array — no markdown, no code fences, no extra text:
 [
   { "type": "hook",    "text": "..." },
   { "type": "content", "text": "..." },
-  { "type": "content", "text": "..." },
+  { "type": "content", "text": "Instead of X → Try Y" },
   { "type": "cta",     "text": "..." }
 ]
 
-Writing rules (STRICT):
-- hook:    max 8 words — bold, provocative, no fluff
-- content: max 15 words — one idea only, no comma-chained clauses
-- cta:     max 12 words — action verb first, direct, specific
-- No filler words (just, really, very, simply, basically)
-- No long sentences — prefer short punchy phrases
-- Every slide must be readable in under 2 seconds\
+If these rules cannot be followed for the given topic, still produce the
+best possible output — the system will validate and retry automatically.\
 """
 
 
@@ -87,6 +101,25 @@ def _enforce_slide_limits(slides: list[dict]) -> list[dict]:
             )
         result.append({**slide, "heading": enforced})
     return result
+
+
+# ---------------------------------------------------------------------------
+# Actionable tip validation
+# ---------------------------------------------------------------------------
+
+# Markers that indicate a concrete "Instead of X → Try Y" tip
+_TIP_MARKERS = ("instead of", "→", "->", "try this", "stop ", "swap ")
+
+
+def _has_actionable_tip(slides: list[dict]) -> bool:
+    """Return True if at least one content slide contains a concrete tip."""
+    for slide in slides:
+        if slide["type"] != "content":
+            continue
+        text_lower = slide["heading"].lower()
+        if any(marker in text_lower for marker in _TIP_MARKERS):
+            return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -119,7 +152,7 @@ def _generate_anthropic(topic: str) -> str:
         model="claude-sonnet-4-6",
         max_tokens=1024,
         system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": topic}],
+        messages=[{"role": "user", "content": f"Topic: {topic}"}],
     )
     return message.content[0].text
 
@@ -147,7 +180,7 @@ def _generate_openai(topic: str) -> str:
         model=os.environ.get("OPENAI_MODEL", "gpt-4o"),
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": topic},
+            {"role": "user", "content": f"Topic: {topic}"},
         ],
         max_tokens=1024,
         temperature=0.7,
@@ -256,7 +289,12 @@ def generate_slides(
             logger.debug("Raw LLM output: %s", raw[:500])
             slides = _parse_json_slides(raw)
             slides = _enforce_slide_limits(slides)
-            logger.info("Generated %d slides (word limits enforced)", len(slides))
+            if not _has_actionable_tip(slides):
+                raise ValueError(
+                    "No actionable tip found (expected 'Instead of X → Try Y' pattern). "
+                    "Retrying to enforce content quality."
+                )
+            logger.info("Generated %d slides (word limits enforced, tip present)", len(slides))
             return slides, ""
         except Exception as exc:
             logger.warning("Attempt %d/%d failed: %s", attempt, max_retries, exc)

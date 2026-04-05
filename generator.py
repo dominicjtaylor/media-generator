@@ -487,6 +487,7 @@ SPACING RULES (critical):
 
 STYLE:
   - One sentence per line
+  - Separate EVERY line with a blank line (\\n\\n) — never single line breaks
   - Short, clear, beginner-friendly language
   - No fluff or filler words
   - 5–8 lines of body text (excluding hashtag line)
@@ -582,8 +583,8 @@ def _format_caption(caption: str) -> str:
             seen.add(h.lower())
             unique_hashtags.append(h)
 
-    # Build final caption
-    body    = "\n".join(body_lines).strip()
+    # Build final caption — double newline between every line for Instagram spacing
+    body     = "\n\n".join(body_lines).strip()
     hashtags = " ".join(unique_hashtags)
 
     if hashtags:

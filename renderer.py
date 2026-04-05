@@ -108,10 +108,18 @@ def render_slides(
     # Write HTML files
     html_paths: list[Path] = []
     for i, slide in enumerate(slides):
+        html      = inject_slide(i, slide)
         html_path = out_dir / f"slide-{i + 1}.html"
-        html_path.write_text(inject_slide(i, slide), encoding="utf-8")
+        html_path.write_text(html, encoding="utf-8")
         html_paths.append(html_path)
-        logger.debug("Wrote HTML slide %d", i + 1)
+        logger.debug(
+            "Slide %d (%s) — heading: %r | description: %r | file: %s",
+            i + 1,
+            ["first", "content", "content", "content", "last"][i],
+            slide.get("heading", "")[:60],
+            slide.get("description", "")[:60],
+            html_path.name,
+        )
 
     # Screenshot each slide
     png_paths: list[str] = []
@@ -126,12 +134,25 @@ def render_slides(
                 for i, html_path in enumerate(html_paths):
                     page = context.new_page()
                     try:
-                        page.goto(
-                            f"file://{html_path.absolute()}",
-                            wait_until="networkidle",
-                            timeout=15_000,
-                        )
+                        url = f"file://{html_path.absolute()}"
+                        logger.debug("Loading slide %d — %s", i + 1, url)
+                        # Use domcontentloaded (not networkidle) so we don't block on the
+                        # Google Fonts CDN request.  The CDN URL contains @ and ; which
+                        # trigger Playwright's internal URL pattern matcher and cause
+                        # "The string did not match the expected pattern".
+                        page.goto(url, wait_until="domcontentloaded", timeout=15_000)
+                        # Wait for fonts — resolves even if the CDN is unreachable,
+                        # falling back to the system font stack defined in the templates.
+                        try:
+                            page.evaluate("document.fonts.ready")
+                        except Exception as font_exc:
+                            logger.warning(
+                                "Slide %d: font loading skipped (%s) — "
+                                "fallback fonts will be used",
+                                i + 1, font_exc,
+                            )
                         png_path = out_dir / f"slide-{i + 1}.png"
+                        logger.debug("Screenshotting slide %d → %s", i + 1, png_path.name)
                         page.screenshot(path=str(png_path), full_page=False)
                         png_paths.append(str(png_path))
                         logger.info("Rendered slide %d/%d", i + 1, len(slides))

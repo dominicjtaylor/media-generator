@@ -1,5 +1,5 @@
 # Rendering
-playwright>=1.44.0
+playwright==1.58.0
 
 # LLM backends (install at least one)
 anthropic>=0.28.0

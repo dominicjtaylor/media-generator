@@ -11,7 +11,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application files
 COPY . .
 
-# Railway injects PORT at runtime; default 8000 for local runs.
-# The FastAPI application object is defined in app.py (not main.py).
 EXPOSE 8000
-CMD ["sh", "-c", "uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000}"]
+
+# Python reads PORT from the environment — no shell expansion needed.
+CMD ["python", "app.py"]

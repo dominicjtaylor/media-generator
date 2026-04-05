@@ -67,7 +67,7 @@ def _stream(topic: str) -> Generator[str, None, None]:
 
     # Step 1: Generate slides via Claude
     logger.info("Generating slides for topic: %r", topic)
-    yield _sse({"step": "generating", "message": "Generating carousel content..."})
+    yield _sse({"step": "generating", "message": "Generating and refining carousel content..."})
 
     try:
         slides, caption = generate_slides(topic)

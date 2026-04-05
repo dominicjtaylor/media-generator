@@ -343,6 +343,119 @@ def _parse_json_slides(raw: str) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Review & improve pass
+# ---------------------------------------------------------------------------
+
+REVIEW_PROMPT = """\
+You are an expert Instagram content strategist. You will receive a set of carousel
+slides and return an IMPROVED version that is sharper, clearer, and more valuable.
+
+APPLY THESE FIXES:
+
+1. HOOK — must be a complete sentence with contrast, curiosity, or tension
+   BAD:  "Claude AI is powerful — most beginners waste"   ← cut off
+   GOOD: "Claude AI is powerful — most beginners use it **wrong**"
+
+2. REMOVE generic filler: "Welcome to...", "we post...", "our followers..."
+   Replace with direct insights or statements about the user.
+
+3. INCLUDE at least one concrete actionable tip:
+   Preferred format: "Instead of X → Try **Y**"
+
+4. STRUCTURE: Hook → Problem → Insight → Tip → Outcome → CTA
+
+5. WORD LIMITS (hard):
+   hook:    max 8 words
+   content: max 15 words
+   cta:     max 12 words
+
+6. EMPHASIS — use **word** markdown bold for 1–2 words per slide only:
+   ✓ Bold: outcomes (better, faster), contrasts (wrong, mistake), actions (specific, structured)
+   ✗ Never bold: filler (real, things), generic nouns (examples, potential)
+
+7. STYLE: short punchy phrases, no fluff, beginner-friendly, high clarity
+
+Return ONLY a JSON array in the same format as the input — no extra text:
+[
+  { "type": "hook",    "text": "..." },
+  { "type": "content", "text": "..." },
+  { "type": "cta",     "text": "..." }
+]\
+"""
+
+
+def _slides_to_review_input(slides: list[dict]) -> str:
+    """Format slides into a numbered list for the review LLM."""
+    lines = ["Current carousel slides:"]
+    for i, s in enumerate(slides):
+        lines.append(f"  {i + 1}. [{s['type'].upper()}] {s['heading']}")
+    return "\n".join(lines)
+
+
+def _review_anthropic(slides: list[dict]) -> str:
+    import anthropic
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise RuntimeError("ANTHROPIC_API_KEY not set")
+    client = anthropic.Anthropic(api_key=api_key)
+    msg = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=1024,
+        system=REVIEW_PROMPT,
+        messages=[{"role": "user", "content": _slides_to_review_input(slides)}],
+    )
+    return msg.content[0].text.strip()
+
+
+def _review_openai(slides: list[dict]) -> str:
+    from openai import OpenAI
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY not set")
+    client = OpenAI(api_key=api_key)
+    resp = client.chat.completions.create(
+        model=os.environ.get("OPENAI_MODEL", "gpt-4o"),
+        messages=[
+            {"role": "system", "content": REVIEW_PROMPT},
+            {"role": "user",   "content": _slides_to_review_input(slides)},
+        ],
+        max_tokens=1024,
+        temperature=0.7,
+    )
+    return resp.choices[0].message.content.strip()
+
+
+def review_and_improve(slides: list[dict]) -> list[dict]:
+    """Run a second LLM pass to improve slide quality.
+
+    Returns the improved slides parsed back into internal dict format.
+    On any failure returns the original slides unchanged so the pipeline
+    always has output to render.
+
+    Controlled by the REVIEW_ENABLED env var (default: true).
+    Set REVIEW_ENABLED=false to skip this step and save an LLM call.
+    """
+    if os.environ.get("REVIEW_ENABLED", "true").lower() == "false":
+        logger.info("Review pass disabled (REVIEW_ENABLED=false)")
+        return slides
+
+    provider = os.environ.get("LLM_PROVIDER", "anthropic").lower()
+    review_fn = _review_anthropic if provider == "anthropic" else _review_openai
+
+    try:
+        logger.info("Running review pass on %d slides", len(slides))
+        raw      = review_fn(slides)
+        improved = _parse_json_slides(raw)
+        improved = _enforce_slide_limits(improved)
+        improved = _enforce_bold_caps(improved)
+        logger.info("Review pass complete — %d slides returned", len(improved))
+        return improved
+    except Exception as exc:
+        logger.warning("Review pass failed (%s) — using original slides", exc)
+        return slides
+
+
+# ---------------------------------------------------------------------------
 # Caption generation
 # ---------------------------------------------------------------------------
 
@@ -563,6 +676,7 @@ def generate_slides(
                     "Retrying to enforce content quality."
                 )
             logger.info("Generated %d slides (word limits enforced, tip present)", len(slides))
+            slides  = review_and_improve(slides)
             caption = generate_caption(slides)
             return slides, caption
         except Exception as exc:

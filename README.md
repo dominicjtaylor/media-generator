@@ -247,6 +247,7 @@ Follow @claudeinsights for more AI tips
 | `LLM_PROVIDER` | No | `anthropic` (default) or `openai` |
 | `OPENAI_MODEL` | No | OpenAI model name (default: `gpt-4o`) |
 | `PORT` | No | Server port (default: `8000`) |
+| `REVIEW_ENABLED` | No | Set to `false` to skip the review pass and save one LLM call (default: `true`) |
 | `LOG_LEVEL` | No | Logging level (default: `INFO`) |
 
 Copy `.env.example` to `.env` and fill in the values before running locally.

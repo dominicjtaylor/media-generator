@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Final Slide</title>
+
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+<style>
+* {
+  margin:0;
+  padding:0;
+  box-sizing:border-box;
+  font-family:'Inter',sans-serif;
+}
+
+.slide {
+  width:1080px;
+  height:1350px;
+  background:linear-gradient(135deg,#111,#0a0a0a);
+  color:#fff;
+  padding:100px 90px;
+  position:relative;
+  overflow:hidden;
+}
+
+/* ---------- TEXT ---------- */
+
+.brand {
+  font-size:22px;
+  color:#cfcfcf;
+  opacity:.85;
+}
+
+.headline {
+  margin-top:220px;
+  font-size:90px;
+  font-weight:300;
+  line-height:1.05;
+  max-width:820px;
+}
+
+.headline strong {
+  font-weight:700;
+}
+
+.cta {
+  margin-top:70px;
+  display:inline-flex;
+  align-items:center;
+  gap:12px;
+  border:1px solid rgba(255,255,255,.4);
+  border-radius:999px;
+  padding:12px 22px;
+  font-size:18px;
+}
+
+.logo {
+  width:22px;
+  height:22px;
+  border-radius:50%;
+}
+
+/* ---------- HANDLE (FIX ADDED) ---------- */
+
+.handle {
+  position:absolute;
+  bottom:80px;
+  left:90px;
+  font-size:20px;
+  opacity:.7;
+}
+
+/* ---------- SHARED ACCENT SYSTEM ---------- */
+
+:root {
+  --circle-size:160px;
+  --circle-bottom:120px;
+  --circle-right:80px;
+  --accent:#e84a24;
+  --bar-height-pos: calc(var(--circle-bottom) + (var(--circle-size) / 2));
+}
+
+.circle {
+  position:absolute;
+  right:var(--circle-right);
+  bottom:var(--circle-bottom);
+  width:var(--circle-size);
+  height:var(--circle-size);
+  background:var(--accent);
+  border-radius:50%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  z-index:2;
+}
+
+.bar {
+  position:absolute;
+  height:12px;
+  background:var(--accent);
+  bottom:var(--bar-height-pos);
+  left:0;
+  width:calc(100% - var(--circle-right) - (var(--circle-size) / 2));
+  z-index:1;
+}
+
+/* ---------- ICON ---------- */
+
+.bookmark {
+  width:30px;
+  height:30px;
+  background:white;
+  clip-path: polygon(0 0,100% 0,100% 100%,50% 75%,0 100%);
+}
+
+</style>
+</head>
+
+<body>
+<div class="slide">
+
+  <div class="brand">Claude Insights</div>
+
+  <div class="headline">
+    {{TEXT}}
+  </div>
+
+  <div class="cta">
+    <img src="logo.png" class="logo">
+    Claude Insights
+  </div>
+
+  <!-- HANDLE (now included) -->
+  <div class="handle">@claudeinsights</div>
+
+  <!-- Bar -->
+  <div class="bar"></div>
+
+  <!-- Circle -->
+  <div class="circle">
+    <div class="bookmark"></div>
+  </div>
+
+</div>
+</body>
+</html>

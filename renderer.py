@@ -125,7 +125,11 @@ def render_slides(
     png_paths: list[str] = []
     try:
         with sync_playwright() as pw:
-            browser = pw.chromium.launch()
+            # --no-sandbox is required in Railway/Docker environments where
+            # the process runs as root inside a container.
+            browser = pw.chromium.launch(
+                args=["--no-sandbox", "--disable-setuid-sandbox"],
+            )
             try:
                 context = browser.new_context(
                     viewport={"width": 1080, "height": 1350},

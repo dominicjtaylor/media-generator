@@ -1,10 +1,15 @@
-# Railway build config
+# Railway build config — Nixpacks
 #
 # The React frontend is pre-built and committed to frontend/dist/.
 # To update the frontend: cd frontend && npm run build  →  commit  →  push.
 #
-# Playwright's Chromium browser is installed at build time so rendering
-# works immediately on first request.
+# PLAYWRIGHT_BROWSERS_PATH pins the Chromium binary to /app/.playwright-browsers
+# (inside the app working directory).  This guarantees the binary is present in
+# the runtime container — Railway's Nixpacks multi-stage build does NOT reliably
+# carry over ~/.cache between build and runtime.
+
+[variables]
+PLAYWRIGHT_BROWSERS_PATH = "/app/.playwright-browsers"
 
 [phases.install]
 cmds = [

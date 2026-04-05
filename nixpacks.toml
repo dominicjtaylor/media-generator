@@ -2,10 +2,15 @@
 #
 # The React frontend is pre-built and committed to frontend/dist/.
 # To update the frontend: cd frontend && npm run build  →  commit  →  push.
-# Railway only needs Python to run the API.
+#
+# Playwright's Chromium browser is installed at build time so rendering
+# works immediately on first request.
 
 [phases.install]
-cmds = ["pip install -r requirements.txt"]
+cmds = [
+  "pip install -r requirements.txt",
+  "playwright install --with-deps chromium"
+]
 
 [start]
 cmd = "uvicorn app:app --host 0.0.0.0 --port $PORT"

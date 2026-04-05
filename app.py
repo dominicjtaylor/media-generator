@@ -2,20 +2,18 @@
 app.py — FastAPI carousel generator + React frontend.
 
 API routes
-  POST /generate  { "topic": "..." }  →  { "images_url", "slides", "csv" }
+  POST /generate  { "topic": "..." }  →  SSE stream of progress events
   GET  /healthz   → { "status": "ok" }
-  GET  /docs      → Swagger UI
 
 Frontend (SPA)
   GET  /          → React app (index.html)
-  GET  /*         → React app (client-side routing fallback)
-  GET  /assets/*  → JS/CSS bundles (served as static files)
+  GET  /assets/*  → JS/CSS bundles
+  GET  /renders/* → rendered slide PNGs (served from /tmp/renders/)
 
 Pipeline
-  1. Claude generates slides (CSV validated internally)
-  2. If CONTENTDRIPS_API_KEY is set:
-       format slides → POST to Contentdrips → poll → return images_url
-  3. Else: return CSV as fallback (useful during development)
+  1. Claude generates 5 slides (JSON output)          → SSE step: "generating"
+  2. renderer.render_slides() → HTML + Playwright PNGs → SSE step: "rendering"
+  3. SSE step: "complete" { images: ["/renders/…/slide-n.png"] }
 """
 
 import json
@@ -34,14 +32,16 @@ load_dotenv()
 
 from utils import setup_logging
 from generator import generate_slides
-from contentdrips import format_for_contentdrips, request_render
+from renderer import render_slides
 
 setup_logging(os.environ.get("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("carousel.api")
 
-app = FastAPI(title="Carousel Generator API", version="1.0.0")
+app = FastAPI(title="Carousel Generator API", version="2.0.0")
 
-DIST = Path(__file__).parent / "frontend" / "dist"
+DIST        = Path(__file__).parent / "frontend" / "dist"
+RENDERS_DIR = Path("/tmp/renders")
+RENDERS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -53,13 +53,8 @@ class GenerateRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# API routes  — registered before static file mounts
+# SSE helpers
 # ---------------------------------------------------------------------------
-
-@app.get("/healthz", tags=["meta"])
-def healthz():
-    return {"status": "ok"}
-
 
 def _sse(payload: dict) -> str:
     return f"data: {json.dumps(payload)}\n\n"
@@ -67,12 +62,13 @@ def _sse(payload: dict) -> str:
 
 def _stream(topic: str) -> Generator[str, None, None]:
     """Sync generator that emits SSE events at each real pipeline stage."""
-    # ── Step 1: Generate slides via Claude ───────────────────────────────
+
+    # Step 1: Generate slides via Claude
     logger.info("Generating slides for topic: %r", topic)
     yield _sse({"step": "generating", "message": "Generating carousel content..."})
 
     try:
-        slides, csv_text = generate_slides(topic)
+        slides, _ = generate_slides(topic)
     except Exception as exc:
         logger.error("Slide generation failed: %s", exc)
         yield _sse({"step": "error", "message": f"Content generation failed: {exc}"})
@@ -81,36 +77,29 @@ def _stream(topic: str) -> Generator[str, None, None]:
     logger.info("Generated %d slides", len(slides))
     slide_models = [{"heading": s["heading"], "description": s["description"]} for s in slides]
 
-    # ── Step 2: Send to Contentdrips (if API key is configured) ──────────
-    yield _sse({"step": "designing", "message": "Designing slides..."})
+    # Step 2: Render slides to PNG via Playwright
+    yield _sse({"step": "rendering", "message": "Rendering slides..."})
 
-    if os.environ.get("CONTENTDRIPS_API_KEY"):
-        buffered_events: list[dict] = []
+    try:
+        png_paths, run_id = render_slides(slides, renders_base=str(RENDERS_DIR))
+    except Exception as exc:
+        logger.error("Rendering failed: %s", exc)
+        yield _sse({"step": "error", "message": f"Rendering failed: {exc}"})
+        return
 
-        def on_progress(event: dict) -> None:
-            buffered_events.append(event)
+    image_urls = [f"/renders/{run_id}/slide-{i + 1}.png" for i in range(len(png_paths))]
+    logger.info("Carousel ready: %d images for run %s", len(image_urls), run_id)
 
-        try:
-            carousel_payload = format_for_contentdrips(slides)
-            yield _sse({"step": "rendering", "message": "Rendering images..."})
+    yield _sse({"step": "complete", "images": image_urls, "slides": slide_models})
 
-            image_urls, _ = request_render(carousel_payload, progress_callback=on_progress)
 
-            # Emit any progress events collected during polling
-            for ev in buffered_events:
-                yield _sse(ev)
+# ---------------------------------------------------------------------------
+# API routes  -- registered before static file mounts
+# ---------------------------------------------------------------------------
 
-            logger.info("Carousel ready: %d images", len(image_urls))
-            yield _sse({"step": "complete", "images": image_urls, "slides": slide_models})
-
-        except (RuntimeError, TimeoutError) as exc:
-            logger.error("Contentdrips pipeline failed: %s", exc)
-            yield _sse({"step": "error", "message": str(exc)})
-
-    else:
-        # ── Step 3: CSV fallback (no Contentdrips key) ───────────────────
-        logger.info("CONTENTDRIPS_API_KEY not set — returning CSV fallback")
-        yield _sse({"step": "complete", "images": [], "slides": slide_models, "csv": csv_text})
+@app.get("/healthz", tags=["meta"])
+def healthz():
+    return {"status": "ok"}
 
 
 @app.post("/generate", tags=["carousel"])
@@ -127,7 +116,14 @@ def generate(req: GenerateRequest):
 
 
 # ---------------------------------------------------------------------------
-# Static assets (/assets/index-abc123.js, /assets/index-abc123.css)
+# Rendered PNGs  (/renders/<run_id>/slide-n.png)
+# ---------------------------------------------------------------------------
+
+app.mount("/renders", StaticFiles(directory=str(RENDERS_DIR)), name="renders")
+
+
+# ---------------------------------------------------------------------------
+# Frontend static assets (/assets/index-abc123.js, etc.)
 # ---------------------------------------------------------------------------
 
 _assets = DIST / "assets"
@@ -135,11 +131,11 @@ if _assets.exists():
     app.mount("/assets", StaticFiles(directory=str(_assets)), name="assets")
     logger.info("Serving frontend assets from %s", _assets)
 else:
-    logger.warning("frontend/dist/assets not found — run: cd frontend && npm run build")
+    logger.warning("frontend/dist/assets not found -- run: cd frontend && npm run build")
 
 
 # ---------------------------------------------------------------------------
-# SPA catch-all
+# SPA catch-all  (must be last -- after all mounts)
 # ---------------------------------------------------------------------------
 
 @app.get("/{full_path:path}", include_in_schema=False)

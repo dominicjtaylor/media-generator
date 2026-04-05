@@ -41,8 +41,8 @@ Rules:
 - Slide 1: Hook — grab attention immediately
 - Slides 2–4: Content — deliver value
 - Slide 5: CTA — call to action
-- heading: under 10 words
-- description: under 25 words
+- heading: plain text only, under 10 words
+- description: under 25 words; you may use <strong>word</strong> to bold key terms and <br> for line breaks
 - Professional, friendly, educational tone
 - Do not add any extra text.\
 """

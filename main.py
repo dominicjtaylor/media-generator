@@ -23,9 +23,8 @@ from dotenv import load_dotenv
 # Load .env before importing any module that reads env vars
 load_dotenv()
 
-from utils import setup_logging, output_dir, rename_downloaded_images, csv_path
-from generator import generate_csv
-from uploader import upload_and_download
+from utils import setup_logging
+from generator import generate_slides
 
 
 # ---------------------------------------------------------------------------
@@ -118,32 +117,20 @@ def process_topic(
     logger.info("TOPIC: %s", topic)
     logger.info("=" * 60)
 
-    # Step 1: Generate CSV
-    logger.info("[1/3] Generating CSV via LLM…")
-    csv = generate_csv(topic, max_retries=retries)
-    logger.info("CSV ready: %s", csv)
+    # Step 1: Generate slides via LLM
+    logger.info("Generating slides via LLM…")
+    slides, _ = generate_slides(topic, max_retries=retries)
+    logger.info("Generated %d slides", len(slides))
 
-    if skip_upload:
-        logger.info("--skip-upload set. Stopping after CSV generation.")
-        return
+    # Step 2: Render slides to PNG
+    from renderer import render_slides
+    from pathlib import Path
+    dest_dir = Path(output_base) / topic[:50].replace("/", "_")
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    logger.info("Rendering slides → %s", dest_dir)
+    png_paths, run_id = render_slides(slides, renders_base=str(dest_dir))
 
-    # Step 2: Upload & generate carousel
-    dest_dir = output_dir(topic, base=output_base)
-    logger.info("[2/3] Uploading to Contentdrips → output: %s", dest_dir)
-
-    downloaded = upload_and_download(
-        csv_path=csv,
-        output_dir=dest_dir,
-        headless=headless,
-        template_name=template,
-        max_retries=retries,
-    )
-
-    # Step 3: Rename images slide_1.png … slide_N.png
-    logger.info("[3/3] Renaming downloaded images…")
-    rename_downloaded_images(dest_dir)
-
-    logger.info("Done! %d image(s) saved to %s", len(downloaded), dest_dir)
+    logger.info("Done! %d image(s) saved to %s", len(png_paths), dest_dir)
 
 
 def generate_carousel(

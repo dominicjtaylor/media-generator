@@ -36,6 +36,7 @@ from renderer import render_slides
 
 setup_logging(os.environ.get("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("carousel.api")
+print("Starting FastAPI server...")
 
 app = FastAPI(title="Carousel Generator API", version="2.0.0")
 

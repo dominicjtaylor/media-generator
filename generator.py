@@ -43,7 +43,7 @@ RULES:
 
 - Generate 4–7 slides
 - Slide structure:
-    Slide 1:      type "hook"    — one punchy phrase that stops the scroll
+    Slide 1:      type "hook"    — stops the scroll; must be a COMPLETE thought
     Slides 2–n-1: type "content" — one insight or tip per slide
     Slide n:      type "cta"    — one clear call to action
 
@@ -56,14 +56,25 @@ RULES:
     content: max 15 words
     cta:     max 12 words
 
-- Selective emphasis using **word** markdown bold:
-    - Bold 1–3 key words per slide only
-    - Do NOT bold entire sentences or phrases
-    - Bold the word that carries the most meaning
-    - Examples:
-        "Better prompts = **dramatically** smarter answers"
-        "Instead of guessing → **test** one variable at a time"
-        "**Consistency** beats motivation every single time"
+HOOK RULES (critical):
+- The hook MUST be a complete sentence or complete contrast — never a trailing phrase
+- It must create curiosity OR reveal a contrast
+- BAD (incomplete): "Claude is powerful — if you know"
+- BAD (no payoff):  "Most people get this wrong"  ← too vague
+- GOOD (contrast):  "Claude is **powerful** — most people use it **wrong**"
+- GOOD (curiosity): "You're using Claude **backwards**"
+- GOOD (contrast):  "More prompts ≠ **better** results"
+
+EMPHASIS RULES (selective bold using **word**):
+- Bold 1–2 words per slide only — never more
+- ONLY bold words that carry real meaning:
+    ✓ Key outcomes:   **faster**, **smarter**, **dramatically**
+    ✓ Key contrasts:  **wrong**, **mistake**, **backwards**
+    ✓ Actionable words: **structured**, **specific**, **test**
+- NEVER bold:
+    ✗ Filler words: real, things, beginners, people, way
+    ✗ Generic nouns: potential, examples, results, content
+    ✗ Articles/conjunctions: the, a, and, or, if
 
 - Style:
     - Short, punchy phrases only
@@ -71,14 +82,12 @@ RULES:
     - No generic claims — be specific
     - Beginner-friendly language
 
-- Every carousel must provide immediate, actionable value
-
 Return ONLY a JSON array — no markdown, no code fences, no extra text:
 [
-  { "type": "hook",    "text": "Most people get this **wrong**" },
-  { "type": "content", "text": "Instead of guessing → **test** one variable at a time" },
-  { "type": "content", "text": "**Consistency** beats motivation every single time" },
-  { "type": "cta",     "text": "**Save** this and apply one tip today" }
+  { "type": "hook",    "text": "You're using Claude **backwards**" },
+  { "type": "content", "text": "Instead of long prompts → give **one** clear instruction" },
+  { "type": "content", "text": "**Specific** context = dramatically better answers" },
+  { "type": "cta",     "text": "**Save** this and fix your prompts today" }
 ]
 
 If these rules cannot be followed for the given topic, still produce the
@@ -126,7 +135,7 @@ def _enforce_slide_limits(slides: list[dict]) -> list[dict]:
 # Bold phrase cap (max 3 per slide)
 # ---------------------------------------------------------------------------
 
-def _cap_bold_phrases(text: str, max_bold: int = 3) -> str:
+def _cap_bold_phrases(text: str, max_bold: int = 2) -> str:
     """Strip **..** markers beyond the first *max_bold* occurrences."""
     count = 0
     def _replacer(m: re.Match) -> str:
@@ -144,6 +153,48 @@ def _enforce_bold_caps(slides: list[dict]) -> list[dict]:
             logger.info("Capped bold phrases on %s slide: %r", slide["type"], slide["heading"])
         result.append({**slide, "heading": capped})
     return result
+
+
+# ---------------------------------------------------------------------------
+# Hook completeness validation
+# ---------------------------------------------------------------------------
+
+# Words that signal a dangling / unfinished thought when they land last
+_DANGLING_ENDINGS = {
+    "if", "but", "and", "or", "so", "yet", "when", "unless", "because",
+    "although", "though", "while", "as", "since", "until", "than",
+    "the", "a", "an", "to", "for", "of", "in", "on", "at", "by",
+    "with", "about", "into", "know", "use", "do", "get", "have", "be",
+}
+
+
+def _is_complete_hook(text: str) -> bool:
+    """Return True if the hook text reads as a complete thought.
+
+    Rejects hooks that:
+    - End with a dangling conjunction, preposition, or verb
+    - End with an em-dash (—) suggesting a continuation that was cut off
+    - Contain an em-dash but fewer than 2 words after it (payoff too thin)
+    """
+    # Strip **markers** for plain-text analysis
+    plain = re.sub(r'\*\*(.*?)\*\*', r'\1', text).strip()
+
+    # Ends with em-dash → clearly unfinished
+    if plain.endswith("—") or plain.endswith("-"):
+        return False
+
+    # Last word is a dangling word
+    last_word = re.split(r'[\s—]+', plain)[-1].lower().rstrip(".,!?")
+    if last_word in _DANGLING_ENDINGS:
+        return False
+
+    # Em-dash present but payoff (words after it) is < 2 words → incomplete contrast
+    if "—" in plain:
+        after_dash = plain.split("—")[-1].strip()
+        if len(after_dash.split()) < 2:
+            return False
+
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -333,6 +384,12 @@ def generate_slides(
             slides = _parse_json_slides(raw)
             slides = _enforce_slide_limits(slides)
             slides = _enforce_bold_caps(slides)
+            hook_text = slides[0]["heading"]
+            if not _is_complete_hook(hook_text):
+                raise ValueError(
+                    f"Hook is not a complete thought: {hook_text!r}. "
+                    "Retrying for a hook with a full payoff."
+                )
             if not _has_actionable_tip(slides):
                 raise ValueError(
                     "No actionable tip found (expected 'Instead of X → Try Y' pattern). "

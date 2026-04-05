@@ -1,13 +1,8 @@
 # Railway build config — Nixpacks
 #
-# The React frontend is pre-built and committed to frontend/dist/.
-# To update the frontend: cd frontend && npm run build  →  commit  →  push.
-#
-# PLAYWRIGHT_BROWSERS_PATH is set in [variables] (runtime) AND inline in the
-# install command (build phase).  Both are required because Nixpacks does not
-# guarantee that [variables] entries are exported into the build shell.
-# Pinning to /app/.playwright-browsers ensures the binary is inside the app
-# working directory, which IS copied into the runtime container.
+# PLAYWRIGHT_BROWSERS_PATH is set explicitly inline on every playwright command
+# (not relied upon from [variables], which only applies at runtime) so that the
+# build phase writes Chromium into /app and the runtime container finds it there.
 
 [variables]
 PLAYWRIGHT_BROWSERS_PATH = "/app/.playwright-browsers"
@@ -15,7 +10,10 @@ PLAYWRIGHT_BROWSERS_PATH = "/app/.playwright-browsers"
 [phases.install]
 cmds = [
   "pip install -r requirements.txt",
-  "PLAYWRIGHT_BROWSERS_PATH=/app/.playwright-browsers python -m playwright install --with-deps chromium"
+  "mkdir -p /app/.playwright-browsers",
+  "PLAYWRIGHT_BROWSERS_PATH=/app/.playwright-browsers python -m playwright install-deps chromium",
+  "PLAYWRIGHT_BROWSERS_PATH=/app/.playwright-browsers python -m playwright install chromium",
+  "ls /app/.playwright-browsers || echo 'NO BROWSERS FOUND — install failed'"
 ]
 
 [start]

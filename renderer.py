@@ -29,11 +29,6 @@ import shutil
 import uuid
 from pathlib import Path
 
-# Force the browser path before Playwright is imported anywhere.
-# This cannot be overridden by Railway's env var propagation timing.
-_BROWSERS_PATH = "/app/.playwright-browsers"
-os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", _BROWSERS_PATH)
-
 logger = logging.getLogger("carousel.renderer")
 
 _ROOT         = Path(__file__).parent   # project root (templates live here)
@@ -130,12 +125,6 @@ def render_slides(
     # Screenshot each slide
     png_paths: list[str] = []
     try:
-        browsers_dir = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "NOT SET")
-        print("PLAYWRIGHT_BROWSERS_PATH:", browsers_dir)
-        if os.path.exists(browsers_dir):
-            print("FILES IN", browsers_dir + ":", os.listdir(browsers_dir))
-        else:
-            print("FILES IN", browsers_dir + ": NOT FOUND — Chromium was not installed here")
         with sync_playwright() as pw:
             # --no-sandbox / --disable-setuid-sandbox: required in Railway/Docker
             #   because the process runs as root inside the container.

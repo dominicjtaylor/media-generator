@@ -241,5 +241,25 @@ def main() -> int:
     return 0
 
 
+# ---------------------------------------------------------------------------
+# Web server entry point (Railway / Docker)
+# ---------------------------------------------------------------------------
+# Import the FastAPI app so uvicorn can find it as "main:app".
+# This does NOT interfere with the CLI code above.
+from app import app  # noqa: F401, E402
+
+def _serve() -> None:
+    import uvicorn
+    port = int(os.environ.get("PORT", 8000))
+    print("=== MAIN.PY IS RUNNING ===")
+    print(f"Starting server on port {port}")
+    uvicorn.run("main:app", host="0.0.0.0", port=port)
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    # If PORT is in the environment we are running as a web server (Railway).
+    # Otherwise fall through to the CLI.
+    if os.environ.get("PORT"):
+        _serve()
+    else:
+        sys.exit(main())

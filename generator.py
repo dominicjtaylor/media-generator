@@ -16,6 +16,7 @@ generate_slides(topic) → (list[dict], str)
 import json
 import logging
 import os
+import re
 import time
 from typing import Optional
 
@@ -55,6 +56,15 @@ RULES:
     content: max 15 words
     cta:     max 12 words
 
+- Selective emphasis using **word** markdown bold:
+    - Bold 1–3 key words per slide only
+    - Do NOT bold entire sentences or phrases
+    - Bold the word that carries the most meaning
+    - Examples:
+        "Better prompts = **dramatically** smarter answers"
+        "Instead of guessing → **test** one variable at a time"
+        "**Consistency** beats motivation every single time"
+
 - Style:
     - Short, punchy phrases only
     - No fluff, no filler (just, really, very, simply, basically)
@@ -65,10 +75,10 @@ RULES:
 
 Return ONLY a JSON array — no markdown, no code fences, no extra text:
 [
-  { "type": "hook",    "text": "..." },
-  { "type": "content", "text": "..." },
-  { "type": "content", "text": "Instead of X → Try Y" },
-  { "type": "cta",     "text": "..." }
+  { "type": "hook",    "text": "Most people get this **wrong**" },
+  { "type": "content", "text": "Instead of guessing → **test** one variable at a time" },
+  { "type": "content", "text": "**Consistency** beats motivation every single time" },
+  { "type": "cta",     "text": "**Save** this and apply one tip today" }
 ]
 
 If these rules cannot be followed for the given topic, still produce the
@@ -81,9 +91,18 @@ best possible output — the system will validate and retry automatically.\
 # ---------------------------------------------------------------------------
 
 def enforce_word_limit(text: str, max_words: int) -> str:
-    """Hard-truncate *text* to *max_words* words."""
+    """Hard-truncate *text* to *max_words* words.
+
+    Treats **word** markers as a single word token.
+    After truncation, any dangling opening ** without a closing ** is stripped
+    so the HTML renderer never sees an unclosed marker.
+    """
     words = text.split()
-    return " ".join(words[:max_words])
+    truncated = " ".join(words[:max_words])
+    # Remove any unclosed **marker (odd number of ** occurrences)
+    if truncated.count("**") % 2 != 0:
+        truncated = truncated.rsplit("**", 1)[0].rstrip()
+    return truncated
 
 
 def _enforce_slide_limits(slides: list[dict]) -> list[dict]:
@@ -100,6 +119,30 @@ def _enforce_slide_limits(slides: list[dict]) -> list[dict]:
                 slide_type, len(heading.split()), max_words, heading, enforced,
             )
         result.append({**slide, "heading": enforced})
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Bold phrase cap (max 3 per slide)
+# ---------------------------------------------------------------------------
+
+def _cap_bold_phrases(text: str, max_bold: int = 3) -> str:
+    """Strip **..** markers beyond the first *max_bold* occurrences."""
+    count = 0
+    def _replacer(m: re.Match) -> str:
+        nonlocal count
+        count += 1
+        return f"**{m.group(1)}**" if count <= max_bold else m.group(1)
+    return re.sub(r'\*\*(.*?)\*\*', _replacer, text)
+
+
+def _enforce_bold_caps(slides: list[dict]) -> list[dict]:
+    result = []
+    for slide in slides:
+        capped = _cap_bold_phrases(slide["heading"])
+        if capped != slide["heading"]:
+            logger.info("Capped bold phrases on %s slide: %r", slide["type"], slide["heading"])
+        result.append({**slide, "heading": capped})
     return result
 
 
@@ -289,6 +332,7 @@ def generate_slides(
             logger.debug("Raw LLM output: %s", raw[:500])
             slides = _parse_json_slides(raw)
             slides = _enforce_slide_limits(slides)
+            slides = _enforce_bold_caps(slides)
             if not _has_actionable_tip(slides):
                 raise ValueError(
                     "No actionable tip found (expected 'Instead of X → Try Y' pattern). "

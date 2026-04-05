@@ -25,6 +25,7 @@ Output
 
 import logging
 import os
+import re
 import shutil
 import uuid
 from pathlib import Path
@@ -34,6 +35,20 @@ logger = logging.getLogger("carousel.renderer")
 _ROOT         = Path(__file__).parent   # project root (templates live here)
 # Supports up to 5 content slides (7 total - hook - cta = 5)
 _CONTENT_NUMS = ["01", "02", "03", "04", "05"]
+
+
+# ---------------------------------------------------------------------------
+# Markdown bold → HTML
+# ---------------------------------------------------------------------------
+
+def _md_bold_to_html(text: str) -> str:
+    """Convert **word** markers to <strong>word</strong>.
+
+    Leaves text without markers at normal weight (font-weight: 300 in templates).
+    If no markers are present the text is returned unchanged — nothing is
+    auto-bolded.
+    """
+    return re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text)
 
 
 # ---------------------------------------------------------------------------
@@ -52,11 +67,13 @@ def inject_slide(index: int, slide: dict, total: int) -> str:
     heading     = (slide.get("heading")     or "").strip()
     description = (slide.get("description") or "").strip()
 
-    # Build the text block: description is omitted when empty (new concise format)
+    # Convert **word** markdown to <strong>word</strong>.
+    # If no markers exist the text renders at the template's base weight (300).
+    # Description (legacy field) is appended when present.
     if description:
-        text = f"<strong>{heading}</strong><br>{description}"
+        text = f"{_md_bold_to_html(heading)}<br>{_md_bold_to_html(description)}"
     else:
-        text = f"<strong>{heading}</strong>"
+        text = _md_bold_to_html(heading)
 
     last_index = total - 1
 

@@ -7,9 +7,10 @@ LLM_PROVIDER env var ("anthropic" | "openai").
 Public API
 ----------
 generate_slides(topic) → (list[dict], str)
-    Returns (slides, csv_text) where slides is a list of dicts with
-    "heading" and "description" keys, and csv_text is empty (kept for
-    backward compatibility with callers that ignore it).
+    Returns (slides, "") where slides is a list of dicts with
+    "type", "heading", and "description" keys (4–7 slides).
+    "type" is one of: "hook", "content", "cta".
+    csv_text is always "" (kept for API compatibility with callers that ignore it).
 """
 
 import json
@@ -21,31 +22,71 @@ from typing import Optional
 logger = logging.getLogger("carousel.generator")
 
 # ---------------------------------------------------------------------------
+# Word limits by slide type
+# ---------------------------------------------------------------------------
+
+WORD_LIMITS = {
+    "hook":    8,
+    "content": 15,
+    "cta":     12,
+}
+
+# ---------------------------------------------------------------------------
 # Prompt
 # ---------------------------------------------------------------------------
 
 SYSTEM_PROMPT = """\
-You are an expert social media strategist specializing in high-engagement Instagram carousel posts.
-Generate EXACTLY 5 slides for the topic the user provides.
+You are an expert social media strategist creating high-impact Instagram carousel posts.
+Generate between 4 and 7 slides for the topic the user provides.
 
-Return EXACTLY this JSON structure — no extra text, no markdown, no code fences:
+Structure:
+- Slide 1: type "hook" — one punchy phrase that stops the scroll
+- Slides 2 to (n-1): type "content" — one insight or tip per slide
+- Last slide: type "cta" — one clear call to action
+
+Return ONLY a JSON array — no markdown, no code fences, no extra text:
 [
-  { "heading": "...", "description": "..." },
-  { "heading": "...", "description": "..." },
-  { "heading": "...", "description": "..." },
-  { "heading": "...", "description": "..." },
-  { "heading": "...", "description": "..." }
+  { "type": "hook",    "text": "..." },
+  { "type": "content", "text": "..." },
+  { "type": "content", "text": "..." },
+  { "type": "cta",     "text": "..." }
 ]
 
-Rules:
-- Slide 1: Hook — grab attention immediately
-- Slides 2–4: Content — deliver value
-- Slide 5: CTA — call to action
-- heading: plain text only, under 10 words
-- description: under 25 words; you may use <strong>word</strong> to bold key terms and <br> for line breaks
-- Professional, friendly, educational tone
-- Do not add any extra text.\
+Writing rules (STRICT):
+- hook:    max 8 words — bold, provocative, no fluff
+- content: max 15 words — one idea only, no comma-chained clauses
+- cta:     max 12 words — action verb first, direct, specific
+- No filler words (just, really, very, simply, basically)
+- No long sentences — prefer short punchy phrases
+- Every slide must be readable in under 2 seconds\
 """
+
+
+# ---------------------------------------------------------------------------
+# Word-limit enforcement (applied in code — never rely on LLM to obey)
+# ---------------------------------------------------------------------------
+
+def enforce_word_limit(text: str, max_words: int) -> str:
+    """Hard-truncate *text* to *max_words* words."""
+    words = text.split()
+    return " ".join(words[:max_words])
+
+
+def _enforce_slide_limits(slides: list[dict]) -> list[dict]:
+    """Ensure every slide's heading respects the word limit for its type."""
+    result = []
+    for slide in slides:
+        slide_type = slide["type"]
+        max_words  = WORD_LIMITS.get(slide_type, 15)
+        heading    = slide["heading"]
+        enforced   = enforce_word_limit(heading, max_words)
+        if enforced != heading:
+            logger.info(
+                "Truncated %s slide from %d words to %d: %r → %r",
+                slide_type, len(heading.split()), max_words, heading, enforced,
+            )
+        result.append({**slide, "heading": enforced})
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -125,7 +166,6 @@ def _parse_json_slides(raw: str) -> list[dict]:
     # Strip markdown code fences if the model wrapped output anyway
     if text.startswith("```"):
         parts = text.split("```")
-        # parts[1] is the content between first pair of fences
         text = parts[1].strip()
         if text.startswith("json"):
             text = text[4:].strip()
@@ -138,18 +178,39 @@ def _parse_json_slides(raw: str) -> list[dict]:
     if not isinstance(slides, list):
         raise ValueError(f"Expected JSON array, got {type(slides).__name__}")
 
-    if len(slides) != 5:
-        raise ValueError(f"Expected exactly 5 slides, got {len(slides)}")
+    if not (4 <= len(slides) <= 7):
+        raise ValueError(f"Expected 4–7 slides, got {len(slides)}")
 
+    valid_types = {"hook", "content", "cta"}
     result = []
     for i, s in enumerate(slides):
         if not isinstance(s, dict):
             raise ValueError(f"Slide {i} is not a JSON object")
-        heading     = (s.get("heading")     or "").strip()
-        description = (s.get("description") or "").strip()
-        if not heading:
-            raise ValueError(f"Slide {i} is missing a non-empty 'heading'")
-        result.append({"heading": heading, "description": description})
+
+        slide_type = (s.get("type") or "").strip().lower()
+        text_val   = (s.get("text") or "").strip()
+
+        if slide_type not in valid_types:
+            raise ValueError(
+                f"Slide {i} has invalid type {slide_type!r}. "
+                f"Must be one of: {sorted(valid_types)}"
+            )
+        if not text_val:
+            raise ValueError(f"Slide {i} has empty 'text'")
+
+        # Normalise to internal renderer format:
+        #   heading = the full slide text; description = "" (unused with new concise format)
+        result.append({
+            "type":        slide_type,
+            "heading":     text_val,
+            "description": "",
+        })
+
+    # Validate structure: first=hook, last=cta
+    if result[0]["type"] != "hook":
+        raise ValueError(f"First slide must be 'hook', got {result[0]['type']!r}")
+    if result[-1]["type"] != "cta":
+        raise ValueError(f"Last slide must be 'cta', got {result[-1]['type']!r}")
 
     return result
 
@@ -168,9 +229,11 @@ def generate_slides(
     Returns
     -------
     slides : list[dict]
-        Each dict has "heading" and "description" keys. Always 5 items.
+        Each dict has "type", "heading", and "description" keys.
+        "type" is "hook", "content", or "cta". 4–7 slides total.
+        Word limits are enforced in code regardless of LLM output.
     csv_text : str
-        Empty string (kept for API compatibility with callers that ignore it).
+        Always "". Kept for API compatibility with callers that ignore it.
     """
     provider = os.environ.get("LLM_PROVIDER", "anthropic").lower()
     backends = {
@@ -192,7 +255,8 @@ def generate_slides(
             raw    = backend(topic)
             logger.debug("Raw LLM output: %s", raw[:500])
             slides = _parse_json_slides(raw)
-            logger.info("Parsed %d slides from JSON response", len(slides))
+            slides = _enforce_slide_limits(slides)
+            logger.info("Generated %d slides (word limits enforced)", len(slides))
             return slides, ""
         except Exception as exc:
             logger.warning("Attempt %d/%d failed: %s", attempt, max_retries, exc)

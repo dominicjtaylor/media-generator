@@ -77,7 +77,10 @@ def _stream(topic: str) -> Generator[str, None, None]:
         return
 
     logger.info("Generated %d slides", len(slides))
-    slide_models = [{"heading": s["heading"], "description": s["description"]} for s in slides]
+    slide_models = [
+        {"type": s.get("type", "content"), "heading": s["heading"], "description": s.get("description", "")}
+        for s in slides
+    ]
 
     # Step 2: Render slides to PNG via Playwright
     print("Rendering slides via Playwright")

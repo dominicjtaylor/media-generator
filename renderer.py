@@ -3,19 +3,19 @@ renderer.py -- HTML template injection + Playwright PNG rendering.
 
 Pipeline
 --------
-  1. inject_slide(index, slide)  -> HTML string
-  2. render_slides(slides)       -> (png_paths, run_id)
+  1. inject_slide(index, slide, total)  -> HTML string
+  2. render_slides(slides)              -> (png_paths, run_id)
 
 Template mapping
 ----------------
-  index 0   -> slide-first.html
-  index 1-3 -> slide-content.html   ({{NUMBER}} = "01" ... "03")
-  index 4   -> slide-last.html
+  index 0          -> slide-first.html
+  index 1 to n-2   -> slide-content.html   ({{NUMBER}} = "01" ... "05")
+  index n-1        -> slide-last.html
 
 Placeholders
 ------------
-  {{TEXT}}   -- raw HTML; <strong> and <br> intentionally NOT escaped
-  {{NUMBER}} -- zero-padded content-slide number ("01", "02", "03")
+  {{TEXT}}   -- raw HTML; <strong> intentionally NOT escaped
+  {{NUMBER}} -- zero-padded content-slide number ("01"–"05")
 
 Output
 ------
@@ -32,30 +32,44 @@ from pathlib import Path
 logger = logging.getLogger("carousel.renderer")
 
 _ROOT         = Path(__file__).parent   # project root (templates live here)
-_CONTENT_NUMS = ["01", "02", "03"]      # for slide indices 1, 2, 3
+# Supports up to 5 content slides (7 total - hook - cta = 5)
+_CONTENT_NUMS = ["01", "02", "03", "04", "05"]
 
 
 # ---------------------------------------------------------------------------
 # Step 1: HTML injection
 # ---------------------------------------------------------------------------
 
-def inject_slide(index: int, slide: dict) -> str:
-    """Inject slide data into the appropriate HTML template."""
+def inject_slide(index: int, slide: dict, total: int) -> str:
+    """Inject slide data into the appropriate HTML template.
+
+    Parameters
+    ----------
+    index : int   0-based position in the slide list.
+    slide : dict  Must contain "heading"; "description" is optional.
+    total : int   Total number of slides (determines which index is the last).
+    """
     heading     = (slide.get("heading")     or "").strip()
     description = (slide.get("description") or "").strip()
 
+    # Build the text block: description is omitted when empty (new concise format)
+    if description:
+        text = f"<strong>{heading}</strong><br>{description}"
+    else:
+        text = f"<strong>{heading}</strong>"
+
+    last_index = total - 1
+
     if index == 0:
         template_name = "slide-first.html"
-        text   = f"<strong>{heading}</strong><br>{description}"
-        number = None
-    elif index == 4:
+        number        = None
+    elif index == last_index:
         template_name = "slide-last.html"
-        text   = f"<strong>{heading}</strong><br>{description}"
-        number = None
+        number        = None
     else:
         template_name = "slide-content.html"
-        text   = f"<strong>{heading}</strong><br>{description}"
-        number = _CONTENT_NUMS[index - 1]
+        content_index = index - 1          # 0-based among content slides
+        number        = _CONTENT_NUMS[content_index]
 
     template_path = _ROOT / template_name
     if not template_path.exists():
@@ -66,7 +80,7 @@ def inject_slide(index: int, slide: dict) -> str:
         )
 
     html = template_path.read_text(encoding="utf-8")
-    html = html.replace("{{TEXT}}", text)           # raw -- no escaping
+    html = html.replace("{{TEXT}}", text)
     if number is not None:
         html = html.replace("{{NUMBER}}", number)
 
@@ -91,8 +105,9 @@ def render_slides(
     """
     from playwright.sync_api import sync_playwright, Error as PlaywrightError
 
-    if len(slides) != 5:
-        raise ValueError(f"Expected exactly 5 slides, got {len(slides)}")
+    n = len(slides)
+    if not (4 <= n <= 7):
+        raise ValueError(f"Expected 4–7 slides, got {n}")
 
     run_id  = uuid.uuid4().hex
     out_dir = Path(renders_base) / run_id
@@ -109,16 +124,16 @@ def render_slides(
     # Write HTML files
     html_paths: list[Path] = []
     for i, slide in enumerate(slides):
-        html      = inject_slide(i, slide)
+        html      = inject_slide(i, slide, total=n)
         html_path = out_dir / f"slide-{i + 1}.html"
         html_path.write_text(html, encoding="utf-8")
         html_paths.append(html_path)
+        slide_role = "first" if i == 0 else ("last" if i == n - 1 else "content")
         logger.debug(
-            "Slide %d (%s) — heading: %r | description: %r | file: %s",
-            i + 1,
-            ["first", "content", "content", "content", "last"][i],
+            "Slide %d/%d (%s) — type: %s | text: %r | file: %s",
+            i + 1, n, slide_role,
+            slide.get("type", "unknown"),
             slide.get("heading", "")[:60],
-            slide.get("description", "")[:60],
             html_path.name,
         )
 

@@ -349,24 +349,37 @@ def _parse_json_slides(raw: str) -> list[dict]:
 CAPTION_PROMPT = """\
 You write high-performing Instagram captions for carousel posts about Claude AI.
 
-Given the carousel slides below, write a caption that:
+Given the carousel slides below, write a caption that matches this EXACT format:
 
-STRUCTURE (follow this exactly):
-  Line 1:   Strong hook — rephrase or reinforce the first slide (create curiosity)
-  Lines 2–3: Expand on the problem or insight in 1 sentence each
-  Lines 4–5: Quick value or takeaway — 1 sentence each
-  Final line: CTA — end with "Follow @claudeinsights for more AI tips"
-              (you may slightly rephrase but keep the intent and handle)
+---
+[Hook line — rephrase or reinforce the first slide]
+
+[Insight or problem line]
+[Insight or problem line]
+
+[Value or takeaway line]
+[Value or takeaway line]
+
+Follow @claudeinsights for more AI tips
+
+#ClaudeAI #AItools #Productivity
+---
+
+SPACING RULES (critical):
+  - Separate each thematic block with ONE blank line (\\n\\n)
+  - The CTA line ("Follow @claudeinsights...") must be on its OWN line
+  - Hashtags must be on their OWN line, separated from CTA by a blank line (\\n\\n)
+  - NEVER place hashtags on the same line as the CTA
+  - NEVER run hashtags directly after CTA without a blank line
 
 STYLE:
-  - One sentence per line maximum
+  - One sentence per line
   - Short, clear, beginner-friendly language
-  - No paragraphs, no fluff
-  - Lines separated by a single newline (\\n)
-  - 5–8 lines total
+  - No fluff or filler words
+  - 5–8 lines of body text (excluding hashtag line)
 
-HASHTAGS (optional but preferred):
-  - Add 3–5 relevant hashtags on the last line after the CTA
+HASHTAGS:
+  - 3–5 relevant hashtags
   - Use: #ClaudeAI #AItools #Productivity #ChatGPT #AITips or similar
 
 OUTPUT:
@@ -417,6 +430,54 @@ def _generate_caption_openai(slides: list[dict]) -> str:
     return response.choices[0].message.content.strip()
 
 
+def _format_caption(caption: str) -> str:
+    """Enforce correct caption spacing regardless of LLM output.
+
+    Rules applied deterministically:
+    - Hashtag tokens (#word) are collected and moved to their own block
+    - CTA line (contains @claudeinsights) is ensured to be on its own line
+    - Body and hashtag block are separated by exactly two newlines
+    - Trailing/leading whitespace is stripped
+    """
+    lines = [l.rstrip() for l in caption.splitlines()]
+
+    # Separate hashtag lines from body lines
+    hashtag_tokens: list[str] = []
+    body_lines:     list[str] = []
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        # A line is treated as a hashtag line if ALL non-empty tokens start with #
+        tokens = stripped.split()
+        if tokens and all(t.startswith('#') for t in tokens):
+            hashtag_tokens.extend(tokens)
+        else:
+            # Inline hashtags mixed with text: split them out
+            text_parts = [t for t in tokens if not t.startswith('#')]
+            hash_parts = [t for t in tokens if t.startswith('#')]
+            if text_parts:
+                body_lines.append(" ".join(text_parts))
+            hashtag_tokens.extend(hash_parts)
+
+    # Deduplicate hashtags while preserving order
+    seen: set[str] = set()
+    unique_hashtags: list[str] = []
+    for h in hashtag_tokens:
+        if h.lower() not in seen:
+            seen.add(h.lower())
+            unique_hashtags.append(h)
+
+    # Build final caption
+    body    = "\n".join(body_lines).strip()
+    hashtags = " ".join(unique_hashtags)
+
+    if hashtags:
+        return f"{body}\n\n{hashtags}"
+    return body
+
+
 def _validate_caption(caption: str) -> None:
     """Raise ValueError if the caption is missing required elements."""
     lower = caption.lower()
@@ -435,6 +496,7 @@ def generate_caption(slides: list[dict], max_retries: int = 2) -> str:
     for attempt in range(1, max_retries + 1):
         try:
             caption = gen_fn(slides)
+            caption = _format_caption(caption)
             _validate_caption(caption)
             logger.info("Caption generated (%d lines)", len([l for l in caption.splitlines() if l.strip()]))
             return caption

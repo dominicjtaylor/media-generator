@@ -70,7 +70,7 @@ def _stream(topic: str) -> Generator[str, None, None]:
     yield _sse({"step": "generating", "message": "Generating carousel content..."})
 
     try:
-        slides, _ = generate_slides(topic)
+        slides, caption = generate_slides(topic)
     except Exception as exc:
         logger.error("Slide generation failed: %s", exc)
         yield _sse({"step": "error", "message": f"Content generation failed: {exc}"})
@@ -96,7 +96,7 @@ def _stream(topic: str) -> Generator[str, None, None]:
     image_urls = [f"/renders/{run_id}/slide-{i + 1}.png" for i in range(len(png_paths))]
     logger.info("Carousel ready: %d images for run %s", len(image_urls), run_id)
 
-    yield _sse({"step": "complete", "images": image_urls, "slides": slide_models})
+    yield _sse({"step": "complete", "images": image_urls, "slides": slide_models, "caption": caption})
 
 
 # ---------------------------------------------------------------------------

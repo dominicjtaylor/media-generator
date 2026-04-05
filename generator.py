@@ -7,10 +7,10 @@ LLM_PROVIDER env var ("anthropic" | "openai").
 Public API
 ----------
 generate_slides(topic) → (list[dict], str)
-    Returns (slides, "") where slides is a list of dicts with
-    "type", "heading", and "description" keys (4–7 slides).
+    Returns (slides, caption) where slides is a list of dicts with
+    "type", "heading", and "description" keys (4–7 slides), and caption
+    is a ready-to-post Instagram caption string.
     "type" is one of: "hook", "content", "cta".
-    csv_text is always "" (kept for API compatibility with callers that ignore it).
 """
 
 import json
@@ -343,6 +343,110 @@ def _parse_json_slides(raw: str) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Caption generation
+# ---------------------------------------------------------------------------
+
+CAPTION_PROMPT = """\
+You write high-performing Instagram captions for carousel posts about Claude AI.
+
+Given the carousel slides below, write a caption that:
+
+STRUCTURE (follow this exactly):
+  Line 1:   Strong hook — rephrase or reinforce the first slide (create curiosity)
+  Lines 2–3: Expand on the problem or insight in 1 sentence each
+  Lines 4–5: Quick value or takeaway — 1 sentence each
+  Final line: CTA — end with "Follow @claudeinsights for more AI tips"
+              (you may slightly rephrase but keep the intent and handle)
+
+STYLE:
+  - One sentence per line maximum
+  - Short, clear, beginner-friendly language
+  - No paragraphs, no fluff
+  - Lines separated by a single newline (\\n)
+  - 5–8 lines total
+
+HASHTAGS (optional but preferred):
+  - Add 3–5 relevant hashtags on the last line after the CTA
+  - Use: #ClaudeAI #AItools #Productivity #ChatGPT #AITips or similar
+
+OUTPUT:
+  Return ONLY the caption text — no JSON, no quotes, no extra commentary.\
+"""
+
+
+def _build_caption_user_message(slides: list[dict]) -> str:
+    """Format slides into a compact message for the caption LLM call."""
+    lines = ["Carousel slides:"]
+    for i, s in enumerate(slides):
+        # Strip **markers** so the caption LLM sees clean text
+        plain = re.sub(r'\*\*(.*?)\*\*', r'\1', s["heading"])
+        lines.append(f"  {i + 1}. [{s['type'].upper()}] {plain}")
+    return "\n".join(lines)
+
+
+def _generate_caption_anthropic(slides: list[dict]) -> str:
+    import anthropic
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise RuntimeError("ANTHROPIC_API_KEY not set")
+    client = anthropic.Anthropic(api_key=api_key)
+    message = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=512,
+        system=CAPTION_PROMPT,
+        messages=[{"role": "user", "content": _build_caption_user_message(slides)}],
+    )
+    return message.content[0].text.strip()
+
+
+def _generate_caption_openai(slides: list[dict]) -> str:
+    from openai import OpenAI
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY not set")
+    client = OpenAI(api_key=api_key)
+    response = client.chat.completions.create(
+        model=os.environ.get("OPENAI_MODEL", "gpt-4o"),
+        messages=[
+            {"role": "system", "content": CAPTION_PROMPT},
+            {"role": "user",   "content": _build_caption_user_message(slides)},
+        ],
+        max_tokens=512,
+        temperature=0.7,
+    )
+    return response.choices[0].message.content.strip()
+
+
+def _validate_caption(caption: str) -> None:
+    """Raise ValueError if the caption is missing required elements."""
+    lower = caption.lower()
+    if "@claudeinsights" not in lower:
+        raise ValueError("Caption missing @claudeinsights CTA — retrying.")
+    lines = [l for l in caption.splitlines() if l.strip()]
+    if len(lines) < 4:
+        raise ValueError(f"Caption too short ({len(lines)} lines) — retrying.")
+
+
+def generate_caption(slides: list[dict], max_retries: int = 2) -> str:
+    """Generate an Instagram caption aligned with the given slides."""
+    provider = os.environ.get("LLM_PROVIDER", "anthropic").lower()
+    gen_fn   = _generate_caption_anthropic if provider == "anthropic" else _generate_caption_openai
+    last_err = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            caption = gen_fn(slides)
+            _validate_caption(caption)
+            logger.info("Caption generated (%d lines)", len([l for l in caption.splitlines() if l.strip()]))
+            return caption
+        except Exception as exc:
+            logger.warning("Caption attempt %d/%d failed: %s", attempt, max_retries, exc)
+            last_err = exc
+    # Non-fatal: return a safe fallback rather than crashing the whole pipeline
+    logger.error("Caption generation failed after %d attempts — using fallback", max_retries)
+    return "Follow @claudeinsights for more AI tips 🤖\n\n#ClaudeAI #AItools #Productivity"
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -359,8 +463,9 @@ def generate_slides(
         Each dict has "type", "heading", and "description" keys.
         "type" is "hook", "content", or "cta". 4–7 slides total.
         Word limits are enforced in code regardless of LLM output.
-    csv_text : str
-        Always "". Kept for API compatibility with callers that ignore it.
+    caption : str
+        Ready-to-post Instagram caption aligned with the slides.
+        Falls back to a minimal CTA string if caption generation fails.
     """
     provider = os.environ.get("LLM_PROVIDER", "anthropic").lower()
     backends = {
@@ -396,7 +501,8 @@ def generate_slides(
                     "Retrying to enforce content quality."
                 )
             logger.info("Generated %d slides (word limits enforced, tip present)", len(slides))
-            return slides, ""
+            caption = generate_caption(slides)
+            return slides, caption
         except Exception as exc:
             logger.warning("Attempt %d/%d failed: %s", attempt, max_retries, exc)
             last_error = exc

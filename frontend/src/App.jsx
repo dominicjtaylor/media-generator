@@ -17,6 +17,7 @@ const MOCK_DATA = {
   images:     [],    // set to array of PNG URLs to test image gallery
   images_url: null,
   csv:        null,
+  caption:    "You're probably journaling wrong — here's what actually works.\n\nMost people write vague entries and wonder why nothing changes.\nThe problem isn't the habit, it's the structure.\n\nThree focused sentences beats three unfocused pages.\nReview last week's entry before writing today's.\n\nFollow @claudeinsights for more AI tips\n\n#Journaling #Productivity #AITools #SelfImprovement",
 }
 
 // ---------------------------------------------------------------------------
@@ -90,7 +91,7 @@ export default function App() {
           try { event = JSON.parse(line.slice(6)) } catch { continue }
 
           if (event.step === 'complete') {
-            setData({ images: event.images ?? [], slides: event.slides ?? [], csv: event.csv ?? null })
+            setData({ images: event.images ?? [], slides: event.slides ?? [], csv: event.csv ?? null, caption: event.caption ?? null })
             setStatus('done')
             showToast(event.images?.length > 0 ? 'Carousel rendered!' : 'Slides generated!')
           } else if (event.step === 'error') {

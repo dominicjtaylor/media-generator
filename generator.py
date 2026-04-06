@@ -38,88 +38,59 @@ WORD_LIMITS = {
 
 def _build_system_prompt(num_slides: int) -> str:
     """Return the generation system prompt with the exact slide count baked in."""
-    slide_list = "\n".join(
-        f"  Slide {i + 1}: {'HOOK' if i == 0 else 'CTA' if i == num_slides - 1 else 'CONTENT'}"
-        for i in range(num_slides)
-    )
+    content_count = num_slides - 2
     return f"""\
-You are an expert Instagram carousel creator specialising in beginner-friendly Claude AI content.
+You are an API that generates Instagram carousel slides about Claude AI for beginners.
 
-SLIDE COUNT (STRICT): Generate EXACTLY {num_slides} slides — no more, no fewer.
+Return ONLY valid JSON. No text outside JSON. No markdown. No code blocks. No explanation.
+
+---
+
+SLIDE COUNT (CRITICAL):
+
+Generate EXACTLY {num_slides} slides. There are NO other slide count rules.
+Ignore any prior assumptions about slide counts.
 
 Structure:
-{slide_list}
+- Slide 1 = hook
+- Slides 2 to {num_slides - 1} = content  ({content_count} content slide{"s" if content_count != 1 else ""})
+- Slide {num_slides} = cta
 
 ---
 
 REAL PROMPT EXAMPLE (MANDATORY):
-At least ONE content slide MUST include a real, usable Claude prompt example.
+
+At least ONE content slide must include a real, usable Claude prompt a beginner can copy.
 
 Accepted formats:
-
-  A) Instead of → Try this
-     Instead of: "Explain this"
-     Try: "Explain this **simply** with 3 examples"
-
-  B) Bad → Better
-     Bad: "Summarise this"
-     Better: "Summarise this in **bullet points** with key takeaways"
-
-  C) Direct usable prompt in quotes:
-     "Explain this step-by-step in **simple** terms with examples"
-
-Rules:
-- Must be specific and realistic — something a beginner could copy and use today
-- Must NOT be vague or generic
+  Instead of: "Explain this" → Try: "Explain this simply with 3 examples"
+  Bad: "Summarise this" / Better: "Summarise this in bullet points with key takeaways"
+  Or a direct quoted prompt: "Act as a teacher and explain X step by step"
 
 ---
 
-DEPTH (every content slide must do ONE of these):
-  • Concrete example (before/after, quoted prompt, micro-demo)
-  • Short explanation using "because…"
-  • Comparison (bad → good, wrong → right)
-  Never write empty claims like "this improves results" without showing HOW or WHY.
+QUALITY RULES:
+
+- Hook: complete sentence, contrast or curiosity, max 8 words
+- Content: one idea with example, explanation, or comparison — 12–18 words
+- CTA: action-oriented, max 12 words
+- Use **word** to bold 1–2 key words per slide (outcomes, contrasts, actions only)
+- No filler, no empty claims — show HOW or WHY
 
 ---
 
-WORD LIMITS (hard — never exceed):
-  hook:    max 8 words
-  content: 12–18 words
-  cta:     max 12 words
-
-Slides must feel complete, not cut off.
-
----
-
-HOOK RULES:
-  • Must be a COMPLETE sentence — never a trailing phrase
-  • Must create curiosity, contrast, or highlight a mistake
-  BAD:  "Claude is powerful — most people waste"     ← cut off
-  GOOD: "Claude is powerful — most people use it **wrong**"
-
----
-
-EMPHASIS (selective bold using **word**):
-  • 1–2 bold words per slide only
-  • Bold ONLY: outcomes (better, faster, clearer), contrasts (wrong, mistake), actions (specific, structured)
-  • NEVER bold: filler words, generic nouns, articles/conjunctions
-
----
-
-STYLE: short, punchy, beginner-friendly, no fluff.
-
-OUTPUT FORMAT (STRICT):
-Return ONLY valid JSON — no text before or after, no markdown, no code fences, no comments.
-The "slides" array MUST contain EXACTLY {num_slides} objects:
+OUTPUT FORMAT:
 
 {{
   "slides": [
-    {{"type": "hook",    "text": "Claude is powerful — most people use it **wrong**"}},
-    {{"type": "content", "text": "Instead of: \\"Explain this\\" → Try: \\"Explain this **simply** with 3 examples\\""}},
-    {{"type": "content", "text": "Add context — because Claude has **no** memory between sessions"}},
-    {{"type": "cta",     "text": "**Save** this and fix one prompt today"}}
+    {{"type": "hook",    "text": "..."}},
+    {{"type": "content", "text": "..."}},
+    {{"type": "cta",     "text": "..."}}
   ]
-}}\
+}}
+
+The "slides" array MUST contain EXACTLY {num_slides} objects.
+If the output is not valid JSON, regenerate internally until it is.\
 """
 
 

@@ -108,14 +108,18 @@ EMPHASIS (selective bold using **word**):
 
 STYLE: short, punchy, beginner-friendly, no fluff.
 
-Return ONLY a JSON array — no markdown, no code fences, no extra text.
-The array MUST contain EXACTLY {num_slides} objects:
-[
-  {{"type": "hook",    "text": "Claude is powerful — most people use it **wrong**"}},
-  {{"type": "content", "text": "Instead of: \\"Explain this\\" → Try: \\"Explain this **simply** with 3 examples\\""}},
-  {{"type": "content", "text": "Add context — because Claude has **no** memory between sessions"}},
-  {{"type": "cta",     "text": "**Save** this and fix one prompt today"}}
-]\
+OUTPUT FORMAT (STRICT):
+Return ONLY valid JSON — no text before or after, no markdown, no code fences, no comments.
+The "slides" array MUST contain EXACTLY {num_slides} objects:
+
+{{
+  "slides": [
+    {{"type": "hook",    "text": "Claude is powerful — most people use it **wrong**"}},
+    {{"type": "content", "text": "Instead of: \\"Explain this\\" → Try: \\"Explain this **simply** with 3 examples\\""}},
+    {{"type": "content", "text": "Add context — because Claude has **no** memory between sessions"}},
+    {{"type": "cta",     "text": "**Save** this and fix one prompt today"}}
+  ]
+}}\
 """
 
 
@@ -380,12 +384,19 @@ def _parse_json_slides(raw: str, num_slides: int = 5) -> list[dict]:
             text = text[4:].strip()
 
     try:
-        slides = json.loads(text)
+        parsed = json.loads(text)
     except json.JSONDecodeError as exc:
         raise ValueError(f"LLM returned invalid JSON: {exc}\nRaw output:\n{raw[:500]}") from exc
 
-    if not isinstance(slides, list):
-        raise ValueError(f"Expected JSON array, got {type(slides).__name__}")
+    # Accept both wrapper object {"slides": [...]} and bare array [...]
+    if isinstance(parsed, dict):
+        if "slides" not in parsed:
+            raise ValueError(f"JSON object has no 'slides' key. Keys found: {list(parsed.keys())}")
+        slides = parsed["slides"]
+    elif isinstance(parsed, list):
+        slides = parsed
+    else:
+        raise ValueError(f"Expected JSON object or array, got {type(parsed).__name__}")
 
     # Allow ±1 from requested count (LLM sometimes off by one), but enforce 4–7 hard limits
     if not (4 <= len(slides) <= 7):

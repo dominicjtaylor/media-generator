@@ -63,27 +63,28 @@ Structure:
 
 REAL PROMPT EXAMPLE (MANDATORY):
 
-At least ONE content slide MUST include a REAL, copy-pasteable Claude prompt.
+At least ONE content slide MUST include a quoted Claude prompt AND a comparison showing improvement.
+
+A quoted prompt ALONE is NOT valid. You MUST pair it with a before/after or bad/better contrast.
 
 STRICT REQUIREMENTS:
 - Must include quotation marks "
-- Must be a full usable prompt
-- Must be specific and realistic
+- Must include a comparison or improvement signal (Instead of / Try / Bad / Better / →)
 
 Valid formats:
 
-  A) Direct prompt:
-     "Explain this simply with 3 examples"
-
-  B) Instead of → Try this:
+  A) Instead of → Try:
      Instead of: "Explain this"
-     Try: "Explain this simply with examples"
+     Try: "Explain this simply with 3 examples"
 
-  C) Bad → Better:
+  B) Bad → Better:
      Bad: "Summarise this"
      Better: "Summarise this in bullet points with key takeaways"
 
-If no quoted prompt is included, the output is INVALID.
+Invalid (missing comparison):
+  ✗ "Explain this simply with 3 examples"  ← quote with no contrast = INVALID
+
+If no quoted prompt WITH a comparison is included, the output is INVALID.
 
 ---
 
@@ -129,9 +130,10 @@ SELF-CORRECTION:
 
 If you receive an error message with the topic, you MUST fix the specific issue.
 Common errors:
-- "Incorrect number of slides" → regenerate EXACTLY {num_slides} slides
-- "Missing prompt example"    → include at least one slide with a quoted prompt
-- "Invalid JSON"              → fix the JSON formatting
+- "Incorrect number of slides"         → regenerate EXACTLY {num_slides} slides
+- "No actionable prompt example found" → add a slide with a quoted prompt AND a comparison (Try/Bad/Better/→)
+- "Slides lack depth"                  → add one comparison slide AND one because/insight slide
+- "Invalid JSON"                       → fix the JSON formatting
 Do NOT repeat the same mistake.
 
 ---
@@ -255,52 +257,34 @@ def _is_complete_hook(text: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Actionable tip validation
+# Actionable prompt example validation
 # ---------------------------------------------------------------------------
 
-# Markers that indicate a concrete "Instead of X → Try Y" tip
-_TIP_MARKERS = ("instead of", "→", "->", "try this", "stop ", "swap ")
+# Improvement signals — present in any valid comparison format (B or C)
+_IMPROVEMENT_SIGNALS = ("instead of", "try", "bad:", "better:", "→", "->")
+
+# Quote characters — straight and curly
+_QUOTE_CHARS = ('"', '\u201c', '\u201d', '\u2018', '\u2019')
 
 
-def _has_actionable_tip(slides: list[dict]) -> bool:
-    """Return True if at least one content slide contains a concrete tip."""
-    for slide in slides:
-        if slide["type"] != "content":
-            continue
-        text_lower = slide["heading"].lower()
-        if any(marker in text_lower for marker in _TIP_MARKERS):
-            return True
-    return False
+def _has_actionable_prompt_example(slides: list[dict]) -> bool:
+    """Return True if at least one content slide contains BOTH:
 
+    1. A quoted prompt (straight or curly quotes), AND
+    2. An improvement signal (Instead of / Try / Bad / Better / →)
 
-# ---------------------------------------------------------------------------
-# Real prompt example validation
-# ---------------------------------------------------------------------------
-
-# Verbs that appear in actual Claude prompts a beginner would type
-_PROMPT_VERBS = (
-    "explain", "summarise", "summarize", "list", "write", "describe",
-    "compare", "give me", "create", "show", "tell", "help", "act as",
-    "step-by-step", "in bullet", "with examples", "with takeaways",
-)
-
-
-def _has_real_prompt_example(slides: list[dict]) -> bool:
-    """Return True if at least one content slide contains a real, quoted prompt.
-
-    Looks for text in single or double quotes that contains a recognisable
-    prompt verb — the hallmark of a concrete, copy-pasteable Claude prompt.
+    A quoted prompt without a comparison is not enough — the slide must
+    show the reader why one phrasing is better than another.
     """
     for slide in slides:
         if slide["type"] != "content":
             continue
         text = slide["heading"]
-        # Find all quoted strings (single or double quotes)
-        quoted = re.findall(r'["\u201c\u201d]([^"]+)["\u201c\u201d]|\'([^\']+)\'', text)
-        for groups in quoted:
-            q = (groups[0] or groups[1]).lower()
-            if any(verb in q for verb in _PROMPT_VERBS):
-                return True
+        text_lower = text.lower()
+        has_quote = any(q in text for q in _QUOTE_CHARS)
+        has_improvement = any(signal in text_lower for signal in _IMPROVEMENT_SIGNALS)
+        if has_quote and has_improvement:
+            return True
     return False
 
 
@@ -822,10 +806,11 @@ def generate_slides(
                     f"Hook is not a complete thought: {hook_text!r}. "
                     "Retrying for a hook with a full payoff."
                 )
-            if not _has_actionable_tip(slides):
+            if not _has_actionable_prompt_example(slides):
                 raise ValueError(
-                    "No actionable tip found (expected 'Instead of X → Try Y' pattern). "
-                    "Retrying to enforce content quality."
+                    "No actionable prompt example found. At least one content slide must include "
+                    "a quoted Claude prompt AND a comparison (Instead of/Try/Bad/Better/→). "
+                    "A quoted prompt alone is not enough — show why one phrasing is better."
                 )
             if not _has_depth(slides):
                 raise ValueError(
@@ -833,12 +818,7 @@ def generate_slides(
                     "(Instead of/Try/micro-example) AND one insight slide (because/—/=). "
                     "Retrying for more informative content."
                 )
-            if not _has_real_prompt_example(slides):
-                raise ValueError(
-                    "No real prompt example found. At least one content slide must include "
-                    "a quoted, copy-pasteable Claude prompt. Retrying."
-                )
-            logger.info("Generated %d slides (validated: tip, depth, real prompt example)", len(slides))
+            logger.info("Generated %d slides (validated: actionable prompt example, depth)", len(slides))
             slides  = review_and_improve(slides)
             caption = generate_caption(slides)
             return slides, caption

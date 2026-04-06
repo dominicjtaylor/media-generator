@@ -162,7 +162,7 @@ export default function App() {
             Generate your carousel
           </h1>
           <p className="text-gray-500 dark:text-gray-400 text-sm">
-            Turn any topic into a polished 5-slide Instagram carousel in seconds.
+            Turn any topic into a polished Instagram carousel in seconds.
           </p>
         </div>
 

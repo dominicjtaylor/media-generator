@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react'
 
 const TONES  = ['professional', 'casual', 'educational', 'inspiring']
-const SLIDES = [3, 5, 7, 10]
+const SLIDES = [4, 5, 7, 10]
 
 export default function Form({ onGenerate, loading, onReset }) {
   const [topic,    setTopic]    = useState('')
@@ -17,6 +17,7 @@ export default function Form({ onGenerate, loading, onReset }) {
   const handleSubmit = (e) => {
     e?.preventDefault()
     if (!canSubmit) return
+    console.log('[Form] Submitting — topic:', topic.trim(), '| num_slides:', slides)
     onGenerate({ topic, tone, slides })
   }
 

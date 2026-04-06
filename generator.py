@@ -28,7 +28,7 @@ logger = logging.getLogger("carousel.generator")
 
 WORD_LIMITS = {
     "hook":    8,
-    "content": 18,   # raised from 15 to allow examples and "because" explanations
+    "content": 22,   # allows complete sentences with examples and "because" explanations
     "cta":     12,
 }
 
@@ -103,7 +103,7 @@ Good: "Use structured prompts — because Claude needs clear instructions to res
 WORD LIMITS:
 
 - Hook: max 8 words
-- Content slides: 12–18 words
+- Content slides: 12–22 words
 - CTA: max 12 words
 
 Slides must feel complete (no cut-off sentences).
@@ -159,18 +159,40 @@ If your output does not meet ALL rules, regenerate internally until it does.\
 # ---------------------------------------------------------------------------
 
 def enforce_word_limit(text: str, max_words: int) -> str:
-    """Hard-truncate *text* to *max_words* words.
+    """Truncate *text* to at most *max_words* words, ending at a natural boundary.
 
-    Treats **word** markers as a single word token.
-    After truncation, any dangling opening ** without a closing ** is stripped
-    so the HTML renderer never sees an unclosed marker.
+    After a hard word-count cut the function walks backwards to find the last
+    sentence-final punctuation (.!?"), and if not found, the last clause
+    boundary (em-dash, colon, comma) that is at least 60% into the text.
+    This prevents mid-clause truncation that makes slides feel cut off.
+
+    Also strips any unclosed **marker so the HTML renderer never sees a
+    dangling opening bold tag.
     """
     words = text.split()
+    if len(words) <= max_words:
+        return text
+
     truncated = " ".join(words[:max_words])
-    # Remove any unclosed **marker (odd number of ** occurrences)
+
+    # Fix unclosed **marker (odd count = dangling open tag)
     if truncated.count("**") % 2 != 0:
         truncated = truncated.rsplit("**", 1)[0].rstrip()
-    return truncated
+
+    # If already ends with sentence-final punctuation, we're done
+    stripped = truncated.rstrip()
+    if stripped and stripped[-1] in '.!?"':
+        return stripped
+
+    # Otherwise try to end at the last clause boundary in the second half
+    # so we don't produce a sentence that reads as cut off
+    min_pos = int(len(stripped) * 0.55)  # must keep at least 55% of the text
+    for punct in ('—', ':', ','):
+        last_pos = stripped.rfind(punct)
+        if last_pos >= min_pos:
+            return stripped[:last_pos].rstrip()
+
+    return stripped
 
 
 def _enforce_slide_limits(slides: list[dict]) -> list[dict]:
@@ -419,9 +441,8 @@ def _parse_json_slides(raw: str, num_slides: int = 5) -> list[dict]:
     else:
         raise ValueError(f"Expected JSON object or array, got {type(parsed).__name__}")
 
-    # Allow ±1 from requested count (LLM sometimes off by one), but enforce 4–7 hard limits
-    if not (4 <= len(slides) <= 7):
-        raise ValueError(f"Expected 4–7 slides, got {len(slides)}")
+    if not (4 <= len(slides) <= 10):
+        raise ValueError(f"Expected 4–10 slides, got {len(slides)}")
     if len(slides) != num_slides:
         raise ValueError(
             f"Requested {num_slides} slides but got {len(slides)}. Retrying for exact count."
@@ -492,7 +513,7 @@ APPLY THESE FIXES:
 
 5. WORD LIMITS (hard):
    hook:    max 8 words
-   content: max 18 words
+   content: max 22 words
    cta:     max 12 words
 
 6. EMPHASIS — use **word** markdown bold for 1–2 words per slide only:
@@ -571,7 +592,10 @@ def review_and_improve(slides: list[dict]) -> list[dict]:
     try:
         logger.info("Running review pass on %d slides", len(slides))
         raw      = review_fn(slides)
-        improved = _parse_json_slides(raw)
+        # Pass the original count so the validator enforces the same slide count
+        # as the primary generation pass — without this the default of 5 silently
+        # replaces a correctly-generated 7-slide carousel with a 5-slide one.
+        improved = _parse_json_slides(raw, num_slides=len(slides))
         improved = _enforce_slide_limits(improved)
         improved = _enforce_bold_caps(improved)
         logger.info("Review pass complete — %d slides returned", len(improved))
@@ -774,8 +798,8 @@ def generate_slides(
         Ready-to-post Instagram caption aligned with the slides.
         Falls back to a minimal CTA string if caption generation fails.
     """
-    if not (4 <= num_slides <= 7):
-        raise ValueError(f"num_slides must be between 4 and 7, got {num_slides}")
+    if not (4 <= num_slides <= 10):
+        raise ValueError(f"num_slides must be between 4 and 10, got {num_slides}")
 
     provider = os.environ.get("LLM_PROVIDER", "anthropic").lower()
     backends = {

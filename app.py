@@ -54,8 +54,8 @@ class GenerateRequest(BaseModel):
     num_slides: int = 5
 
     def validate_num_slides(self) -> None:
-        if not (4 <= self.num_slides <= 7):
-            raise HTTPException(status_code=422, detail="num_slides must be between 4 and 7")
+        if not (4 <= self.num_slides <= 10):
+            raise HTTPException(status_code=422, detail="num_slides must be between 4 and 10")
 
 
 # ---------------------------------------------------------------------------
@@ -116,6 +116,7 @@ def healthz():
 @app.post("/generate", tags=["carousel"])
 def generate(req: GenerateRequest):
     print("=== NEW BACKEND RUNNING ===")
+    print(f"Received topic={req.topic!r} num_slides={req.num_slides}")
     topic = req.topic.strip()
     if not topic:
         raise HTTPException(status_code=422, detail="topic must not be empty")

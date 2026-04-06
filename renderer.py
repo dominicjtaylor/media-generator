@@ -33,8 +33,8 @@ from pathlib import Path
 logger = logging.getLogger("carousel.renderer")
 
 _ROOT         = Path(__file__).parent   # project root (templates live here)
-# Supports up to 5 content slides (7 total - hook - cta = 5)
-_CONTENT_NUMS = ["01", "02", "03", "04", "05"]
+# Supports up to 8 content slides (10 total - hook - cta = 8)
+_CONTENT_NUMS = ["01", "02", "03", "04", "05", "06", "07", "08"]
 
 
 # ---------------------------------------------------------------------------
@@ -123,8 +123,8 @@ def render_slides(
     from playwright.sync_api import sync_playwright, Error as PlaywrightError
 
     n = len(slides)
-    if not (4 <= n <= 7):
-        raise ValueError(f"Expected 4–7 slides, got {n}")
+    if not (4 <= n <= 10):
+        raise ValueError(f"Expected 4–10 slides, got {n}")
 
     run_id  = uuid.uuid4().hex
     out_dir = Path(renders_base) / run_id

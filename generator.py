@@ -42,28 +42,28 @@ WORD_LIMITS = {
 _HOOK_STYLES: list[tuple[str, str, str]] = [
     (
         "CONTRARIAN",
-        "Challenge a belief the reader holds about the topic — make them feel they've been doing it wrong.",
-        '"Prompting isn\'t hard — you\'re just missing **this**"',
+        "Challenge a belief about this specific topic. Use a keyword from the topic. Make the reader feel they've been doing it wrong.",
+        'Topic "building apps with Claude Code" → "Stop building everything at once in Claude Code"',
     ),
     (
         "CURIOSITY",
-        "Tease a surprising insight the reader doesn't know yet. End with a gap they want to close.",
-        '"Claude can write your emails — but most miss the **key** step"',
+        "Tease a surprising insight tied directly to this topic. Use a keyword from the topic. End with a gap the reader wants to close.",
+        'Topic "Claude prompting tips" → "Most Claude prompts fail before you even **start**"',
     ),
     (
         "MISTAKE",
-        "Call out a specific mistake the reader is probably making right now.",
-        '"You\'re prompting Claude **wrong** — here\'s why"',
+        "Call out a specific mistake the reader is probably making with this topic right now. Use a keyword from the topic.",
+        'Topic "writing prompts for Claude" → "Your Claude prompts are missing **one** critical thing"',
     ),
     (
         "OUTCOME",
-        "Lead with the desirable result. Make the benefit immediate and concrete.",
-        '"Get better answers from Claude in **under** a minute"',
+        "Lead with the desirable result specific to this topic. Use a keyword from the topic. Make the benefit immediate and concrete.",
+        'Topic "step-by-step projects with Claude" → "Build complete projects step-by-step with Claude"',
     ),
     (
         "SPECIFIC",
-        "Name one precise change or trick. Specificity creates credibility and intrigue.",
-        '"This one prompt change makes Claude **far** more useful"',
+        "Name one precise change or insight about this specific topic. Use a keyword from the topic. Specificity creates credibility.",
+        'Topic "Claude for beginners" → "This one change makes Claude **far** more useful"',
     ),
 ]
 
@@ -71,6 +71,42 @@ _HOOK_STYLES: list[tuple[str, str, str]] = [
 # ---------------------------------------------------------------------------
 # Prompt
 # ---------------------------------------------------------------------------
+
+def _build_carousel_arc(num_slides: int) -> str:
+    """Return a numbered slide-by-slot arc for *num_slides* slides.
+
+    The arc is injected into the system prompt so the LLM always has a concrete
+    map of what each slide should accomplish — not just a vague "flow" note.
+    """
+    content_count = num_slides - 2  # hook + cta bookend the content
+
+    # Named content slots — ordered so the carousel reads as a progression
+    _SLOT_POOL = [
+        'Core principle — WHY this approach works (no transition word needed here)',
+        'Step 1 — first concrete action; open with "First…"',
+        'Step 2 — builds directly on Step 1; open with "Then…" or "Next…"',
+        'Step 3 — the real prompt example goes here; open with "Now…"',
+        'Tip — one specific tweak that improves the outcome; open with "Try…" or "Add…"',
+        'Common mistake to avoid — contrast good vs bad approach',
+        'Extra insight — deepen one earlier point',
+        'Extra step — add one more concrete action',
+    ]
+
+    slots: list[str] = []
+    # Always start with the core principle
+    for slot in _SLOT_POOL:
+        slots.append(slot)
+        if len(slots) == content_count - 1:
+            break
+    # Last content slot is always the outcome
+    slots.append('Outcome — concrete result the reader gets; open with "Finally…"')
+
+    lines = ["Slide 1: Hook — creates tension or curiosity about the specific topic"]
+    for i, label in enumerate(slots, start=2):
+        lines.append(f"Slide {i}: {label}")
+    lines.append(f"Slide {num_slides}: CTA — direct call to action")
+    return "\n".join(lines)
+
 
 def _build_system_prompt(num_slides: int) -> str:
     """Return the generation system prompt with the exact slide count baked in.
@@ -81,6 +117,7 @@ def _build_system_prompt(num_slides: int) -> str:
     """
     content_count = num_slides - 2
     hook_name, hook_instruction, hook_example = random.choice(_HOOK_STYLES)
+    carousel_arc = _build_carousel_arc(num_slides)
 
     return f"""\
 You are an API that generates Instagram carousel slides about using Claude AI for beginners.
@@ -111,10 +148,16 @@ Rule:  {hook_instruction}
 e.g.   {hook_example}
 
 REQUIREMENTS:
+- MUST use a keyword or phrase directly from the topic — generic hooks are invalid
 - Complete sentence — no dangling ending, no trailing em-dash
 - Max 8 words
-- Do NOT start with "Claude" — vary the subject to match the style above
-- Must create tension, curiosity, or a sense of mistake/opportunity
+- Do NOT start with "Claude" — the subject should reflect the topic
+- Must create tension, curiosity, or contrast
+
+BAD (generic — could apply to any topic):
+  "Most people use Claude wrong"
+GOOD (topic-specific — reader instantly recognises it's about their problem):
+  "Stop building everything at once in Claude Code"
 
 ---
 
@@ -143,12 +186,18 @@ Vary sentence openings — avoid starting every slide with "Claude".
 
 ---
 
-CAROUSEL FLOW:
+PROGRESSIVE FLOW — follow this exact arc:
 
-Follow this order for the content slides:
-  Hook → Insight/Explanation → Contrast/Example → Tip → Outcome → (extra if needed) → CTA
+{carousel_arc}
 
-For carousels with 7+ slides, add one more Contrast and one more Tip slide in the middle.
+RULES FOR FLOW:
+- Each slide must build on the previous one — "because of this → here's what to do next"
+- Use transition words to signal progression:
+    Slide 2: (no transition — state the core principle directly)
+    Step slides: First… / Then… / Next… / Now…
+    Outcome slide: Finally…
+- Do NOT write random, disconnected tips — every slide must earn the next one
+- The real prompt example (CONTRAST slide) belongs in the middle of the carousel, not at the end
 
 ---
 

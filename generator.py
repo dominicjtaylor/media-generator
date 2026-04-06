@@ -237,8 +237,40 @@ Good: "Use structured prompts — because Claude needs clear instructions to res
 WORD LIMITS:
 
 - Hook: max 8 words
-- Content slides: 12–22 words (complete sentences only — no cut-off phrases)
+- Content slides: 12–22 words
 - CTA: max 12 words
+
+---
+
+COMPLETENESS (CRITICAL):
+
+Every slide MUST be a complete, self-contained sentence. Read each slide before outputting.
+
+NEVER end a slide with these incomplete fragments:
+  ✗ "→ Try"              (contrast left unfinished)
+  ✗ "→ Try:"             (contrast left unfinished)
+  ✗ "Instead of:"        (no contrast provided)
+  ✗ "Because"            (reason cut off)
+  ✗ "Then"               (step cut off)
+  ✗ "And" / "Or"         (conjunction dangling)
+
+CONTRAST slides MUST have BOTH sides written in full:
+  ✗ BAD:  Instead of: "Explain this" → Try
+  ✓ GOOD: Instead of: "Explain this" → Try: "Explain this simply with examples"
+
+If any slide ends abruptly → rewrite the entire slide before outputting.
+
+---
+
+CTA RULE (MANDATORY):
+
+The final slide MUST include "@claudeinsights" and a clear action verb.
+
+✓ VALID:   "Follow @claudeinsights for more Claude tips"
+           "**Save** this — more tips at @claudeinsights"
+           "Build smarter — follow @claudeinsights **now**"
+
+✗ INVALID (missing handle): "Try this today" / "Save this and start now"
 
 ---
 
@@ -257,6 +289,8 @@ Common errors:
 - "Incorrect number of slides"         → regenerate EXACTLY {num_slides} slides
 - "No actionable prompt example found" → add a slide with a quoted prompt AND a comparison (Try/Bad/Better/→)
 - "Slides lack depth"                  → add one comparison slide AND one because/insight slide
+- "Incomplete slide text"              → rewrite the named slide(s) as complete sentences
+- "CTA slide is missing @claudeinsights" → add "@claudeinsights" to the final slide
 - "Invalid JSON"                       → fix the JSON formatting
 Do NOT repeat the same mistake.
 
@@ -270,13 +304,29 @@ OUTPUT FORMAT (STRICT JSON):
     {{"type": "content", "text": "Specific prompts work better — because Claude knows exactly what to do"}},
     {{"type": "content", "text": "Instead of: \\"Explain this\\" → Try: \\"Explain this **simply** with 3 examples\\""}},
     {{"type": "content", "text": "Add your role upfront — 'Act as a teacher' changes every answer **instantly**"}},
-    {{"type": "cta",     "text": "**Save** this and fix one prompt today"}}
+    {{"type": "cta",     "text": "Follow @claudeinsights for more Claude tips"}}
   ]
 }}
 
 The "slides" array MUST contain EXACTLY {num_slides} objects.
 If your output does not meet ALL rules, regenerate internally until it does.\
 """
+
+
+# ---------------------------------------------------------------------------
+# Incomplete-ending detection — shared by enforce_word_limit and validators
+# ---------------------------------------------------------------------------
+
+# Words and tokens that, when they appear at the end of a slide, indicate
+# an incomplete sentence.  Used both when choosing truncation cutpoints and
+# when validating the finished output.
+_INCOMPLETE_TERMINALS: frozenset[str] = frozenset({
+    "try", "try:", "instead", "instead:", "because", "because:",
+    "then", "then:", "next", "next:", "now", "now:",
+    "first", "first:", "and", "or", "but", "→", "->",
+    "better:", "bad:", "with", "for", "of", "in", "at", "to",
+    "the", "a", "an",
+})
 
 
 # ---------------------------------------------------------------------------
@@ -309,14 +359,25 @@ def enforce_word_limit(text: str, max_words: int) -> str:
     if stripped and stripped[-1] in '.!?"':
         return stripped
 
-    # Otherwise try to end at the last clause boundary in the second half
-    # so we don't produce a sentence that reads as cut off
+    def _ends_with_incomplete(text: str) -> bool:
+        """True if the last meaningful word is a dangling terminal."""
+        last = text.rstrip().split()[-1].lower().rstrip('.,!?:"\'') if text.strip() else ""
+        return last in _INCOMPLETE_TERMINALS
+
+    # Try to end at the last clause boundary in the second half.
+    # Skip any cutpoint that would leave a dangling terminal (e.g. "Try")
+    # because that produces exactly the broken "→ Try" fragments we want to
+    # prevent.
     min_pos = int(len(stripped) * 0.55)  # must keep at least 55% of the text
     for punct in ('—', ':', ','):
         last_pos = stripped.rfind(punct)
         if last_pos >= min_pos:
-            return stripped[:last_pos].rstrip()
+            candidate = stripped[:last_pos].rstrip()
+            if not _ends_with_incomplete(candidate):
+                return candidate
 
+    # If no clean boundary found, return the hard-truncated form as-is — the
+    # slide completeness validator will catch it and trigger a retry.
     return stripped
 
 
@@ -433,6 +494,63 @@ def _has_actionable_prompt_example(slides: list[dict]) -> bool:
         if has_quote and has_improvement:
             return True
     return False
+
+
+# ---------------------------------------------------------------------------
+# Slide completeness validation
+# ---------------------------------------------------------------------------
+
+def _is_complete_slide(text: str) -> bool:
+    """Return True if *text* reads as a finished thought.
+
+    Catches two failure modes:
+    1. The last meaningful word is a known incomplete terminal (e.g. "Try",
+       "Because", "→") — meaning the sentence was cut before its payload.
+    2. A "→ Try" or "→ Try:" pattern appears at the very end with nothing
+       after it — the contrast was started but never completed.
+    """
+    # Strip bold markers for plain-text analysis
+    plain = re.sub(r'\*\*(.*?)\*\*', r'\1', text).strip()
+    if not plain:
+        return False
+
+    # Pattern 1: last meaningful token is a known incomplete terminal
+    last_word = plain.split()[-1].lower().rstrip('.,!?:"\'')
+    if last_word in _INCOMPLETE_TERMINALS:
+        return False
+
+    # Pattern 2: "→ Try" or "→ Try:" at the end with no content after it
+    if re.search(r'[→\->\s][Tt]ry\s*:?\s*$', plain):
+        return False
+
+    return True
+
+
+def _validate_completeness(slides: list[dict]) -> None:
+    """Raise ValueError listing every slide whose text is incomplete."""
+    broken = [
+        f"[{s['type']}] {s['heading']!r}"
+        for s in slides
+        if not _is_complete_slide(s["heading"])
+    ]
+    if broken:
+        raise ValueError(
+            "Incomplete slide text detected — the following slides end abruptly:\n"
+            + "\n".join(broken)
+            + "\nRewrite each slide as a complete sentence."
+        )
+
+
+# ---------------------------------------------------------------------------
+# CTA handle validation
+# ---------------------------------------------------------------------------
+
+def _has_cta_handle(slides: list[dict]) -> bool:
+    """Return True if the CTA slide contains @claudeinsights."""
+    cta_slides = [s for s in slides if s["type"] == "cta"]
+    if not cta_slides:
+        return False
+    return "@claudeinsights" in cta_slides[-1]["heading"]
 
 
 # ---------------------------------------------------------------------------
@@ -967,7 +1085,13 @@ def generate_slides(
                     "(Instead of/Try/micro-example) AND one insight slide (because/—/=). "
                     "Retrying for more informative content."
                 )
-            logger.info("Generated %d slides (validated: actionable prompt example, depth)", len(slides))
+            _validate_completeness(slides)   # raises if any slide ends abruptly
+            if not _has_cta_handle(slides):
+                raise ValueError(
+                    "CTA slide is missing @claudeinsights. "
+                    "The final slide MUST include '@claudeinsights'."
+                )
+            logger.info("Generated %d slides (validated: completeness, CTA handle, prompt example, depth)", len(slides))
             slides  = review_and_improve(slides)
             caption = generate_caption(slides)
             return slides, caption

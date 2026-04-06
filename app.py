@@ -50,7 +50,12 @@ RENDERS_DIR.mkdir(parents=True, exist_ok=True)
 # ---------------------------------------------------------------------------
 
 class GenerateRequest(BaseModel):
-    topic: str
+    topic:      str
+    num_slides: int = 5
+
+    def validate_num_slides(self) -> None:
+        if not (4 <= self.num_slides <= 7):
+            raise HTTPException(status_code=422, detail="num_slides must be between 4 and 7")
 
 
 # ---------------------------------------------------------------------------
@@ -61,7 +66,7 @@ def _sse(payload: dict) -> str:
     return f"data: {json.dumps(payload)}\n\n"
 
 
-def _stream(topic: str) -> Generator[str, None, None]:
+def _stream(topic: str, num_slides: int) -> Generator[str, None, None]:
     """Sync generator that emits SSE events at each real pipeline stage."""
     print("HTML PIPELINE ACTIVE")
 
@@ -70,7 +75,7 @@ def _stream(topic: str) -> Generator[str, None, None]:
     yield _sse({"step": "generating", "message": "Generating and refining carousel content..."})
 
     try:
-        slides, caption = generate_slides(topic)
+        slides, caption = generate_slides(topic, num_slides=num_slides)
     except Exception as exc:
         logger.error("Slide generation failed: %s", exc)
         yield _sse({"step": "error", "message": f"Content generation failed: {exc}"})
@@ -114,9 +119,10 @@ def generate(req: GenerateRequest):
     topic = req.topic.strip()
     if not topic:
         raise HTTPException(status_code=422, detail="topic must not be empty")
+    req.validate_num_slides()
 
     return StreamingResponse(
-        _stream(topic),
+        _stream(topic, req.num_slides),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

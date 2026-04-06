@@ -36,57 +36,86 @@ WORD_LIMITS = {
 # Prompt
 # ---------------------------------------------------------------------------
 
-SYSTEM_PROMPT = """\
-You create high-performing Instagram carousel content.
+def _build_system_prompt(num_slides: int) -> str:
+    """Return the generation system prompt with the exact slide count baked in."""
+    slide_list = "\n".join(
+        f"  Slide {i + 1}: {'HOOK' if i == 0 else 'CTA' if i == num_slides - 1 else 'CONTENT'}"
+        for i in range(num_slides)
+    )
+    return f"""\
+You are an expert Instagram carousel creator specialising in beginner-friendly Claude AI content.
 
-RULES:
+SLIDE COUNT (STRICT): Generate EXACTLY {num_slides} slides — no more, no fewer.
 
-- Generate 4–7 slides
-- Slide structure:
-    Slide 1:      type "hook"    — stops the scroll; must be a COMPLETE thought
-    Slides 2–n-1: type "content" — one insight or tip per slide
-    Slide n:      type "cta"    — one clear call to action
+Structure:
+{slide_list}
 
-- STRICT word limits (hard limits — never exceed):
-    hook:    max 8 words
-    content: max 18 words
-    cta:     max 12 words
+---
 
-HOOK RULES (critical):
-- Must be a complete sentence with contrast, curiosity, or tension — never trailing
-- BAD (incomplete): "Claude is powerful — if you know"
-- BAD (too vague):  "Most people get this wrong"
-- GOOD (contrast):  "Claude is **powerful** — most people use it **wrong**"
-- GOOD (curiosity): "You're using Claude **backwards**"
+REAL PROMPT EXAMPLE (MANDATORY):
+At least ONE content slide MUST include a real, usable Claude prompt example.
 
-CONTENT SLIDE RULES (critical — every slide must do one of these):
-- Option A: "Instead of X → Try **Y**" (comparison tip)
-    e.g. "Instead of 'explain this' → Try 'explain this **simply** with examples'"
-- Option B: Insight + "because" explanation
-    e.g. "**Specific** prompts work better — because Claude knows exactly what to do"
-- Option C: Micro-example showing before/after or concrete output
-    e.g. "Add a role: 'Act as a teacher' — answers become **clearer** instantly"
-- Every slide must include at least 1 example slide AND 1 insight/explanation slide
-- NO empty claims: never write "this improves results" without showing HOW or WHY
+Accepted formats:
 
-EMPHASIS RULES (selective bold using **word**):
-- Bold 1–2 words per slide only — never more
-- ONLY bold: outcomes (**faster**, **smarter**), contrasts (**wrong**, **mistake**), actions (**specific**, **structured**)
-- NEVER bold: fillers (real, things), generic nouns (examples, potential), articles/conjunctions
+  A) Instead of → Try this
+     Instead of: "Explain this"
+     Try: "Explain this **simply** with 3 examples"
 
-- Style: short punchy phrases, no fluff, beginner-friendly, no generic claims
+  B) Bad → Better
+     Bad: "Summarise this"
+     Better: "Summarise this in **bullet points** with key takeaways"
 
-Return ONLY a JSON array — no markdown, no code fences, no extra text:
+  C) Direct usable prompt in quotes:
+     "Explain this step-by-step in **simple** terms with examples"
+
+Rules:
+- Must be specific and realistic — something a beginner could copy and use today
+- Must NOT be vague or generic
+
+---
+
+DEPTH (every content slide must do ONE of these):
+  • Concrete example (before/after, quoted prompt, micro-demo)
+  • Short explanation using "because…"
+  • Comparison (bad → good, wrong → right)
+  Never write empty claims like "this improves results" without showing HOW or WHY.
+
+---
+
+WORD LIMITS (hard — never exceed):
+  hook:    max 8 words
+  content: 12–18 words
+  cta:     max 12 words
+
+Slides must feel complete, not cut off.
+
+---
+
+HOOK RULES:
+  • Must be a COMPLETE sentence — never a trailing phrase
+  • Must create curiosity, contrast, or highlight a mistake
+  BAD:  "Claude is powerful — most people waste"     ← cut off
+  GOOD: "Claude is powerful — most people use it **wrong**"
+
+---
+
+EMPHASIS (selective bold using **word**):
+  • 1–2 bold words per slide only
+  • Bold ONLY: outcomes (better, faster, clearer), contrasts (wrong, mistake), actions (specific, structured)
+  • NEVER bold: filler words, generic nouns, articles/conjunctions
+
+---
+
+STYLE: short, punchy, beginner-friendly, no fluff.
+
+Return ONLY a JSON array — no markdown, no code fences, no extra text.
+The array MUST contain EXACTLY {num_slides} objects:
 [
-  { "type": "hook",    "text": "You're using Claude **backwards**" },
-  { "type": "content", "text": "Instead of 'explain this' → Try 'explain this **simply** with examples'" },
-  { "type": "content", "text": "**Specific** prompts work better — because Claude knows exactly what to do" },
-  { "type": "content", "text": "Add a role: 'Act as a teacher' — answers become **clearer** instantly" },
-  { "type": "cta",     "text": "**Save** this and fix your prompts today" }
-]
-
-If these rules cannot be followed for the given topic, still produce the
-best possible output — the system will validate and retry automatically.\
+  {{"type": "hook",    "text": "Claude is powerful — most people use it **wrong**"}},
+  {{"type": "content", "text": "Instead of: \\"Explain this\\" → Try: \\"Explain this **simply** with 3 examples\\""}},
+  {{"type": "content", "text": "Add context — because Claude has **no** memory between sessions"}},
+  {{"type": "cta",     "text": "**Save** this and fix one prompt today"}}
+]\
 """
 
 
@@ -212,6 +241,37 @@ def _has_actionable_tip(slides: list[dict]) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Real prompt example validation
+# ---------------------------------------------------------------------------
+
+# Verbs that appear in actual Claude prompts a beginner would type
+_PROMPT_VERBS = (
+    "explain", "summarise", "summarize", "list", "write", "describe",
+    "compare", "give me", "create", "show", "tell", "help", "act as",
+    "step-by-step", "in bullet", "with examples", "with takeaways",
+)
+
+
+def _has_real_prompt_example(slides: list[dict]) -> bool:
+    """Return True if at least one content slide contains a real, quoted prompt.
+
+    Looks for text in single or double quotes that contains a recognisable
+    prompt verb — the hallmark of a concrete, copy-pasteable Claude prompt.
+    """
+    for slide in slides:
+        if slide["type"] != "content":
+            continue
+        text = slide["heading"]
+        # Find all quoted strings (single or double quotes)
+        quoted = re.findall(r'["\u201c\u201d]([^"]+)["\u201c\u201d]|\'([^\']+)\'', text)
+        for groups in quoted:
+            q = (groups[0] or groups[1]).lower()
+            if any(verb in q for verb in _PROMPT_VERBS):
+                return True
+    return False
+
+
+# ---------------------------------------------------------------------------
 # Depth validation — at least one example and one insight per carousel
 # ---------------------------------------------------------------------------
 
@@ -242,7 +302,7 @@ def _has_depth(slides: list[dict]) -> bool:
 # Backend: Anthropic
 # ---------------------------------------------------------------------------
 
-def _generate_anthropic(topic: str) -> str:
+def _generate_anthropic(topic: str, num_slides: int) -> str:
     try:
         import anthropic
     except ImportError as exc:
@@ -262,12 +322,12 @@ def _generate_anthropic(topic: str) -> str:
         raise RuntimeError("ANTHROPIC_API_KEY not set in environment")
 
     client = anthropic.Anthropic(api_key=api_key)
-    logger.info("Calling Anthropic API for topic: %r", topic)
+    logger.info("Calling Anthropic API for topic: %r (num_slides=%d)", topic, num_slides)
 
     message = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=1024,
-        system=SYSTEM_PROMPT,
+        system=_build_system_prompt(num_slides),
         messages=[{"role": "user", "content": f"Topic: {topic}"}],
     )
     return message.content[0].text
@@ -277,7 +337,7 @@ def _generate_anthropic(topic: str) -> str:
 # Backend: OpenAI
 # ---------------------------------------------------------------------------
 
-def _generate_openai(topic: str) -> str:
+def _generate_openai(topic: str, num_slides: int) -> str:
     try:
         from openai import OpenAI
     except ImportError as exc:
@@ -290,12 +350,12 @@ def _generate_openai(topic: str) -> str:
         raise RuntimeError("OPENAI_API_KEY not set in environment")
 
     client = OpenAI(api_key=api_key)
-    logger.info("Calling OpenAI API for topic: %r", topic)
+    logger.info("Calling OpenAI API for topic: %r (num_slides=%d)", topic, num_slides)
 
     response = client.chat.completions.create(
         model=os.environ.get("OPENAI_MODEL", "gpt-4o"),
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": _build_system_prompt(num_slides)},
             {"role": "user", "content": f"Topic: {topic}"},
         ],
         max_tokens=1024,
@@ -308,7 +368,7 @@ def _generate_openai(topic: str) -> str:
 # JSON parsing
 # ---------------------------------------------------------------------------
 
-def _parse_json_slides(raw: str) -> list[dict]:
+def _parse_json_slides(raw: str, num_slides: int = 5) -> list[dict]:
     """Parse LLM JSON output into a validated list of slide dicts."""
     text = raw.strip()
 
@@ -327,8 +387,13 @@ def _parse_json_slides(raw: str) -> list[dict]:
     if not isinstance(slides, list):
         raise ValueError(f"Expected JSON array, got {type(slides).__name__}")
 
+    # Allow ±1 from requested count (LLM sometimes off by one), but enforce 4–7 hard limits
     if not (4 <= len(slides) <= 7):
         raise ValueError(f"Expected 4–7 slides, got {len(slides)}")
+    if len(slides) != num_slides:
+        raise ValueError(
+            f"Requested {num_slides} slides but got {len(slides)}. Retrying for exact count."
+        )
 
     valid_types = {"hook", "content", "cta"}
     result = []
@@ -657,21 +722,29 @@ def generate_caption(slides: list[dict], max_retries: int = 2) -> str:
 
 def generate_slides(
     topic: str,
+    num_slides: int = 5,
     max_retries: int = 3,
 ) -> tuple[list[dict], str]:
     """
     Generate carousel slides for *topic* using the configured LLM.
 
+    Parameters
+    ----------
+    topic : str      The subject of the carousel (user input).
+    num_slides : int Exact number of slides to generate (4–7). Default 5.
+
     Returns
     -------
     slides : list[dict]
         Each dict has "type", "heading", and "description" keys.
-        "type" is "hook", "content", or "cta". 4–7 slides total.
         Word limits are enforced in code regardless of LLM output.
     caption : str
         Ready-to-post Instagram caption aligned with the slides.
         Falls back to a minimal CTA string if caption generation fails.
     """
+    if not (4 <= num_slides <= 7):
+        raise ValueError(f"num_slides must be between 4 and 7, got {num_slides}")
+
     provider = os.environ.get("LLM_PROVIDER", "anthropic").lower()
     backends = {
         "anthropic": _generate_anthropic,
@@ -688,10 +761,10 @@ def generate_slides(
 
     for attempt in range(1, max_retries + 1):
         try:
-            logger.info("Slide generation attempt %d/%d", attempt, max_retries)
-            raw    = backend(topic)
+            logger.info("Slide generation attempt %d/%d (num_slides=%d)", attempt, max_retries, num_slides)
+            raw    = backend(topic, num_slides)
             logger.debug("Raw LLM output: %s", raw[:500])
-            slides = _parse_json_slides(raw)
+            slides = _parse_json_slides(raw, num_slides)
             slides = _enforce_slide_limits(slides)
             slides = _enforce_bold_caps(slides)
             hook_text = slides[0]["heading"]
@@ -711,7 +784,12 @@ def generate_slides(
                     "(Instead of/Try/micro-example) AND one insight slide (because/—/=). "
                     "Retrying for more informative content."
                 )
-            logger.info("Generated %d slides (word limits enforced, tip present)", len(slides))
+            if not _has_real_prompt_example(slides):
+                raise ValueError(
+                    "No real prompt example found. At least one content slide must include "
+                    "a quoted, copy-pasteable Claude prompt. Retrying."
+                )
+            logger.info("Generated %d slides (validated: tip, depth, real prompt example)", len(slides))
             slides  = review_and_improve(slides)
             caption = generate_caption(slides)
             return slides, caption

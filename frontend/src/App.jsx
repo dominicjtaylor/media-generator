@@ -47,11 +47,6 @@ export default function App() {
     setErrorMsg('')
     setStepMessage('')
 
-    // Append settings to the topic string — the backend takes a plain string
-    let fullTopic = topic.trim()
-    if (slides !== 5)            fullTopic += `. Create exactly ${slides} slides.`
-    if (tone !== 'professional') fullTopic += ` Use a ${tone} tone.`
-
     // Mock mode (set VITE_MOCK=true in .env.local to bypass the API)
     if (import.meta.env.VITE_MOCK === 'true') {
       await new Promise(r => setTimeout(r, 1800))
@@ -65,7 +60,7 @@ export default function App() {
       const res = await fetch('/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic: fullTopic }),
+        body: JSON.stringify({ topic: topic.trim(), num_slides: slides }),
       })
 
       if (!res.ok) {

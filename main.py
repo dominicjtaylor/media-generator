@@ -137,7 +137,11 @@ def process_topic(
         try:
             logger.info("Fetching Lummi image for topic: %r", topic)
             image_data = fetch_lummi_image(topic)
-            logger.info("Lummi image: %s (author: %s)", image_data["url"], image_data["author_name"])
+            logger.info(
+                "Lummi image: %s (author: %s | focal: %.2f, %.2f)",
+                image_data["local_path"], image_data["author_name"],
+                image_data.get("focal_x", 0.5), image_data.get("focal_y", 0.5),
+            )
             caption += (
                 f"\n\nImage by {image_data['author_name']} via Lummi"
                 f" — {image_data['author_url']}"

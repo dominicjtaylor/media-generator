@@ -62,15 +62,19 @@ def inject_slide(
     slide: dict,
     total: int,
     template_style: str = "text_only",
+    image_data: Optional[dict] = None,
 ) -> str:
     """Inject slide data into the appropriate HTML template.
 
     Parameters
     ----------
-    index          : int   0-based position in the slide list.
-    slide          : dict  Must contain "heading"; "body" is used for heading styles.
-    total          : int   Total number of slides (determines which index is the last).
-    template_style : str   One of "text_only", "headings_and_text", "headings_text_image".
+    index          : int           0-based position in the slide list.
+    slide          : dict          Must contain "heading"; "body" is used for heading styles.
+    total          : int           Total number of slides (determines which index is the last).
+    template_style : str           One of "text_only", "headings_and_text", "headings_text_image".
+    image_data     : dict | None   Lummi image metadata.  When provided for the first slide of
+                                   headings_text_image, focal_x/focal_y are applied to the image
+                                   via inline CSS object-position.
     """
     heading = (slide.get("heading") or "").strip()
     body    = (slide.get("body")    or "").strip()
@@ -104,6 +108,19 @@ def inject_slide(
     logo_abs = str(_ROOT / "logo.png")
     html = html.replace('src="../../logo.png"', f'src="{logo_abs}"')
     html = html.replace("src='../../logo.png'", f"src='{logo_abs}'")
+
+    # Apply focal-point object-position to the first slide of the image template.
+    # Always inject as an inline style on the <img> tag — deterministic and immune
+    # to CSS specificity or whitespace variations in the template.
+    if template_style == "headings_text_image" and index == 0:
+        focal_x = float((image_data or {}).get("focal_x") or 0.5)
+        focal_y = float((image_data or {}).get("focal_y") or 0.5)
+        obj_pos = f"{focal_x * 100:.1f}% {focal_y * 100:.1f}%"
+        html = html.replace(
+            '<img src="image.png" alt="visual">',
+            f'<img src="image.png" alt="visual" style="object-position: {obj_pos};">',
+        )
+        logger.debug("Applied focal-point object-position: %s", obj_pos)
 
     if template_style == "text_only":
         # Single {{TEXT}} field: concatenate heading + body (legacy behaviour)
@@ -191,7 +208,7 @@ def render_slides(
     # Write HTML files
     html_paths: list[Path] = []
     for i, slide in enumerate(slides):
-        html      = inject_slide(i, slide, total=n, template_style=template_style)
+        html      = inject_slide(i, slide, total=n, template_style=template_style, image_data=image_data)
         html_path = out_dir / f"slide-{i + 1}.html"
         html_path.write_text(html, encoding="utf-8")
         html_paths.append(html_path)

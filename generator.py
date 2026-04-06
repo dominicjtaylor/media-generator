@@ -16,6 +16,7 @@ generate_slides(topic) → (list[dict], str)
 import json
 import logging
 import os
+import random
 import re
 import time
 from typing import Optional
@@ -33,12 +34,54 @@ WORD_LIMITS = {
 }
 
 # ---------------------------------------------------------------------------
+# Hook style catalogue
+# Each entry: (NAME, instruction, example)
+# One is picked at random per generation call so hooks vary across posts.
+# ---------------------------------------------------------------------------
+
+_HOOK_STYLES: list[tuple[str, str, str]] = [
+    (
+        "CONTRARIAN",
+        "Challenge a belief the reader holds about the topic — make them feel they've been doing it wrong.",
+        '"Prompting isn\'t hard — you\'re just missing **this**"',
+    ),
+    (
+        "CURIOSITY",
+        "Tease a surprising insight the reader doesn't know yet. End with a gap they want to close.",
+        '"Claude can write your emails — but most miss the **key** step"',
+    ),
+    (
+        "MISTAKE",
+        "Call out a specific mistake the reader is probably making right now.",
+        '"You\'re prompting Claude **wrong** — here\'s why"',
+    ),
+    (
+        "OUTCOME",
+        "Lead with the desirable result. Make the benefit immediate and concrete.",
+        '"Get better answers from Claude in **under** a minute"',
+    ),
+    (
+        "SPECIFIC",
+        "Name one precise change or trick. Specificity creates credibility and intrigue.",
+        '"This one prompt change makes Claude **far** more useful"',
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
 # Prompt
 # ---------------------------------------------------------------------------
 
 def _build_system_prompt(num_slides: int) -> str:
-    """Return the generation system prompt with the exact slide count baked in."""
+    """Return the generation system prompt with the exact slide count baked in.
+
+    A hook style is chosen randomly at call time so every generation request
+    produces a structurally different opening — preventing the repetitive
+    "Claude is powerful — most people…" pattern.
+    """
     content_count = num_slides - 2
+    hook_name, hook_instruction, hook_example = random.choice(_HOOK_STYLES)
+
     return f"""\
 You are an API that generates Instagram carousel slides about using Claude AI for beginners.
 
@@ -61,15 +104,59 @@ Structure:
 
 ---
 
+HOOK STYLE — use this style for Slide 1:
+
+Style: {hook_name}
+Rule:  {hook_instruction}
+e.g.   {hook_example}
+
+REQUIREMENTS:
+- Complete sentence — no dangling ending, no trailing em-dash
+- Max 8 words
+- Do NOT start with "Claude" — vary the subject to match the style above
+- Must create tension, curiosity, or a sense of mistake/opportunity
+
+---
+
+CONTENT VARIETY (REQUIRED):
+
+Each content slide MUST use one of these five patterns.
+Use at LEAST 3 DIFFERENT patterns across the carousel.
+No more than 2 slides may use the same pattern.
+
+  EXPLANATION  — state WHY something works, using "because" or a strong em-dash
+    e.g. "Specific prompts work better — because Claude knows exactly what to do"
+
+  CONTRAST     — bad prompt → better prompt (MUST include a real quoted prompt)
+    e.g. Instead of: "Summarise this" → Try: "Summarise this in 5 bullet points"
+
+  TIP          — direct actionable advice starting with a verb (Add / Use / Try / Ask)
+    e.g. "Add your role upfront — 'Act as a teacher' changes every answer **instantly**"
+
+  OUTCOME      — the concrete result the reader gains, quantified or made tangible
+    e.g. "Structured prompts cut editing time — answers arrive **ready** to use"
+
+  EXAMPLE      — a concrete use case or mini before/after with a real-world output
+    e.g. "Paste your job description — Claude writes a tailored cover letter in seconds"
+
+Vary sentence openings — avoid starting every slide with "Claude".
+
+---
+
+CAROUSEL FLOW:
+
+Follow this order for the content slides:
+  Hook → Insight/Explanation → Contrast/Example → Tip → Outcome → (extra if needed) → CTA
+
+For carousels with 7+ slides, add one more Contrast and one more Tip slide in the middle.
+
+---
+
 REAL PROMPT EXAMPLE (MANDATORY):
 
-At least ONE content slide MUST include a quoted Claude prompt AND a comparison showing improvement.
+At least ONE content slide MUST include a quoted Claude prompt AND a comparison.
 
-A quoted prompt ALONE is NOT valid. You MUST pair it with a before/after or bad/better contrast.
-
-STRICT REQUIREMENTS:
-- Must include quotation marks "
-- Must include a comparison or improvement signal (Instead of / Try / Bad / Better / →)
+A quoted prompt ALONE is NOT valid. Pair it with a before/after or bad/better contrast.
 
 Valid formats:
 
@@ -84,8 +171,6 @@ Valid formats:
 Invalid (missing comparison):
   ✗ "Explain this simply with 3 examples"  ← quote with no contrast = INVALID
 
-If no quoted prompt WITH a comparison is included, the output is INVALID.
-
 ---
 
 DEPTH PER SLIDE:
@@ -95,7 +180,7 @@ Each content slide MUST include at least ONE of:
 - a short explanation using "because…"
 - a comparison (bad → good, instead → try)
 
-Bad: "Use better prompts"
+Bad:  "Use better prompts"
 Good: "Use structured prompts — because Claude needs clear instructions to respond **accurately**"
 
 ---
@@ -103,18 +188,8 @@ Good: "Use structured prompts — because Claude needs clear instructions to res
 WORD LIMITS:
 
 - Hook: max 8 words
-- Content slides: 12–22 words
+- Content slides: 12–22 words (complete sentences only — no cut-off phrases)
 - CTA: max 12 words
-
-Slides must feel complete (no cut-off sentences).
-
----
-
-HOOK QUALITY:
-
-Must be a complete sentence creating curiosity, contrast, or highlighting a mistake.
-Bad:  "Claude is powerful — most people waste"
-Good: "Claude is powerful — most people use it **wrong**"
 
 ---
 
@@ -142,9 +217,10 @@ OUTPUT FORMAT (STRICT JSON):
 
 {{
   "slides": [
-    {{"type": "hook",    "text": "Claude is powerful — most people use it **wrong**"}},
+    {{"type": "hook",    "text": "You're prompting Claude **wrong** — here's why"}},
+    {{"type": "content", "text": "Specific prompts work better — because Claude knows exactly what to do"}},
     {{"type": "content", "text": "Instead of: \\"Explain this\\" → Try: \\"Explain this **simply** with 3 examples\\""}},
-    {{"type": "content", "text": "Add context — because Claude has **no** memory between sessions"}},
+    {{"type": "content", "text": "Add your role upfront — 'Act as a teacher' changes every answer **instantly**"}},
     {{"type": "cta",     "text": "**Save** this and fix one prompt today"}}
   ]
 }}

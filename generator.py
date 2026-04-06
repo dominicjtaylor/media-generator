@@ -28,7 +28,7 @@ logger = logging.getLogger("carousel.generator")
 
 WORD_LIMITS = {
     "hook":    8,
-    "content": 15,
+    "content": 18,   # raised from 15 to allow examples and "because" explanations
     "cta":     12,
 }
 
@@ -47,46 +47,41 @@ RULES:
     Slides 2–n-1: type "content" — one insight or tip per slide
     Slide n:      type "cta"    — one clear call to action
 
-- MUST include at least one actionable tip using the pattern:
-    Instead of X → Try Y
-  (e.g. "Instead of long prompts → Try one clear instruction")
-
 - STRICT word limits (hard limits — never exceed):
     hook:    max 8 words
-    content: max 15 words
+    content: max 18 words
     cta:     max 12 words
 
 HOOK RULES (critical):
-- The hook MUST be a complete sentence or complete contrast — never a trailing phrase
-- It must create curiosity OR reveal a contrast
+- Must be a complete sentence with contrast, curiosity, or tension — never trailing
 - BAD (incomplete): "Claude is powerful — if you know"
-- BAD (no payoff):  "Most people get this wrong"  ← too vague
+- BAD (too vague):  "Most people get this wrong"
 - GOOD (contrast):  "Claude is **powerful** — most people use it **wrong**"
 - GOOD (curiosity): "You're using Claude **backwards**"
-- GOOD (contrast):  "More prompts ≠ **better** results"
+
+CONTENT SLIDE RULES (critical — every slide must do one of these):
+- Option A: "Instead of X → Try **Y**" (comparison tip)
+    e.g. "Instead of 'explain this' → Try 'explain this **simply** with examples'"
+- Option B: Insight + "because" explanation
+    e.g. "**Specific** prompts work better — because Claude knows exactly what to do"
+- Option C: Micro-example showing before/after or concrete output
+    e.g. "Add a role: 'Act as a teacher' — answers become **clearer** instantly"
+- Every slide must include at least 1 example slide AND 1 insight/explanation slide
+- NO empty claims: never write "this improves results" without showing HOW or WHY
 
 EMPHASIS RULES (selective bold using **word**):
 - Bold 1–2 words per slide only — never more
-- ONLY bold words that carry real meaning:
-    ✓ Key outcomes:   **faster**, **smarter**, **dramatically**
-    ✓ Key contrasts:  **wrong**, **mistake**, **backwards**
-    ✓ Actionable words: **structured**, **specific**, **test**
-- NEVER bold:
-    ✗ Filler words: real, things, beginners, people, way
-    ✗ Generic nouns: potential, examples, results, content
-    ✗ Articles/conjunctions: the, a, and, or, if
+- ONLY bold: outcomes (**faster**, **smarter**), contrasts (**wrong**, **mistake**), actions (**specific**, **structured**)
+- NEVER bold: fillers (real, things), generic nouns (examples, potential), articles/conjunctions
 
-- Style:
-    - Short, punchy phrases only
-    - No fluff, no filler (just, really, very, simply, basically)
-    - No generic claims — be specific
-    - Beginner-friendly language
+- Style: short punchy phrases, no fluff, beginner-friendly, no generic claims
 
 Return ONLY a JSON array — no markdown, no code fences, no extra text:
 [
   { "type": "hook",    "text": "You're using Claude **backwards**" },
-  { "type": "content", "text": "Instead of long prompts → give **one** clear instruction" },
-  { "type": "content", "text": "**Specific** context = dramatically better answers" },
+  { "type": "content", "text": "Instead of 'explain this' → Try 'explain this **simply** with examples'" },
+  { "type": "content", "text": "**Specific** prompts work better — because Claude knows exactly what to do" },
+  { "type": "content", "text": "Add a role: 'Act as a teacher' — answers become **clearer** instantly" },
   { "type": "cta",     "text": "**Save** this and fix your prompts today" }
 ]
 
@@ -214,6 +209,33 @@ def _has_actionable_tip(slides: list[dict]) -> bool:
         if any(marker in text_lower for marker in _TIP_MARKERS):
             return True
     return False
+
+
+# ---------------------------------------------------------------------------
+# Depth validation — at least one example and one insight per carousel
+# ---------------------------------------------------------------------------
+
+# Markers for a concrete "Instead of → Try" or micro-example slide
+_EXAMPLE_MARKERS = ("instead of", "→", "->", "try ", "e.g.", "for example", "act as")
+
+# Markers for an insight/explanation slide
+_INSIGHT_MARKERS = ("because", "—", " — ", "=", "≠", "means ", "so ", "which ")
+
+
+def _has_depth(slides: list[dict]) -> bool:
+    """Return True if the carousel contains at least one example slide AND
+    one insight/explanation slide among the content slides."""
+    has_example = False
+    has_insight = False
+    for slide in slides:
+        if slide["type"] != "content":
+            continue
+        text_lower = slide["heading"].lower()
+        if any(m in text_lower for m in _EXAMPLE_MARKERS):
+            has_example = True
+        if any(m in text_lower for m in _INSIGHT_MARKERS):
+            has_insight = True
+    return has_example and has_insight
 
 
 # ---------------------------------------------------------------------------
@@ -359,14 +381,21 @@ APPLY THESE FIXES:
 2. REMOVE generic filler: "Welcome to...", "we post...", "our followers..."
    Replace with direct insights or statements about the user.
 
-3. INCLUDE at least one concrete actionable tip:
-   Preferred format: "Instead of X → Try **Y**"
+3. DEPTH — every content slide must do ONE of these (no empty claims):
+   A) Comparison: "Instead of X → Try **Y**"
+      e.g. "Instead of 'explain this' → Try 'explain this **simply** with examples'"
+   B) Insight+reason: "[claim] — because [short reason]"
+      e.g. "**Specific** prompts work better — because Claude knows exactly what to do"
+   C) Micro-example: short concrete before/after or concrete output
+      e.g. "Add a role: 'Act as a teacher' — answers become **clearer** instantly"
+   Carousel must include at least one A/C (example) AND one B (insight).
+   NEVER write vague claims like "this improves results" without showing HOW.
 
 4. STRUCTURE: Hook → Problem → Insight → Tip → Outcome → CTA
 
 5. WORD LIMITS (hard):
    hook:    max 8 words
-   content: max 15 words
+   content: max 18 words
    cta:     max 12 words
 
 6. EMPHASIS — use **word** markdown bold for 1–2 words per slide only:
@@ -675,6 +704,12 @@ def generate_slides(
                 raise ValueError(
                     "No actionable tip found (expected 'Instead of X → Try Y' pattern). "
                     "Retrying to enforce content quality."
+                )
+            if not _has_depth(slides):
+                raise ValueError(
+                    "Slides lack depth: need at least one example slide "
+                    "(Instead of/Try/micro-example) AND one insight slide (because/—/=). "
+                    "Retrying for more informative content."
                 )
             logger.info("Generated %d slides (word limits enforced, tip present)", len(slides))
             slides  = review_and_improve(slides)

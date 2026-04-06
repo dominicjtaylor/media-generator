@@ -29,10 +29,12 @@ import re
 import shutil
 import uuid
 from pathlib import Path
+from typing import Optional
 
 logger = logging.getLogger("carousel.renderer")
 
-_ROOT         = Path(__file__).parent   # project root (templates live here)
+_ROOT       = Path(__file__).parent          # project root (logo.png lives here)
+_STYLES_DIR = _ROOT / "slide_styles"         # template styles live here
 # Supports up to 8 content slides (10 total - hook - cta = 8)
 _CONTENT_NUMS = ["01", "02", "03", "04", "05", "06", "07", "08"]
 
@@ -55,25 +57,23 @@ def _md_bold_to_html(text: str) -> str:
 # Step 1: HTML injection
 # ---------------------------------------------------------------------------
 
-def inject_slide(index: int, slide: dict, total: int) -> str:
+def inject_slide(
+    index: int,
+    slide: dict,
+    total: int,
+    template_style: str = "text_only",
+) -> str:
     """Inject slide data into the appropriate HTML template.
 
     Parameters
     ----------
-    index : int   0-based position in the slide list.
-    slide : dict  Must contain "heading"; "description" is optional.
-    total : int   Total number of slides (determines which index is the last).
+    index          : int   0-based position in the slide list.
+    slide          : dict  Must contain "heading"; "body" is used for heading styles.
+    total          : int   Total number of slides (determines which index is the last).
+    template_style : str   One of "text_only", "headings_and_text", "headings_text_image".
     """
-    heading     = (slide.get("heading")     or "").strip()
-    description = (slide.get("description") or "").strip()
-
-    # Convert **word** markdown to <strong>word</strong>.
-    # If no markers exist the text renders at the template's base weight (300).
-    # Description (legacy field) is appended when present.
-    if description:
-        text = f"{_md_bold_to_html(heading)}<br>{_md_bold_to_html(description)}"
-    else:
-        text = _md_bold_to_html(heading)
+    heading = (slide.get("heading") or "").strip()
+    body    = (slide.get("body")    or "").strip()
 
     last_index = total - 1
 
@@ -88,16 +88,43 @@ def inject_slide(index: int, slide: dict, total: int) -> str:
         content_index = index - 1          # 0-based among content slides
         number        = _CONTENT_NUMS[content_index]
 
-    template_path = _ROOT / template_name
+    template_dir  = _STYLES_DIR / template_style
+    template_path = template_dir / template_name
     if not template_path.exists():
         raise FileNotFoundError(
             f"Template not found: {template_path}. "
-            "Ensure slide-first.html, slide-content.html, and slide-last.html "
-            "exist in the project root."
+            f"Ensure {template_name} exists in slide_styles/{template_style}/."
         )
 
     html = template_path.read_text(encoding="utf-8")
-    html = html.replace("{{TEXT}}", text)
+
+    # Fix logo paths that use relative "../../logo.png" (designed for direct file
+    # browsing in slide_styles/).  The HTML is written to a temp dir so we swap
+    # them for the absolute path to the project-root logo.png.
+    logo_abs = str(_ROOT / "logo.png")
+    html = html.replace('src="../../logo.png"', f'src="{logo_abs}"')
+    html = html.replace("src='../../logo.png'", f"src='{logo_abs}'")
+
+    if template_style == "text_only":
+        # Single {{TEXT}} field: concatenate heading + body (legacy behaviour)
+        if body:
+            text = f"{_md_bold_to_html(heading)}<br>{_md_bold_to_html(body)}"
+        else:
+            text = _md_bold_to_html(heading)
+        html = html.replace("{{TEXT}}", text)
+
+    else:
+        # Heading styles:
+        # - slide-first.html and slide-last.html only have {{TEXT}} → inject heading there
+        # - slide-content.html has {{HEADING}} + {{TEXT}} → inject separately
+        if index == 0 or index == last_index:
+            # First and last templates use a single {{TEXT}} block
+            html = html.replace("{{TEXT}}", _md_bold_to_html(heading))
+        else:
+            # Content template: two separate zones
+            html = html.replace("{{HEADING}}", _md_bold_to_html(heading))
+            html = html.replace("{{TEXT}}",    _md_bold_to_html(body))
+
     if number is not None:
         html = html.replace("{{NUMBER}}", number)
 
@@ -111,9 +138,19 @@ def inject_slide(index: int, slide: dict, total: int) -> str:
 def render_slides(
     slides: list[dict],
     renders_base: str = "/tmp/renders",
+    template_style: str = "text_only",
+    image_data: Optional[dict] = None,
 ) -> tuple[list[str], str]:
     """
     Render slides to PNG files using Playwright (Chromium headless).
+
+    Parameters
+    ----------
+    slides         : list[dict]   Slide dicts from generator.generate_slides().
+    renders_base   : str          Base directory for render output.
+    template_style : str          One of "text_only", "headings_and_text", "headings_text_image".
+    image_data     : dict | None  Lummi image metadata (only used for headings_text_image).
+                                  Must contain "local_path" pointing to downloaded image.
 
     Returns
     -------
@@ -129,19 +166,32 @@ def render_slides(
     run_id  = uuid.uuid4().hex
     out_dir = Path(renders_base) / run_id
     out_dir.mkdir(parents=True, exist_ok=True)
-    logger.info("Render run %s -> %s", run_id, out_dir)
+    logger.info("Render run %s (style=%s) -> %s", run_id, template_style, out_dir)
 
-    # Copy logo.png so relative src="logo.png" in templates resolves correctly
+    # Copy logo.png so relative src="logo.png" in text_only templates resolves correctly
     logo_src = _ROOT / "logo.png"
     if logo_src.exists():
         shutil.copy2(logo_src, out_dir / "logo.png")
     else:
         logger.warning("logo.png not found at %s -- brand logo will be missing", logo_src)
 
+    # For the image template, copy the downloaded photo so slide-first.html can
+    # resolve <img src="image.png"> from the render directory.
+    if template_style == "headings_text_image" and image_data:
+        src_image = Path(image_data["local_path"])
+        if src_image.exists():
+            shutil.copy2(src_image, out_dir / "image.png")
+            logger.info("Copied Lummi image → %s/image.png", out_dir)
+        else:
+            logger.warning(
+                "image_data.local_path not found: %s — first slide image will be broken",
+                src_image,
+            )
+
     # Write HTML files
     html_paths: list[Path] = []
     for i, slide in enumerate(slides):
-        html      = inject_slide(i, slide, total=n)
+        html      = inject_slide(i, slide, total=n, template_style=template_style)
         html_path = out_dir / f"slide-{i + 1}.html"
         html_path.write_text(html, encoding="utf-8")
         html_paths.append(html_path)

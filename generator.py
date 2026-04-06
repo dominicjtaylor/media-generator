@@ -24,13 +24,39 @@ from typing import Optional
 logger = logging.getLogger("carousel.generator")
 
 # ---------------------------------------------------------------------------
-# Word limits by slide type
+# Template styles and word limits
 # ---------------------------------------------------------------------------
 
-WORD_LIMITS = {
-    "hook":    8,
-    "content": 22,   # allows complete sentences with examples and "because" explanations
-    "cta":     12,
+TEMPLATE_STYLES: list[str] = ["text_only", "headings_and_text", "headings_text_image"]
+
+
+def select_template_style() -> str:
+    """Return one of the three template style names at random."""
+    return random.choice(TEMPLATE_STYLES)
+
+
+# Per-style word limits.  For heading styles the limits are split across the
+# heading ({{HEADING}}) and body ({{TEXT}}) fields rendered separately.
+WORD_LIMITS: dict[str, dict[str, int]] = {
+    "text_only": {
+        "hook":    8,
+        "content": 15,
+        "cta":     12,
+    },
+    "headings_and_text": {
+        "hook_heading":    8,
+        "content_heading": 8,
+        "content_body":    20,
+        "cta_heading":     8,
+        "cta_body":        12,
+    },
+    "headings_text_image": {
+        "hook_heading":    8,
+        "content_heading": 8,
+        "content_body":    20,
+        "cta_heading":     8,
+        "cta_body":        12,
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -108,7 +134,95 @@ def _build_carousel_arc(num_slides: int) -> str:
     return "\n".join(lines)
 
 
-def _build_system_prompt(num_slides: int) -> str:
+def _word_limits_section(template_style: str) -> str:
+    """Return the WORD LIMITS block for the system prompt body.
+
+    For heading styles the full word limits are in _output_format_section;
+    this returns a short placeholder to avoid duplication.
+    """
+    if template_style == "text_only":
+        return """\
+WORD LIMITS:
+
+- Hook: max 8 words
+- Content slides: max 15 words
+- CTA: max 12 words
+
+---"""
+    # Heading styles: word limits are stated in the OUTPUT FORMAT section at the end.
+    return """\
+WORD LIMITS:
+
+See the OUTPUT FORMAT section at the end of this prompt for per-field word limits.
+
+---"""
+
+
+def _output_format_section(num_slides: int, template_style: str) -> str:
+    """Return the OUTPUT FORMAT block injected at the end of the system prompt.
+
+    NOTE: This function is called from within an f-string expression in
+    _build_system_prompt.  The returned string is inserted verbatim — it is NOT
+    processed a second time for {{ }} escapes.  So use {{ }} here to get literal
+    { } in the output (standard f-string escaping applied once).
+    """
+    if template_style == "text_only":
+        return f"""\
+OUTPUT FORMAT (STRICT JSON):
+
+{{
+  "slides": [
+    {{"type": "hook",    "text": "You're prompting Claude **wrong** — here's why"}},
+    {{"type": "content", "text": "Specific prompts work better — because Claude knows exactly what to do"}},
+    {{"type": "content", "text": "Instead of: \\"Explain this\\" → Try: \\"Explain this **simply** with 3 examples\\""}},
+    {{"type": "content", "text": "Add your role upfront — 'Act as a teacher' changes every answer **instantly**"}},
+    {{"type": "cta",     "text": "Follow @claudeinsights for more Claude tips"}}
+  ]
+}}
+
+The "slides" array MUST contain EXACTLY {num_slides} objects.
+If your output does not meet ALL rules, regenerate internally until it does."""
+
+    # headings_and_text and headings_text_image share the same two-field format.
+    image_hook_note = ""
+    if template_style == "headings_text_image":
+        image_hook_note = (
+            "\nIMPORTANT: Slide 1 (hook) MUST have \"text\": \"\" — "
+            "an image is injected into that slide automatically. "
+            "Do NOT write body text for the hook.\n"
+        )
+
+    return f"""\
+WORD LIMITS (two-field format — enforce strictly):
+
+- Hook heading (Slide 1): max 8 words
+- Content heading:         max 8 words  \u2190 the bold title shown large
+- Content body (text):     max 20 words \u2190 the supporting explanation shown smaller
+- CTA heading:             max 8 words
+- CTA body (text):         max 12 words
+{image_hook_note}
+OUTPUT FORMAT (STRICT JSON — two fields per slide):
+
+Each slide has TWO fields:
+  "heading" \u2014 short, punchy title phrase (see word limits above)
+  "text"    \u2014 supporting body sentence (empty string "" for hook slides)
+
+{{
+  "slides": [
+    {{"type": "hook",    "heading": "Stop prompting Claude the **wrong** way",        "text": ""}},
+    {{"type": "content", "heading": "Specific prompts work better",                    "text": "Because Claude needs clear instructions to respond accurately and completely"}},
+    {{"type": "content", "heading": "Show Claude the before and after",                "text": "Instead of: \\"Explain this\\" \u2192 Try: \\"Explain this **simply** with 3 examples\\""}},
+    {{"type": "content", "heading": "Add a role to every prompt",                      "text": "'Act as a teacher' changes every answer \u2014 Claude adjusts tone and depth **instantly**"}},
+    {{"type": "cta",     "heading": "Follow @claudeinsights now",                     "text": "Get more Claude tips every week"}}
+  ]
+}}
+
+The "slides" array MUST contain EXACTLY {num_slides} objects.
+Both "heading" and "text" are required on every slide (use "" for empty text).
+If your output does not meet ALL rules, regenerate internally until it does."""
+
+
+def _build_system_prompt(num_slides: int, template_style: str = "text_only") -> str:
     """Return the generation system prompt with the exact slide count baked in.
 
     A hook style is chosen randomly at call time so every generation request
@@ -234,13 +348,7 @@ Good: "Use structured prompts — because Claude needs clear instructions to res
 
 ---
 
-WORD LIMITS:
-
-- Hook: max 8 words
-- Content slides: 12–22 words
-- CTA: max 12 words
-
----
+{_word_limits_section(template_style)}
 
 COMPLETENESS (CRITICAL):
 
@@ -296,20 +404,7 @@ Do NOT repeat the same mistake.
 
 ---
 
-OUTPUT FORMAT (STRICT JSON):
-
-{{
-  "slides": [
-    {{"type": "hook",    "text": "You're prompting Claude **wrong** — here's why"}},
-    {{"type": "content", "text": "Specific prompts work better — because Claude knows exactly what to do"}},
-    {{"type": "content", "text": "Instead of: \\"Explain this\\" → Try: \\"Explain this **simply** with 3 examples\\""}},
-    {{"type": "content", "text": "Add your role upfront — 'Act as a teacher' changes every answer **instantly**"}},
-    {{"type": "cta",     "text": "Follow @claudeinsights for more Claude tips"}}
-  ]
-}}
-
-The "slides" array MUST contain EXACTLY {num_slides} objects.
-If your output does not meet ALL rules, regenerate internally until it does.\
+{_output_format_section(num_slides, template_style)}\
 """
 
 
@@ -381,20 +476,48 @@ def enforce_word_limit(text: str, max_words: int) -> str:
     return stripped
 
 
-def _enforce_slide_limits(slides: list[dict]) -> list[dict]:
-    """Ensure every slide's heading respects the word limit for its type."""
+def _enforce_slide_limits(slides: list[dict], template_style: str = "text_only") -> list[dict]:
+    """Ensure every slide's heading (and body) respects the word limit for its type."""
+    limits = WORD_LIMITS[template_style]
     result = []
     for slide in slides:
         slide_type = slide["type"]
-        max_words  = WORD_LIMITS.get(slide_type, 15)
-        heading    = slide["heading"]
-        enforced   = enforce_word_limit(heading, max_words)
-        if enforced != heading:
-            logger.info(
-                "Truncated %s slide from %d words to %d: %r → %r",
-                slide_type, len(heading.split()), max_words, heading, enforced,
-            )
-        result.append({**slide, "heading": enforced})
+        heading    = slide.get("heading", "")
+        body       = slide.get("body", "")
+
+        if template_style == "text_only":
+            max_h    = limits[slide_type]
+            enforced = enforce_word_limit(heading, max_h)
+            if enforced != heading:
+                logger.info(
+                    "Truncated %s slide from %d→%d words: %r",
+                    slide_type, len(heading.split()), max_h, heading,
+                )
+            result.append({**slide, "heading": enforced, "body": ""})
+        else:
+            # heading styles: enforce separate limits on heading and body
+            if slide_type == "hook":
+                max_h     = limits["hook_heading"]
+                enforced_h = enforce_word_limit(heading, max_h)
+                if enforced_h != heading:
+                    logger.info("Truncated hook heading %d→%d words", len(heading.split()), max_h)
+                result.append({**slide, "heading": enforced_h, "body": ""})
+            elif slide_type == "cta":
+                max_h = limits["cta_heading"]
+                max_b = limits["cta_body"]
+                enforced_h = enforce_word_limit(heading, max_h)
+                enforced_b = enforce_word_limit(body, max_b)
+                result.append({**slide, "heading": enforced_h, "body": enforced_b})
+            else:  # content
+                max_h = limits["content_heading"]
+                max_b = limits["content_body"]
+                enforced_h = enforce_word_limit(heading, max_h)
+                enforced_b = enforce_word_limit(body, max_b)
+                if enforced_h != heading:
+                    logger.info("Truncated content heading %d→%d words", len(heading.split()), max_h)
+                if enforced_b != body:
+                    logger.info("Truncated content body %d→%d words", len(body.split()), max_b)
+                result.append({**slide, "heading": enforced_h, "body": enforced_b})
     return result
 
 
@@ -415,10 +538,11 @@ def _cap_bold_phrases(text: str, max_bold: int = 2) -> str:
 def _enforce_bold_caps(slides: list[dict]) -> list[dict]:
     result = []
     for slide in slides:
-        capped = _cap_bold_phrases(slide["heading"])
-        if capped != slide["heading"]:
-            logger.info("Capped bold phrases on %s slide: %r", slide["type"], slide["heading"])
-        result.append({**slide, "heading": capped})
+        capped_h = _cap_bold_phrases(slide.get("heading", ""))
+        capped_b = _cap_bold_phrases(slide.get("body", ""))
+        if capped_h != slide.get("heading", ""):
+            logger.info("Capped bold phrases on %s slide heading", slide["type"])
+        result.append({**slide, "heading": capped_h, "body": capped_b})
     return result
 
 
@@ -483,11 +607,12 @@ def _has_actionable_prompt_example(slides: list[dict]) -> bool:
 
     A quoted prompt without a comparison is not enough — the slide must
     show the reader why one phrasing is better than another.
+    Checks both heading and body fields to support two-field heading styles.
     """
     for slide in slides:
         if slide["type"] != "content":
             continue
-        text = slide["heading"]
+        text = slide.get("heading", "") + " " + slide.get("body", "")
         text_lower = text.lower()
         has_quote = any(q in text for q in _QUOTE_CHARS)
         has_improvement = any(signal in text_lower for signal in _IMPROVEMENT_SIGNALS)
@@ -566,13 +691,14 @@ _INSIGHT_MARKERS = ("because", "—", " — ", "=", "≠", "means ", "so ", "whi
 
 def _has_depth(slides: list[dict]) -> bool:
     """Return True if the carousel contains at least one example slide AND
-    one insight/explanation slide among the content slides."""
+    one insight/explanation slide among the content slides.
+    Checks both heading and body fields to support two-field heading styles."""
     has_example = False
     has_insight = False
     for slide in slides:
         if slide["type"] != "content":
             continue
-        text_lower = slide["heading"].lower()
+        text_lower = (slide.get("heading", "") + " " + slide.get("body", "")).lower()
         if any(m in text_lower for m in _EXAMPLE_MARKERS):
             has_example = True
         if any(m in text_lower for m in _INSIGHT_MARKERS):
@@ -584,7 +710,12 @@ def _has_depth(slides: list[dict]) -> bool:
 # Backend: Anthropic
 # ---------------------------------------------------------------------------
 
-def _generate_anthropic(topic: str, num_slides: int, error_context: str = "") -> str:
+def _generate_anthropic(
+    topic: str,
+    num_slides: int,
+    error_context: str = "",
+    template_style: str = "text_only",
+) -> str:
     try:
         import anthropic
     except ImportError as exc:
@@ -604,7 +735,10 @@ def _generate_anthropic(topic: str, num_slides: int, error_context: str = "") ->
         raise RuntimeError("ANTHROPIC_API_KEY not set in environment")
 
     client = anthropic.Anthropic(api_key=api_key)
-    logger.info("Calling Anthropic API for topic: %r (num_slides=%d)", topic, num_slides)
+    logger.info(
+        "Calling Anthropic API for topic: %r (num_slides=%d, style=%s)",
+        topic, num_slides, template_style,
+    )
 
     user_content = f"Topic: {topic}"
     if error_context:
@@ -613,7 +747,7 @@ def _generate_anthropic(topic: str, num_slides: int, error_context: str = "") ->
     message = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=1024,
-        system=_build_system_prompt(num_slides),
+        system=_build_system_prompt(num_slides, template_style),
         messages=[{"role": "user", "content": user_content}],
     )
     return message.content[0].text
@@ -623,7 +757,12 @@ def _generate_anthropic(topic: str, num_slides: int, error_context: str = "") ->
 # Backend: OpenAI
 # ---------------------------------------------------------------------------
 
-def _generate_openai(topic: str, num_slides: int, error_context: str = "") -> str:
+def _generate_openai(
+    topic: str,
+    num_slides: int,
+    error_context: str = "",
+    template_style: str = "text_only",
+) -> str:
     try:
         from openai import OpenAI
     except ImportError as exc:
@@ -636,7 +775,10 @@ def _generate_openai(topic: str, num_slides: int, error_context: str = "") -> st
         raise RuntimeError("OPENAI_API_KEY not set in environment")
 
     client = OpenAI(api_key=api_key)
-    logger.info("Calling OpenAI API for topic: %r (num_slides=%d)", topic, num_slides)
+    logger.info(
+        "Calling OpenAI API for topic: %r (num_slides=%d, style=%s)",
+        topic, num_slides, template_style,
+    )
 
     user_content = f"Topic: {topic}"
     if error_context:
@@ -645,7 +787,7 @@ def _generate_openai(topic: str, num_slides: int, error_context: str = "") -> st
     response = client.chat.completions.create(
         model=os.environ.get("OPENAI_MODEL", "gpt-4o"),
         messages=[
-            {"role": "system", "content": _build_system_prompt(num_slides)},
+            {"role": "system", "content": _build_system_prompt(num_slides, template_style)},
             {"role": "user", "content": user_content},
         ],
         max_tokens=1024,
@@ -658,8 +800,16 @@ def _generate_openai(topic: str, num_slides: int, error_context: str = "") -> st
 # JSON parsing
 # ---------------------------------------------------------------------------
 
-def _parse_json_slides(raw: str, num_slides: int = 5) -> list[dict]:
-    """Parse LLM JSON output into a validated list of slide dicts."""
+def _parse_json_slides(
+    raw: str,
+    num_slides: int = 5,
+    template_style: str = "text_only",
+) -> list[dict]:
+    """Parse LLM JSON output into a validated list of slide dicts.
+
+    For text_only: reads the "text" field → stored as heading, body="".
+    For heading styles: reads "heading" + "text" → stored as heading + body.
+    """
     text = raw.strip()
 
     # Strip markdown code fences if the model wrapped output anyway
@@ -698,23 +848,47 @@ def _parse_json_slides(raw: str, num_slides: int = 5) -> list[dict]:
             raise ValueError(f"Slide {i} is not a JSON object")
 
         slide_type = (s.get("type") or "").strip().lower()
-        text_val   = (s.get("text") or "").strip()
 
         if slide_type not in valid_types:
             raise ValueError(
                 f"Slide {i} has invalid type {slide_type!r}. "
                 f"Must be one of: {sorted(valid_types)}"
             )
-        if not text_val:
-            raise ValueError(f"Slide {i} has empty 'text'")
 
-        # Normalise to internal renderer format:
-        #   heading = the full slide text; description = "" (unused with new concise format)
-        result.append({
-            "type":        slide_type,
-            "heading":     text_val,
-            "description": "",
-        })
+        if template_style == "text_only":
+            text_val = (s.get("text") or "").strip()
+            if not text_val:
+                raise ValueError(f"Slide {i} has empty 'text'")
+            result.append({
+                "type":    slide_type,
+                "heading": text_val,
+                "body":    "",
+            })
+        else:
+            # heading styles: separate heading and body fields
+            heading_val = (s.get("heading") or "").strip()
+            body_val    = (s.get("text") or "").strip()
+
+            if not heading_val:
+                raise ValueError(f"Slide {i} has empty 'heading'")
+
+            # Hook slides in headings_text_image have empty body by design
+            # (the image occupies the lower half); all other slides need body
+            if not body_val and not (
+                slide_type == "hook"
+                or (slide_type == "hook" and template_style == "headings_and_text")
+            ):
+                if slide_type != "hook":
+                    logger.debug(
+                        "Slide %d (%s) has empty body — acceptable for hook, warning for others",
+                        i, slide_type,
+                    )
+
+            result.append({
+                "type":    slide_type,
+                "heading": heading_val,
+                "body":    body_val,
+            })
 
     # Validate structure: first=hook, last=cta
     if result[0]["type"] != "hook":
@@ -729,7 +903,32 @@ def _parse_json_slides(raw: str, num_slides: int = 5) -> list[dict]:
 # Review & improve pass
 # ---------------------------------------------------------------------------
 
-REVIEW_PROMPT = """\
+def _build_review_prompt(template_style: str = "text_only") -> str:
+    """Build a review prompt appropriate for the given template style."""
+    if template_style == "text_only":
+        return_format = """\
+Return ONLY a JSON array in the same format as the input — no extra text:
+[
+  { "type": "hook",    "text": "..." },
+  { "type": "content", "text": "..." },
+  { "type": "cta",     "text": "..." }
+]"""
+        word_limits = "hook: max 8 words | content: max 15 words | cta: max 12 words"
+    else:
+        return_format = """\
+Return ONLY a JSON array with two fields per slide — no extra text:
+[
+  { "type": "hook",    "heading": "...", "text": "" },
+  { "type": "content", "heading": "...", "text": "..." },
+  { "type": "cta",     "heading": "...", "text": "..." }
+]"""
+        word_limits = (
+            "hook heading: max 8 words | "
+            "content heading: max 8 words | content body (text): max 20 words | "
+            "cta heading: max 8 words | cta body (text): max 12 words"
+        )
+
+    return f"""\
 You are an expert Instagram content strategist. You will receive a set of carousel
 slides and return an IMPROVED version that is sharper, clearer, and more valuable.
 
@@ -754,10 +953,7 @@ APPLY THESE FIXES:
 
 4. STRUCTURE: Hook → Problem → Insight → Tip → Outcome → CTA
 
-5. WORD LIMITS (hard):
-   hook:    max 8 words
-   content: max 22 words
-   cta:     max 12 words
+5. WORD LIMITS (hard): {word_limits}
 
 6. EMPHASIS — use **word** markdown bold for 1–2 words per slide only:
    ✓ Bold: outcomes (better, faster), contrasts (wrong, mistake), actions (specific, structured)
@@ -765,24 +961,19 @@ APPLY THESE FIXES:
 
 7. STYLE: short punchy phrases, no fluff, beginner-friendly, high clarity
 
-Return ONLY a JSON array in the same format as the input — no extra text:
-[
-  { "type": "hook",    "text": "..." },
-  { "type": "content", "text": "..." },
-  { "type": "cta",     "text": "..." }
-]\
-"""
+{return_format}"""
 
 
 def _slides_to_review_input(slides: list[dict]) -> str:
     """Format slides into a numbered list for the review LLM."""
     lines = ["Current carousel slides:"]
     for i, s in enumerate(slides):
-        lines.append(f"  {i + 1}. [{s['type'].upper()}] {s['heading']}")
+        body_part = f" | {s['body']}" if s.get("body") else ""
+        lines.append(f"  {i + 1}. [{s['type'].upper()}] {s['heading']}{body_part}")
     return "\n".join(lines)
 
 
-def _review_anthropic(slides: list[dict]) -> str:
+def _review_anthropic(slides: list[dict], template_style: str = "text_only") -> str:
     import anthropic
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
@@ -791,13 +982,13 @@ def _review_anthropic(slides: list[dict]) -> str:
     msg = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=1024,
-        system=REVIEW_PROMPT,
+        system=_build_review_prompt(template_style),
         messages=[{"role": "user", "content": _slides_to_review_input(slides)}],
     )
     return msg.content[0].text.strip()
 
 
-def _review_openai(slides: list[dict]) -> str:
+def _review_openai(slides: list[dict], template_style: str = "text_only") -> str:
     from openai import OpenAI
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
@@ -806,7 +997,7 @@ def _review_openai(slides: list[dict]) -> str:
     resp = client.chat.completions.create(
         model=os.environ.get("OPENAI_MODEL", "gpt-4o"),
         messages=[
-            {"role": "system", "content": REVIEW_PROMPT},
+            {"role": "system", "content": _build_review_prompt(template_style)},
             {"role": "user",   "content": _slides_to_review_input(slides)},
         ],
         max_tokens=1024,
@@ -815,7 +1006,7 @@ def _review_openai(slides: list[dict]) -> str:
     return resp.choices[0].message.content.strip()
 
 
-def review_and_improve(slides: list[dict]) -> list[dict]:
+def review_and_improve(slides: list[dict], template_style: str = "text_only") -> list[dict]:
     """Run a second LLM pass to improve slide quality.
 
     Returns the improved slides parsed back into internal dict format.
@@ -833,13 +1024,13 @@ def review_and_improve(slides: list[dict]) -> list[dict]:
     review_fn = _review_anthropic if provider == "anthropic" else _review_openai
 
     try:
-        logger.info("Running review pass on %d slides", len(slides))
-        raw      = review_fn(slides)
+        logger.info("Running review pass on %d slides (style=%s)", len(slides), template_style)
+        raw      = review_fn(slides, template_style)
         # Pass the original count so the validator enforces the same slide count
         # as the primary generation pass — without this the default of 5 silently
         # replaces a correctly-generated 7-slide carousel with a 5-slide one.
-        improved = _parse_json_slides(raw, num_slides=len(slides))
-        improved = _enforce_slide_limits(improved)
+        improved = _parse_json_slides(raw, num_slides=len(slides), template_style=template_style)
+        improved = _enforce_slide_limits(improved, template_style)
         improved = _enforce_bold_caps(improved)
         logger.info("Review pass complete — %d slides returned", len(improved))
         return improved
@@ -899,8 +1090,10 @@ def _build_caption_user_message(slides: list[dict]) -> str:
     lines = ["Carousel slides:"]
     for i, s in enumerate(slides):
         # Strip **markers** so the caption LLM sees clean text
-        plain = re.sub(r'\*\*(.*?)\*\*', r'\1', s["heading"])
-        lines.append(f"  {i + 1}. [{s['type'].upper()}] {plain}")
+        heading_plain = re.sub(r'\*\*(.*?)\*\*', r'\1', s.get("heading", ""))
+        body_plain    = re.sub(r'\*\*(.*?)\*\*', r'\1', s.get("body", ""))
+        slide_text    = f"{heading_plain} — {body_plain}" if body_plain else heading_plain
+        lines.append(f"  {i + 1}. [{s['type'].upper()}] {slide_text}")
     return "\n".join(lines)
 
 
@@ -1023,19 +1216,22 @@ def generate_slides(
     topic: str,
     num_slides: int = 5,
     max_retries: int = 3,
+    template_style: Optional[str] = None,
 ) -> tuple[list[dict], str]:
     """
     Generate carousel slides for *topic* using the configured LLM.
 
     Parameters
     ----------
-    topic : str      The subject of the carousel (user input).
-    num_slides : int Exact number of slides to generate (4–7). Default 5.
+    topic : str                 The subject of the carousel (user input).
+    num_slides : int            Exact number of slides to generate (4–10). Default 5.
+    template_style : str | None One of TEMPLATE_STYLES.  None defaults to "text_only"
+                                for backward compatibility.
 
     Returns
     -------
     slides : list[dict]
-        Each dict has "type", "heading", and "description" keys.
+        Each dict has "type", "heading", and "body" keys.
         Word limits are enforced in code regardless of LLM output.
     caption : str
         Ready-to-post Instagram caption aligned with the slides.
@@ -1043,6 +1239,14 @@ def generate_slides(
     """
     if not (4 <= num_slides <= 10):
         raise ValueError(f"num_slides must be between 4 and 10, got {num_slides}")
+
+    if template_style is None:
+        template_style = "text_only"
+    if template_style not in TEMPLATE_STYLES:
+        raise ValueError(
+            f"Unknown template_style {template_style!r}. "
+            f"Choose one of: {TEMPLATE_STYLES}"
+        )
 
     provider = os.environ.get("LLM_PROVIDER", "anthropic").lower()
     backends = {
@@ -1061,11 +1265,14 @@ def generate_slides(
 
     for attempt in range(1, max_retries + 1):
         try:
-            logger.info("Slide generation attempt %d/%d (num_slides=%d)", attempt, max_retries, num_slides)
-            raw    = backend(topic, num_slides, error_context)
+            logger.info(
+                "Slide generation attempt %d/%d (num_slides=%d, style=%s)",
+                attempt, max_retries, num_slides, template_style,
+            )
+            raw    = backend(topic, num_slides, error_context, template_style)
             logger.debug("Raw LLM output: %s", raw[:500])
-            slides = _parse_json_slides(raw, num_slides)
-            slides = _enforce_slide_limits(slides)
+            slides = _parse_json_slides(raw, num_slides, template_style)
+            slides = _enforce_slide_limits(slides, template_style)
             slides = _enforce_bold_caps(slides)
             hook_text = slides[0]["heading"]
             if not _is_complete_hook(hook_text):
@@ -1091,8 +1298,11 @@ def generate_slides(
                     "CTA slide is missing @claudeinsights. "
                     "The final slide MUST include '@claudeinsights'."
                 )
-            logger.info("Generated %d slides (validated: completeness, CTA handle, prompt example, depth)", len(slides))
-            slides  = review_and_improve(slides)
+            logger.info(
+                "Generated %d slides (validated: completeness, CTA handle, prompt example, depth)",
+                len(slides),
+            )
+            slides  = review_and_improve(slides, template_style)
             caption = generate_caption(slides)
             return slides, caption
         except Exception as exc:

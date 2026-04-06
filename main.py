@@ -24,7 +24,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from utils import setup_logging
-from generator import generate_slides
+from generator import generate_slides, select_template_style, TEMPLATE_STYLES
 
 
 # ---------------------------------------------------------------------------
@@ -117,20 +117,56 @@ def process_topic(
     logger.info("TOPIC: %s", topic)
     logger.info("=" * 60)
 
+    # Step 0: Select template style (--template flag overrides random selection)
+    if template and template in TEMPLATE_STYLES:
+        style = template
+        logger.info("Template style (override): %s", style)
+    else:
+        style = select_template_style()
+        logger.info("Template style (random): %s", style)
+
     # Step 1: Generate slides via LLM
-    logger.info("Generating slides via LLM…")
-    slides, _ = generate_slides(topic, max_retries=retries)
+    logger.info("Generating slides via LLM… (style=%s)", style)
+    slides, caption = generate_slides(topic, max_retries=retries, template_style=style)
     logger.info("Generated %d slides", len(slides))
 
-    # Step 2: Render slides to PNG
+    # Step 2: Fetch image for the image template
+    image_data = None
+    if style == "headings_text_image":
+        from image_fetcher import fetch_lummi_image
+        try:
+            logger.info("Fetching Lummi image for topic: %r", topic)
+            image_data = fetch_lummi_image(topic)
+            logger.info("Lummi image: %s (author: %s)", image_data["url"], image_data["author_name"])
+            caption += (
+                f"\n\nImage by {image_data['author_name']} via Lummi"
+                f" — {image_data['author_url']}"
+            )
+        except Exception as exc:
+            logger.warning(
+                "Lummi image fetch failed (%s) — falling back to text_only style", exc
+            )
+            style      = "text_only"
+            image_data = None
+            # Re-generate with the fallback style (different prompts and word limits)
+            slides, caption = generate_slides(topic, max_retries=retries, template_style=style)
+
+    # Step 3: Render slides to PNG
     from renderer import render_slides
     from pathlib import Path
     dest_dir = Path(output_base) / topic[:50].replace("/", "_")
     dest_dir.mkdir(parents=True, exist_ok=True)
-    logger.info("Rendering slides → %s", dest_dir)
-    png_paths, run_id = render_slides(slides, renders_base=str(dest_dir))
+    logger.info("Rendering slides → %s (style=%s)", dest_dir, style)
+    png_paths, run_id = render_slides(
+        slides,
+        renders_base=str(dest_dir),
+        template_style=style,
+        image_data=image_data,
+    )
 
     logger.info("Done! %d image(s) saved to %s", len(png_paths), dest_dir)
+    if caption:
+        logger.info("Caption:\n%s", caption)
 
 
 def generate_carousel(

@@ -31,7 +31,7 @@ from pydantic import BaseModel
 load_dotenv()
 
 from utils import setup_logging
-from generator import generate_slides
+from generator import generate_slides, select_template_style
 from renderer import render_slides
 
 setup_logging(os.environ.get("LOG_LEVEL", "INFO"))
@@ -70,36 +70,76 @@ def _stream(topic: str, num_slides: int) -> Generator[str, None, None]:
     """Sync generator that emits SSE events at each real pipeline stage."""
     print("HTML PIPELINE ACTIVE")
 
+    # Step 0: Select template style
+    style = select_template_style()
+    logger.info("Template style selected: %s", style)
+
     # Step 1: Generate slides via Claude
-    logger.info("Generating slides for topic: %r", topic)
+    logger.info("Generating slides for topic: %r (style=%s)", topic, style)
     yield _sse({"step": "generating", "message": "Generating and refining carousel content..."})
 
     try:
-        slides, caption = generate_slides(topic, num_slides=num_slides)
+        slides, caption = generate_slides(topic, num_slides=num_slides, template_style=style)
     except Exception as exc:
         logger.error("Slide generation failed: %s", exc)
         yield _sse({"step": "error", "message": f"Content generation failed: {exc}"})
         return
 
     logger.info("Generated %d slides", len(slides))
-    slide_models = [
-        {"type": s.get("type", "content"), "heading": s["heading"], "description": s.get("description", "")}
-        for s in slides
-    ]
 
-    # Step 2: Render slides to PNG via Playwright
+    # Step 2: Fetch image (only for headings_text_image)
+    image_data = None
+    if style == "headings_text_image":
+        yield _sse({"step": "fetching_image", "message": "Fetching image from Lummi..."})
+        from image_fetcher import fetch_lummi_image
+        try:
+            image_data = fetch_lummi_image(topic)
+            logger.info("Lummi image fetched: %s", image_data["url"])
+            caption += (
+                f"\n\nImage by {image_data['author_name']} via Lummi"
+                f" — {image_data['author_url']}"
+            )
+        except Exception as exc:
+            logger.warning("Lummi fetch failed (%s) — falling back to text_only", exc)
+            style      = "text_only"
+            image_data = None
+            try:
+                slides, caption = generate_slides(
+                    topic, num_slides=num_slides, template_style=style
+                )
+            except Exception as exc2:
+                logger.error("Fallback generation failed: %s", exc2)
+                yield _sse({"step": "error", "message": f"Content generation failed: {exc2}"})
+                return
+
+    # Step 3: Render slides to PNG via Playwright
     print("Rendering slides via Playwright")
     yield _sse({"step": "rendering", "message": "Rendering slides..."})
 
     try:
-        png_paths, run_id = render_slides(slides, renders_base=str(RENDERS_DIR))
+        png_paths, run_id = render_slides(
+            slides,
+            renders_base=str(RENDERS_DIR),
+            template_style=style,
+            image_data=image_data,
+        )
     except Exception as exc:
         logger.error("Rendering failed: %s", exc)
         yield _sse({"step": "error", "message": f"Rendering failed: {exc}"})
         return
 
+    # Build slide_models for frontend — map internal "body" back to "description"
+    slide_models = [
+        {
+            "type":        s.get("type", "content"),
+            "heading":     s.get("heading", ""),
+            "description": s.get("body", ""),
+        }
+        for s in slides
+    ]
+
     image_urls = [f"/renders/{run_id}/slide-{i + 1}.png" for i in range(len(png_paths))]
-    logger.info("Carousel ready: %d images for run %s", len(image_urls), run_id)
+    logger.info("Carousel ready: %d images for run %s (style=%s)", len(image_urls), run_id, style)
 
     yield _sse({"step": "complete", "images": image_urls, "slides": slide_models, "caption": caption})
 

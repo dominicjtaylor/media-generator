@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Slide 1</title>
+
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+<style>
+* {
+  margin:0;
+  padding:0;
+  box-sizing:border-box;
+  font-family:'Inter', sans-serif;
+}
+
+.slide {
+  width:1080px;
+  height:1350px;
+  background:linear-gradient(135deg,#111,#0a0a0a);
+  color:#fff;
+  padding:100px 90px;
+  position:relative;
+  overflow:hidden;
+}
+
+/* ---------- TEXT ---------- */
+
+.brand {
+  font-size:28px;
+  color:#cfcfcf;
+  opacity:.85;
+}
+
+.swipe {
+  margin-top:160px;
+  display:inline-block;
+  border:1px solid rgba(255,255,255,.4);
+  border-radius:999px;
+  padding:6px 18px;
+  font-size:14px;
+  letter-spacing:3px;
+  color:#ccc;
+}
+
+.headline {
+  margin-top:50px;
+  font-size:90px;
+  font-weight:300;
+  line-height:1.05;
+  max-width:820px;
+}
+
+.headline strong {
+  font-weight:700;
+}
+
+.cta {
+  margin-top:70px;
+  display:inline-flex;
+  align-items:center;
+  gap:12px;
+  border:1px solid rgba(255,255,255,.4);
+  border-radius:999px;
+  padding:12px 22px;
+  font-size:22px;
+}
+
+.logo {
+  width:22px;
+  height:22px;
+  border-radius:50%;
+}
+
+.handle {
+  position:absolute;
+  bottom:80px;
+  left:90px;
+  font-size:28px;
+  opacity:.7;
+}
+
+/* ---------- ACCENT SYSTEM ---------- */
+
+:root {
+  --circle-size:160px;
+  --circle-bottom:120px;
+  --circle-right:80px;
+  --accent:#e84a24;
+}
+
+.circle {
+  position:absolute;
+  right:var(--circle-right);
+  bottom:var(--circle-bottom);
+  width:var(--circle-size);
+  height:var(--circle-size);
+  background:var(--accent);
+  border-radius:50%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:20px;
+  font-weight:600;
+
+  /* sits above the bar to hide its origin */
+  z-index:2;
+}
+
+.bar {
+  position:absolute;
+  height:12px;
+  background:var(--accent);
+
+  /* vertical alignment (circle center) */
+  bottom:calc(var(--circle-bottom) + (var(--circle-size) / 2));
+
+  /* start at circle center */
+  left:calc(100% - var(--circle-right) - (var(--circle-size) / 2));
+
+  /* extend to right edge */
+  width:calc(var(--circle-right) + (var(--circle-size) / 2));
+
+  z-index:1;
+}
+
+</style>
+</head>
+
+<body>
+<div class="slide">
+
+  <div class="brand">Claude Insights</div>
+
+  <div class="swipe">SWIPE</div>
+
+  <div class="headline">
+    {{TEXT}}
+  </div>
+
+  <div class="cta">
+    <img src="../../logo.png" class="logo">
+    Claude Insights
+  </div>
+
+  <div class="handle">@claudeinsights</div>
+
+  <!-- Accent -->
+  <div class="bar"></div>
+  <div class="circle">SWIPE</div>
+
+</div>
+</body>
+</html>

@@ -40,16 +40,19 @@ def _build_system_prompt(num_slides: int) -> str:
     """Return the generation system prompt with the exact slide count baked in."""
     content_count = num_slides - 2
     return f"""\
-You are an API that generates Instagram carousel slides about Claude AI for beginners.
+You are an API that generates Instagram carousel slides about using Claude AI for beginners.
 
-Return ONLY valid JSON. No text outside JSON. No markdown. No code blocks. No explanation.
+You MUST return ONLY valid JSON.
+Do NOT include any text before or after the JSON.
+Do NOT explain anything.
+Do NOT use markdown or code blocks.
 
 ---
 
 SLIDE COUNT (CRITICAL):
 
 Generate EXACTLY {num_slides} slides. There are NO other slide count rules.
-Ignore any prior assumptions about slide counts.
+Do NOT default to 5 slides. Do NOT add extra slides.
 
 Structure:
 - Slide 1 = hook
@@ -60,37 +63,92 @@ Structure:
 
 REAL PROMPT EXAMPLE (MANDATORY):
 
-At least ONE content slide must include a real, usable Claude prompt a beginner can copy.
+At least ONE content slide MUST include a REAL, copy-pasteable Claude prompt.
 
-Accepted formats:
-  Instead of: "Explain this" → Try: "Explain this simply with 3 examples"
-  Bad: "Summarise this" / Better: "Summarise this in bullet points with key takeaways"
-  Or a direct quoted prompt: "Act as a teacher and explain X step by step"
+STRICT REQUIREMENTS:
+- Must include quotation marks "
+- Must be a full usable prompt
+- Must be specific and realistic
+
+Valid formats:
+
+  A) Direct prompt:
+     "Explain this simply with 3 examples"
+
+  B) Instead of → Try this:
+     Instead of: "Explain this"
+     Try: "Explain this simply with examples"
+
+  C) Bad → Better:
+     Bad: "Summarise this"
+     Better: "Summarise this in bullet points with key takeaways"
+
+If no quoted prompt is included, the output is INVALID.
 
 ---
 
-QUALITY RULES:
+DEPTH PER SLIDE:
 
-- Hook: complete sentence, contrast or curiosity, max 8 words
-- Content: one idea with example, explanation, or comparison — 12–18 words
-- CTA: action-oriented, max 12 words
-- Use **word** to bold 1–2 key words per slide (outcomes, contrasts, actions only)
-- No filler, no empty claims — show HOW or WHY
+Each content slide MUST include at least ONE of:
+- a concrete example
+- a short explanation using "because…"
+- a comparison (bad → good, instead → try)
+
+Bad: "Use better prompts"
+Good: "Use structured prompts — because Claude needs clear instructions to respond **accurately**"
 
 ---
 
-OUTPUT FORMAT:
+WORD LIMITS:
+
+- Hook: max 8 words
+- Content slides: 12–18 words
+- CTA: max 12 words
+
+Slides must feel complete (no cut-off sentences).
+
+---
+
+HOOK QUALITY:
+
+Must be a complete sentence creating curiosity, contrast, or highlighting a mistake.
+Bad:  "Claude is powerful — most people waste"
+Good: "Claude is powerful — most people use it **wrong**"
+
+---
+
+EMPHASIS (bold using **word**):
+
+- 1–2 bold words per slide only
+- Bold ONLY: outcomes (better, faster, clearer), contrasts (wrong, mistake), actions (specific, structured)
+- NEVER bold filler words
+
+---
+
+SELF-CORRECTION:
+
+If you receive an error message with the topic, you MUST fix the specific issue.
+Common errors:
+- "Incorrect number of slides" → regenerate EXACTLY {num_slides} slides
+- "Missing prompt example"    → include at least one slide with a quoted prompt
+- "Invalid JSON"              → fix the JSON formatting
+Do NOT repeat the same mistake.
+
+---
+
+OUTPUT FORMAT (STRICT JSON):
 
 {{
   "slides": [
-    {{"type": "hook",    "text": "..."}},
-    {{"type": "content", "text": "..."}},
-    {{"type": "cta",     "text": "..."}}
+    {{"type": "hook",    "text": "Claude is powerful — most people use it **wrong**"}},
+    {{"type": "content", "text": "Instead of: \\"Explain this\\" → Try: \\"Explain this **simply** with 3 examples\\""}},
+    {{"type": "content", "text": "Add context — because Claude has **no** memory between sessions"}},
+    {{"type": "cta",     "text": "**Save** this and fix one prompt today"}}
   ]
 }}
 
 The "slides" array MUST contain EXACTLY {num_slides} objects.
-If the output is not valid JSON, regenerate internally until it is.\
+If your output does not meet ALL rules, regenerate internally until it does.\
 """
 
 
@@ -277,7 +335,7 @@ def _has_depth(slides: list[dict]) -> bool:
 # Backend: Anthropic
 # ---------------------------------------------------------------------------
 
-def _generate_anthropic(topic: str, num_slides: int) -> str:
+def _generate_anthropic(topic: str, num_slides: int, error_context: str = "") -> str:
     try:
         import anthropic
     except ImportError as exc:
@@ -299,11 +357,15 @@ def _generate_anthropic(topic: str, num_slides: int) -> str:
     client = anthropic.Anthropic(api_key=api_key)
     logger.info("Calling Anthropic API for topic: %r (num_slides=%d)", topic, num_slides)
 
+    user_content = f"Topic: {topic}"
+    if error_context:
+        user_content += f"\n\nPREVIOUS ATTEMPT FAILED — fix this error:\n{error_context}"
+
     message = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=1024,
         system=_build_system_prompt(num_slides),
-        messages=[{"role": "user", "content": f"Topic: {topic}"}],
+        messages=[{"role": "user", "content": user_content}],
     )
     return message.content[0].text
 
@@ -312,7 +374,7 @@ def _generate_anthropic(topic: str, num_slides: int) -> str:
 # Backend: OpenAI
 # ---------------------------------------------------------------------------
 
-def _generate_openai(topic: str, num_slides: int) -> str:
+def _generate_openai(topic: str, num_slides: int, error_context: str = "") -> str:
     try:
         from openai import OpenAI
     except ImportError as exc:
@@ -327,11 +389,15 @@ def _generate_openai(topic: str, num_slides: int) -> str:
     client = OpenAI(api_key=api_key)
     logger.info("Calling OpenAI API for topic: %r (num_slides=%d)", topic, num_slides)
 
+    user_content = f"Topic: {topic}"
+    if error_context:
+        user_content += f"\n\nPREVIOUS ATTEMPT FAILED — fix this error:\n{error_context}"
+
     response = client.chat.completions.create(
         model=os.environ.get("OPENAI_MODEL", "gpt-4o"),
         messages=[
             {"role": "system", "content": _build_system_prompt(num_slides)},
-            {"role": "user", "content": f"Topic: {topic}"},
+            {"role": "user", "content": user_content},
         ],
         max_tokens=1024,
         temperature=0.7,
@@ -738,13 +804,14 @@ def generate_slides(
             f"Unknown LLM_PROVIDER {provider!r}. Choose 'anthropic' or 'openai'."
         )
 
-    backend    = backends[provider]
+    backend      = backends[provider]
     last_error: Optional[Exception] = None
+    error_context: str              = ""
 
     for attempt in range(1, max_retries + 1):
         try:
             logger.info("Slide generation attempt %d/%d (num_slides=%d)", attempt, max_retries, num_slides)
-            raw    = backend(topic, num_slides)
+            raw    = backend(topic, num_slides, error_context)
             logger.debug("Raw LLM output: %s", raw[:500])
             slides = _parse_json_slides(raw, num_slides)
             slides = _enforce_slide_limits(slides)
@@ -777,7 +844,8 @@ def generate_slides(
             return slides, caption
         except Exception as exc:
             logger.warning("Attempt %d/%d failed: %s", attempt, max_retries, exc)
-            last_error = exc
+            last_error    = exc
+            error_context = str(exc)   # fed back into the next LLM call
             if attempt < max_retries:
                 wait = 2 ** attempt
                 logger.info("Waiting %ds before retry…", wait)

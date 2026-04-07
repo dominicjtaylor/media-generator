@@ -363,7 +363,9 @@ RULES FOR FLOW:
 - Each slide must build on the previous one — "because of this → here's what to do next"
 - Use transition words to signal progression:
     Slide 2: (no transition — state the core principle directly)
-    Step slides: First… / Then… / Next… / Now…
+    Step slides:
+        - Use transition words in the BODY text only (First…, Then…, Next…, Now…)
+        - NEVER use transition words in headings
     Outcome slide: Finally…
 - Do NOT write random, disconnected tips — every slide must earn the next one
 - The real prompt example (CONTRAST slide) belongs in the middle of the carousel, not at the end
@@ -1510,7 +1512,8 @@ def generate_slides(
                     heading = s["heading"]
 
                     if not _is_valid_heading(heading):
-                        raise ValueError(f"Invalid heading after truncation: {heading}")
+                        logger.info("Invalid heading (retrying candidate): %r", heading)
+                        continue  # skip candidate instead of killing attempt
 
                     if _is_sentence_like(heading):
                         raise ValueError(f"Heading looks like a sentence: {heading}")

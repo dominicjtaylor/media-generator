@@ -424,10 +424,15 @@ HEADINGS ("heading" field):
 - A phrase is valid: "Specific prompts work better" ✓
 
 BODY TEXT ("text" field, or the full text in text_only):
-- MUST be a complete, self-contained sentence
-- NEVER end with incomplete fragments:
-  ✗ "→ Try"    ✗ "Instead of:"    ✗ "Because"    ✗ "Then"    ✗ "And"
-- CONTRAST slides MUST have BOTH sides written in full:
+- MUST be a complete, self-contained unit of meaning
+- Must make sense when viewed in isolation — NOT as a continuation of the previous slide
+- NEVER end with words that require a follow-up on the next slide:
+  ✗ "Because"  ✗ "Instead of:"  ✗ "Instead"  ✗ "→ Try"  ✗ "Then"  ✗ "And"
+- Do NOT start a slide body with "Because..." if the premise lives in the previous slide
+- NEVER split a pattern across two slides:
+  ✗ Split: Slide 3 = 'Instead of: "Explain this"'  +  Slide 4 = 'Try: "Explain this in 3 steps"'
+  ✓ Same slide: 'Instead of: "Explain this" → Try: "Explain this in 3 steps with examples"'
+- CONTRAST format MUST have BOTH sides written in full on the SAME slide:
   ✗ BAD:  Instead of: "Explain this" → Try
   ✓ GOOD: Instead of: "Explain this" → Try: "Explain this simply with examples"
 
@@ -453,6 +458,18 @@ EMPHASIS (bold using **word**):
 
 ---
 
+SELF-CHECK (mandatory — do this before returning your output):
+
+Review each slide independently. For every slide ask:
+1. Does this slide make complete sense if shown alone, without the previous slide?
+2. Does the body end on a complete thought? (not "because", "instead of", "and", "then")
+3. If using "Instead of → Try" — are BOTH sides present on THIS slide?
+4. Does the body start with "Because..." where the premise was stated in the previous slide?
+
+If any slide fails → rewrite it to be self-contained before returning.
+
+---
+
 SELF-CORRECTION:
 
 If you receive an error message with the topic, you MUST fix the specific issue.
@@ -460,7 +477,7 @@ Common errors:
 - "Incorrect number of slides"         → regenerate EXACTLY {num_slides} slides
 - "No actionable prompt example found" → add a slide with a concrete Claude prompt example (contrast format A/B, or a quoted prompt of 4+ words shown in context)
 - "Slides lack depth"                  → add one comparison slide AND one because/insight slide
-- "Truncated slide content"            → remove the bare arrow or add the missing noun
+- "Truncated slide content"            → make the slide self-contained: complete the contrast on the same slide, or remove the dangling ending word
 - "CTA slide is missing @claudeinsights" → add "@claudeinsights" to the final slide
 - "Invalid JSON"                       → fix the JSON formatting
 Do NOT repeat the same mistake.
@@ -475,14 +492,14 @@ Do NOT repeat the same mistake.
 # Incomplete-ending detection — shared by enforce_word_limit and validators
 # ---------------------------------------------------------------------------
 
-# Tokens that signal genuinely broken/truncated output — not stylistic fragments.
-# Kept intentionally narrow: only bare arrows (contrast started, never completed)
-# and naked articles/determiners that cannot stand alone.
-# Words like "because", "instead", "first", "try" are valid fragment endings
-# and are no longer treated as failures.
+# Tokens that signal genuinely broken/truncated output when they appear as the
+# final word of a slide.  Used by both _is_complete_slide() (hard validation)
+# and _compress_heading() / enforce_word_limit() (cut-point avoidance).
 _INCOMPLETE_TERMINALS: frozenset[str] = frozenset({
-    "→", "->",          # bare arrow: contrast started but never resolved
-    "the", "a", "an",   # article with no following noun — always truncated
+    "→", "->",      # bare arrow: contrast started but never resolved
+    "the", "a", "an",   # lone article: following noun was cut
+    "because",      # reason belongs on THIS slide, not the next one
+    "instead",      # "instead of" split — comparison goes to next slide
 })
 
 
@@ -738,34 +755,51 @@ def _compress_heading(text: str, max_words: int = 6) -> str:
 
 
 def _is_complete_slide(text: str) -> bool:
-    """Return True unless text is clearly truncated or nonsensical.
+    """Return True unless the slide body is clearly incomplete or cross-slide dependent.
 
-    Only catches genuinely broken output - not stylistic fragments:
+    Catches:
       - empty string
-      - ends with a bare arrow meaning a contrast was never resolved
-      - ends with a lone article (the / a / an) with no following noun
-      - bare 'Try:' at the very end with no payload after the colon
-
-    Fragments like "Instead of: Write me an essay", "First, match your task",
-    or text ending with "because" / "instead" / "first" are all valid and pass.
+      - ends with a bare arrow (contrast opened, never closed)
+      - ends with a lone article (the / a / an) — truncation artefact
+      - ends with "because" — the reason belongs on this slide, not the next
+      - ends with "instead" or "instead of" — comparison was deferred
+      - bare "→ Try:" at the very end — contrast opened but payload missing
+      - contrast lead-in ("Instead of:") with no "→" / "try:" on the same slide
+        — the response half was placed on a different slide
     """
     plain = re.sub(r'\*\*(.*?)\*\*', r'\1', text).strip()
     if not plain:
         return False
 
-    last_word = plain.split()[-1].lower().rstrip('.,!?:"\'''')
+    words = plain.split()
+    last_word = words[-1].lower().rstrip('.,!?:"\'\u2018\u2019')
+    last_two  = " ".join(w.lower().rstrip('.,!?:"\'\u2018\u2019') for w in words[-2:]) if len(words) >= 2 else last_word
 
-    # Bare arrow - contrast started, never resolved
+    # Bare arrow — contrast started, never resolved
     if last_word in ("→", "->"):
         return False
 
-    # Lone article - always a truncation artefact
+    # Lone article — truncation artefact
     if last_word in ("the", "a", "an"):
         return False
 
-    # arrow Try: at the very end with no payload after the colon
+    # Trailing "because" — reason deferred to next slide
+    if last_word == "because":
+        return False
+
+    # Trailing "instead of" or standalone "instead" — comparison deferred
+    if last_two == "instead of" or last_word == "instead":
+        return False
+
+    # "→ Try:" at very end with nothing after the colon
     if re.search(r'[→>]\s*[Tt]ry\s*:\s*$', plain):
         return False
+
+    # Contrast lead-in ("Instead of:") with no resolution on this slide.
+    # Catches slides that open a contrast but put the "Try" half on the next slide.
+    if re.search(r'(?i)^\s*instead\s+of\s*:', plain):
+        if not re.search(r'(→|->|\btry\s*:)', plain, re.IGNORECASE):
+            return False
 
     return True
 def _validate_completeness(
@@ -817,7 +851,7 @@ def _validate_completeness(
 
     if broken:
         raise ValueError(
-            "Truncated slide content detected (bare arrow or missing noun):\n"
+            "Truncated slide content detected (incomplete or cross-slide dependent):\n"
             + "\n".join(broken)
         )
 

@@ -291,9 +291,16 @@ GOOD (topic-specific — reader instantly recognises it's about their problem):
 
 CONTENT VARIETY (REQUIRED):
 
-Each content slide MUST use one of these five patterns.
-Use at LEAST 3 DIFFERENT patterns across the carousel.
-No more than 2 slides may use the same pattern.
+Content slides should naturally include a mix of:
+- explanation (why something works)
+- actionable steps
+- concrete examples
+- outcomes
+
+Use contrast (Instead of → Try) ONLY when it clarifies a mistake or transformation.
+Do NOT force contrast if the idea stands on its own.
+Vary the structure naturally across slides.
+Avoid repeating the same sentence structure more than twice.
 
   EXPLANATION  — state WHY something works, using "because" or a strong em-dash
     e.g. "Specific prompts work better — because Claude knows exactly what to do"
@@ -309,6 +316,9 @@ No more than 2 slides may use the same pattern.
 
   EXAMPLE      — a concrete use case or mini before/after with a real-world output
     e.g. "Paste your job description — Claude writes a tailored cover letter in seconds"
+
+  INSIGHT — a strong, standalone statement (no contrast needed)
+    e.g. "Modes define scope — scope defines output quality"
 
 Vary sentence openings — avoid starting every slide with "Claude".
 
@@ -331,7 +341,13 @@ RULES FOR FLOW:
 
 REAL PROMPT EXAMPLE (MANDATORY):
 
-At least ONE content slide MUST include a quoted Claude prompt AND a comparison.
+At least ONE content slide MUST include a concrete Claude prompt example.
+
+This can be:
+- a before/after comparison (Instead of → Try)
+- OR a single well-specified prompt used in context
+
+A comparison is preferred ONLY when demonstrating a common mistake.
 
 A quoted prompt ALONE is NOT valid. Pair it with a before/after or bad/better contrast.
 
@@ -956,8 +972,11 @@ APPLY THESE FIXES:
    Replace with direct insights or statements about the user.
 
 3. DEPTH — every content slide must do ONE of these (no empty claims):
-   A) Comparison: "Instead of X → Try **Y**"
+   A) Comparison (ONLY when useful): "Instead of X → Try Y"
       e.g. "Instead of 'explain this' → Try 'explain this **simply** with examples'"
+    IMPORTANT:
+    Do NOT introduce a comparison if the original slide is already clear and strong.
+    Prefer clarity over pattern enforcement.
    B) Insight+reason: "[claim] — because [short reason]"
       e.g. "**Specific** prompts work better — because Claude knows exactly what to do"
    C) Micro-example: short concrete before/after or concrete output

@@ -500,6 +500,10 @@ def enforce_word_limit(text: str, max_words: int) -> str:
     Also strips any unclosed **marker so the HTML renderer never sees a
     dangling opening bold tag.
     """
+    # NEVER truncate contrast slides — they must remain complete
+    if "instead of" in text.lower() and "try" in text.lower():
+        return text
+
     words = text.split()
     if len(words) <= max_words:
         return text
@@ -514,9 +518,9 @@ def enforce_word_limit(text: str, max_words: int) -> str:
     if truncated.count('"') % 2 != 0:
         truncated = truncated.rsplit('"', 1)[0].rstrip()
 
-    # Prevent ending on incomplete contrast
-    if re.search(r'(→|->)?\s*try\s*:?\s*$', truncated.lower()):
-        return text  # fallback — let retry handle it
+    # Detect ANY incomplete contrast pattern
+    if re.search(r'(→|->).*?try\s*:?\s*$', truncated.lower()):
+        return text  # fallback
 
     # If already ends with sentence-final punctuation, we're done
     stripped = truncated.rstrip()
@@ -1475,6 +1479,14 @@ def generate_slides(
     last_error: Optional[Exception] = None
     error_context: str              = ""
 
+    def _is_sentence_like(text: str) -> bool:
+        plain = re.sub(r'\*\*(.*?)\*\*', r'\1', text).strip()
+        return (
+            plain.endswith((".", "!", "?")) or
+            " — " in plain or
+            len(plain.split()) > 10
+        )
+
     for attempt in range(1, max_retries + 1):
         try:
             logger.info(
@@ -1490,6 +1502,15 @@ def generate_slides(
                 candidate_slides = _enforce_slide_limits(candidate_slides, template_style)
                 candidate_slides = _enforce_bold_caps(candidate_slides)
                 candidate_slides = _clean_heading_punctuation(candidate_slides)
+
+                for s in candidate_slides:
+                    heading = s["heading"]
+
+                    if not _is_valid_heading(heading):
+                        raise ValueError(f"Invalid heading after truncation: {heading}")
+
+                    if _is_sentence_like(heading):
+                        raise ValueError(f"Heading looks like a sentence: {heading}")
 
                 score = _score_slides(candidate_slides)
                 logger.info("Candidate %d score: %.2f", i + 1, score)

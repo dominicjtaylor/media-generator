@@ -842,33 +842,18 @@ def _validate_completeness(
 
 
 def _is_valid_heading(text: str) -> bool:
-    plain = re.sub(r'\*\*(.*?)\*\*', r'\1', text).strip().lower()
+    """Return True if the heading is usable — non-empty and not excessively long.
 
-    words = plain.split()
-    if not words:
+    Sentence-like headings, em-dashes, and comparative adjectives are all
+    permitted.  Only genuinely broken cases are rejected:
+      - empty string
+      - more than 10 words (auto-compression is preferred; this is the last gate)
+    """
+    plain = re.sub(r'\*\*(.*?)\*\*', r'\1', text).strip()
+    if not plain:
         return False
-
-    last = words[-1].rstrip('.,!?')
-
-    # Rule 1: dangling connector/preposition
-    if last in {
-        "with", "without", "using", "by", "for", "to",
-        "in", "on", "at", "from", "into", "about"
-    }:
+    if len(plain.split()) > 10:
         return False
-
-    # Rule 2: article/determiner at end
-    if last in {"a", "an", "the", "this", "that", "these", "those", "your"}:
-        return False
-
-    # Rule 3: comparative adjective with no noun (likely incomplete phrase)
-    if last.endswith(("er", "est")) or last in {"clear", "better", "faster", "specific"}:
-        if len(words) <= 6:
-            return False
-
-    if plain.startswith(("first", "then", "next", "now", "finally")):
-        return False
-
     return True
 
 
@@ -1555,21 +1540,12 @@ def generate_slides(
     last_error: Optional[Exception] = None
     error_context: str              = ""
 
-    def _is_sentence_like(text: str) -> bool:
-        plain = re.sub(r'\*\*(.*?)\*\*', r'\1', text).strip()
-        return (
-            plain.endswith((".", "!", "?")) or
-            " — " in plain or
-            len(plain.split()) > 10
-        )
-
     for attempt in range(1, max_retries + 1):
         try:
             logger.info(
                 "Slide generation attempt %d/%d (num_slides=%d, style=%s)",
                 attempt, max_retries, num_slides, template_style,
             )
-            # raw    = backend(topic, num_slides, error_context, template_style)
             candidates = []
             for i in range(3):
                 raw = backend(topic, num_slides, error_context, template_style)
@@ -1579,15 +1555,14 @@ def generate_slides(
                 candidate_slides = _enforce_bold_caps(candidate_slides)
                 candidate_slides = _clean_heading_punctuation(candidate_slides)
 
-                for s in candidate_slides:
-                    heading = s["heading"]
-
-                    if not _is_valid_heading(heading):
-                        logger.info("Invalid heading (retrying candidate): %r", heading)
-                        continue  # skip candidate instead of killing attempt
-
-                    if _is_sentence_like(heading):
-                        raise ValueError(f"Heading looks like a sentence: {heading}")
+                # Auto-compress any heading that is too long rather than
+                # skipping the whole candidate.
+                candidate_slides = [
+                    {**s, "heading": _compress_heading(s["heading"])}
+                    if len(s.get("heading", "").split()) > 10
+                    else s
+                    for s in candidate_slides
+                ]
 
                 score = _score_slides(candidate_slides)
                 logger.info("Candidate %d score: %.2f", i + 1, score)
@@ -1648,10 +1623,13 @@ def generate_slides(
                 "Generated %d slides (validated: completeness, CTA handle, prompt example, depth)",
                 len(slides),
             )
-            # Validate headings BEFORE review (cheaper + cleaner)
-            for s in slides:
-                if not _is_valid_heading(s["heading"]):
-                    raise ValueError(f"Incomplete heading: {s['heading']}")
+            # Auto-compress any remaining oversized headings before review
+            slides = [
+                {**s, "heading": _compress_heading(s["heading"])}
+                if not _is_valid_heading(s["heading"])
+                else s
+                for s in slides
+            ]
             if best_score < 0.85:
                 slides = review_and_improve(slides, template_style)
                 slides = _clean_heading_punctuation(slides)

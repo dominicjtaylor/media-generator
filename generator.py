@@ -128,7 +128,7 @@ def _build_carousel_arc(num_slides: int) -> str:
         'Step 2 — builds directly on Step 1; open with "Then…" or "Next…"',
         'Step 3 — the real prompt example goes here; open with "Now…"',
         'Tip — one specific tweak that improves the outcome; open with "Try…" or "Add…"',
-        'Common mistake to avoid — contrast good vs bad approach',
+        'Common mistake to avoid — name it clearly and explain why it fails',
         'Extra insight — deepen one earlier point',
         'Extra step — add one more concrete action',
     ]
@@ -189,7 +189,7 @@ OUTPUT FORMAT (STRICT JSON):
   "slides": [
     {{"type": "hook",    "text": "You're prompting Claude **wrong** — here's why"}},
     {{"type": "content", "text": "Specific prompts work better — because Claude knows exactly what to do"}},
-    {{"type": "content", "text": "Instead of: \\"Explain this\\" → Try: \\"Explain this **simply** with 3 examples\\""}},
+    {{"type": "content", "text": "Structured prompts cut editing time — Claude returns answers **ready** to use"}},
     {{"type": "content", "text": "Add your role upfront — 'Act as a teacher' changes every answer **instantly**"}},
     {{"type": "cta",     "text": "Follow @claudeinsights for more Claude tips"}}
   ]
@@ -226,7 +226,7 @@ Each slide has TWO fields:
   "slides": [
     {{"type": "hook",    "heading": "Stop prompting Claude the **wrong** way",        "text": ""}},
     {{"type": "content", "heading": "Specific prompts work better",                    "text": "Because Claude needs clear instructions to respond accurately and completely"}},
-    {{"type": "content", "heading": "Show Claude the before and after",                "text": "Instead of: \\"Explain this\\" \u2192 Try: \\"Explain this **simply** with 3 examples\\""}},
+    {{"type": "content", "heading": "Match the prompt to the task",                   "text": "Ask Claude to 'explain X in 3 steps with examples' — specificity shapes the output **directly**"}},
     {{"type": "content", "heading": "Add a role to every prompt",                      "text": "'Act as a teacher' changes every answer \u2014 Claude adjusts tone and depth **instantly**"}},
     {{"type": "cta",     "heading": "Follow @claudeinsights now",                     "text": "Get more Claude tips every week"}}
   ]
@@ -314,44 +314,33 @@ GOOD: "Better prompts, better results"
 
 CONTENT VARIETY (REQUIRED):
 
-Content slides should naturally include a mix of:
-- explanation (why something works)
-- actionable steps
-- concrete examples
-- outcomes
+DEFAULT: Do NOT use the "Instead of X → Try Y" pattern by default.
+Prefer direct explanations, insights, tips, and concrete examples.
+Only use contrast when the slide is specifically about correcting a common mistake.
 
-Use contrast (Instead of → Try) ONLY when it clarifies a mistake or transformation.
-Do NOT force contrast if the idea stands on its own.
-Vary the structure naturally across slides.
-Avoid repeating the same sentence structure more than twice.
+Content slides should include a mix of these styles:
 
   EXPLANATION  — state WHY something works, using "because" or a strong em-dash
     e.g. "Specific prompts work better — because Claude knows exactly what to do"
 
-  CONTRAST     — bad prompt → better prompt (MUST include a real quoted prompt)
-    e.g. Instead of: "Summarise this" → Try: "Summarise this in 5 bullet points"
-
-  TIP          — direct actionable advice starting with a verb (Add / Use / Try / Ask)
+  TIP          — direct actionable advice starting with a verb (Add / Use / Ask)
     e.g. "Add your role upfront — 'Act as a teacher' changes every answer **instantly**"
+
+  EXAMPLE      — a concrete prompt or use case shown in action
+    e.g. "Ask Claude: 'Explain X in 3 steps with examples' — specificity shapes the output"
 
   OUTCOME      — the concrete result the reader gains, quantified or made tangible
     e.g. "Structured prompts cut editing time — answers arrive **ready** to use"
 
-  EXAMPLE      — a concrete use case or mini before/after with a real-world output
-    e.g. "Paste your job description — Claude writes a tailored cover letter in seconds"
-
-  INSIGHT — a strong, standalone statement (no contrast needed)
+  INSIGHT      — a strong, standalone statement; no contrast needed
     e.g. "Modes define scope — scope defines output quality"
 
+  CONTRAST     — use ONLY when the slide is about correcting a specific mistake
+    e.g. 'Instead of "Summarise this" → Try "Summarise this in 5 bullet points"'
+    Do NOT use this style unless fixing a mistake is the point of the slide.
+
 Vary sentence openings — avoid starting every slide with "Claude".
-
-Contrast examples must be concise and fit within the word limit.
-Prefer short formats:
-
-Instead of: "Fix this"
-Try: "Fix this with validation"
-
-Avoid long multi-clause comparisons.
+Avoid repeating the same sentence structure more than once.
 
 ---
 
@@ -376,25 +365,18 @@ REAL PROMPT EXAMPLE (MANDATORY):
 
 At least ONE content slide MUST include a concrete Claude prompt example.
 
-Choose the format that fits the content naturally — do NOT force a comparison
-when the content does not involve a common mistake or transformation.
+PREFERRED format — prompt shown in context:
+  "Ask Claude: 'Explain X in 3 steps with examples' — specificity shapes the output **directly**"
+  "'Act as a teacher. Walk me through X step by step.' — Claude adjusts tone and depth **instantly**"
 
-Valid formats:
+USE contrast formats ONLY when the slide is specifically about correcting a mistake:
+  Instead of → Try:
+     Instead of: "Explain this" → Try: "Explain this in 3 steps with examples"
+  Bad → Better:
+     Bad: "Summarise this" → Better: "Summarise this in 5 bullet points for a busy reader"
 
-  A) Instead of → Try (use when showing a common mistake):
-     Instead of: "Explain this"
-     Try: "Explain this simply with 3 examples"
-
-  B) Bad → Better (use when contrasting a weak vs strong approach):
-     Bad: "Summarise this"
-     Better: "Summarise this in bullet points with key takeaways"
-
-  C) Prompt shown in context (use when demonstrating good practice directly):
-     "'Act as a teacher. Explain X in 3 steps with examples.' — Claude adjusts
-     tone and depth **instantly**"
-
-Formats A and B are for when the contrast IS the point — a mistake being fixed.
-Format C is for when you want to show what a good prompt looks like in use.
+Do NOT default to contrast. If the topic is not about a common mistake,
+show the prompt in action (preferred format above).
 
 A short bare quote (1–3 words) with nothing around it is NOT valid.
 A substantive quoted prompt (4+ words) shown with context IS valid without contrast.
@@ -404,9 +386,9 @@ A substantive quoted prompt (4+ words) shown with context IS valid without contr
 DEPTH PER SLIDE:
 
 Each content slide MUST include at least ONE of:
-- a concrete example
-- a short explanation using "because…"
-- a comparison (bad → good, instead → try)
+- a concrete example (a real Claude prompt shown in use)
+- a short explanation using "because…" (the reason behind the advice)
+- a concrete outcome (the specific result the reader gets)
 
 Bad:  "Use better prompts"
 Good: "Use structured prompts — because Claude needs clear instructions to respond **accurately**"
@@ -476,7 +458,7 @@ If you receive an error message with the topic, you MUST fix the specific issue.
 Common errors:
 - "Incorrect number of slides"         → regenerate EXACTLY {num_slides} slides
 - "No actionable prompt example found" → add a slide with a concrete Claude prompt example (contrast format A/B, or a quoted prompt of 4+ words shown in context)
-- "Slides lack depth"                  → add one comparison slide AND one because/insight slide
+- "Slides lack depth"                  → add a because/insight slide AND a slide with a concrete prompt example
 - "Truncated slide content"            → make the slide self-contained: complete the contrast on the same slide, or remove the dangling ending word
 - "CTA slide is missing @claudeinsights" → add "@claudeinsights" to the final slide
 - "Invalid JSON"                       → fix the JSON formatting
@@ -1233,16 +1215,16 @@ APPLY THESE FIXES:
    Replace with direct insights or statements about the user.
 
 3. DEPTH — every content slide must do ONE of these (no empty claims):
-   A) Comparison (ONLY when useful): "Instead of X → Try Y"
-      e.g. "Instead of 'explain this' → Try 'explain this **simply** with examples'"
-    IMPORTANT:
-    Do NOT introduce a comparison if the original slide is already clear and strong.
-    Prefer clarity over pattern enforcement.
-   B) Insight+reason: "[claim] — because [short reason]"
+   A) Insight+reason: "[claim] — because [short reason]"
       e.g. "**Specific** prompts work better — because Claude knows exactly what to do"
-   C) Micro-example: short concrete before/after or concrete output
-      e.g. "Add a role: 'Act as a teacher' — answers become **clearer** instantly"
-   Carousel must include at least one A/C (example) AND one B (insight).
+   B) Concrete example: a real Claude prompt shown in action
+      e.g. "Ask Claude: 'Explain X in 3 steps with examples' — output improves **immediately**"
+   C) Concrete outcome: the specific result, quantified or made tangible
+      e.g. "Structured prompts cut editing time — answers arrive **ready** to use"
+   D) Contrast (ONLY if the slide is about correcting a specific mistake):
+      e.g. 'Instead of "explain this" → Try "explain this simply with 3 examples"'
+      Do NOT add contrast to slides that are already clear — prefer A, B, or C.
+   Carousel must include at least one A (insight) AND one B (example).
    NEVER write vague claims like "this improves results" without showing HOW.
 
 4. STRUCTURE: Hook → Problem → Insight → Tip → Outcome → CTA

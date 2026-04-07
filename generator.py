@@ -345,6 +345,14 @@ Avoid repeating the same sentence structure more than twice.
 
 Vary sentence openings — avoid starting every slide with "Claude".
 
+Contrast examples must be concise and fit within the word limit.
+Prefer short formats:
+
+Instead of: "Fix this"
+Try: "Fix this with validation"
+
+Avoid long multi-clause comparisons.
+
 ---
 
 PROGRESSIVE FLOW — follow this exact arc:
@@ -505,6 +513,10 @@ def enforce_word_limit(text: str, max_words: int) -> str:
     # Fix unbalanced quotes after truncation
     if truncated.count('"') % 2 != 0:
         truncated = truncated.rsplit('"', 1)[0].rstrip()
+
+    # Prevent ending on incomplete contrast
+    if re.search(r'(→|->)?\s*try\s*:?\s*$', truncated.lower()):
+        return text  # fallback — let retry handle it
 
     # If already ends with sentence-final punctuation, we're done
     stripped = truncated.rstrip()
@@ -787,7 +799,10 @@ def _clean_heading_punctuation(slides: list[dict]) -> list[dict]:
         heading = slide.get("heading", "")
         
         if "—" in heading:
-            cleaned = heading.replace("—", ",")
+            cleaned = re.sub(r'\s*—\s*', ', ', heading)
+            cleaned = re.sub(r'\s+,', ',', cleaned)     # remove space before comma
+            cleaned = re.sub(r',\s*,', ',', cleaned)    # collapse double commas
+            cleaned = re.sub(r'\s{2,}', ' ', cleaned)   # collapse double spaces
             logger.info("Replaced em dash in heading: %r → %r", heading, cleaned)
             slide = {**slide, "heading": cleaned}
         
@@ -1488,7 +1503,7 @@ def generate_slides(
 
             # --- Guard: detect truncated contrast (→ Try: with no payload) ---
             if any(
-                re.search(r'(→|->)\s*try\s*:?\s*$', s["heading"].lower())
+                re.search(r'(→|->)?\s*try\s*:?\s*$', (s["heading"] + " " + s.get("body", "")).lower())
                 for s in slides
             ):
                 raise ValueError("Truncated contrast detected (ends with 'Try:') — retrying")

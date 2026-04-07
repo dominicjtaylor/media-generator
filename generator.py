@@ -661,25 +661,27 @@ def _is_complete_hook(text: str) -> bool:
 # Actionable prompt example validation
 # ---------------------------------------------------------------------------
 
-# Improvement signals — present in contrast formats (Instead of / Try / Bad / Better / →)
-_IMPROVEMENT_SIGNALS = ("instead of", "try", "bad:", "better:", "→", "->")
+# Actionable instruction signals — verbs that indicate the slide is telling
+# the reader to DO something with a prompt (not contrast phrasing).
+_ACTIONABLE_SIGNALS = (
+    "use ", "add ", "ask ", "write ", "structure ", "format ",
+    "act as ", "paste ", "include ", "specify ", "tell ", "give ",
+)
 
-# Matches text inside any straight or curly quote pair
-_QUOTED_CONTENT = re.compile(r'["\u201c\u2018]([^"\u201c\u201d\u2018\u2019\n]+)["\u201d\u2019]')
+# Matches text inside curly or straight double-quote pairs
+_QUOTED_CONTENT = re.compile(r'["\u201c]([^"\u201c\u201d\n]+)["\u201d]')
+# Matches straight single-quote pairs with 10+ chars inside (avoids contractions like "it's")
+_QUOTED_CONTENT_SINGLE = re.compile(r"'([^'\n]{10,})'")
 
 
 def _has_actionable_prompt_example(slides: list[dict]) -> bool:
-    """Return True if at least one content slide contains a concrete Claude
-    prompt example in any of these forms:
+    """Return True if at least one content slide contains BOTH:
 
-    A) A quoted prompt WITH an improvement signal (Instead of / Try / Bad / Better / →)
-       — the classic before/after contrast format. Short quotes (e.g. "Fix this")
-       are valid here because the contrast supplies the context.
+    1. A quoted prompt (any straight or curly quotes), AND
+    2. An actionable instruction signal — a verb telling the reader to do
+       something with a prompt (use / add / ask / write / format / etc.)
 
-    B) A quoted prompt of 4+ words shown in context — a substantive prompt
-       demonstrated in use, without needing a before/after comparison.
-
-    A bare short quote (1–3 words) with no comparison is NOT valid.
+    A quoted prompt with no instruction context does not pass.
     Checks both heading and body fields to support two-field heading styles.
     """
     for slide in slides:
@@ -688,17 +690,12 @@ def _has_actionable_prompt_example(slides: list[dict]) -> bool:
         text = slide.get("heading", "") + " " + slide.get("body", "")
         text_lower = text.lower()
 
-        has_improvement = any(signal in text_lower for signal in _IMPROVEMENT_SIGNALS)
-        quoted_strings = _QUOTED_CONTENT.findall(text)
-
+        quoted_strings = _QUOTED_CONTENT.findall(text) + _QUOTED_CONTENT_SINGLE.findall(text)
         if not quoted_strings:
             continue
 
-        if has_improvement:
-            return True  # format A — contrast always valid
-
-        # Format B — substantive prompt (4+ words) shown in context
-        if any(len(q.split()) >= 4 for q in quoted_strings):
+        has_action = any(signal in text_lower for signal in _ACTIONABLE_SIGNALS)
+        if has_action:
             return True
 
     return False
@@ -890,8 +887,8 @@ def _has_cta_handle(slides: list[dict]) -> bool:
 # Depth validation — at least one example and one insight per carousel
 # ---------------------------------------------------------------------------
 
-# Markers for a concrete "Instead of → Try" or micro-example slide
-_EXAMPLE_MARKERS = ("instead of", "→", "->", "try ", "e.g.", "for example", "act as")
+# Markers for a concrete prompt example or use-case slide (no contrast required)
+_EXAMPLE_MARKERS = ('"', "\u201c", "\u2018", "e.g.", "for example", "act as ", "ask claude")
 
 # Markers for an insight/explanation slide
 _INSIGHT_MARKERS = ("because", "—", " — ", "=", "≠", "means ", "so ", "which ")
@@ -917,15 +914,20 @@ def _has_depth(slides: list[dict]) -> bool:
 # Quality scoring (moves system from pass/fail → quality-based selection)
 # ---------------------------------------------------------------------------
 
+_WEAK_HOOKS   = ("improve", "better", "more effective", "tips", "guide")
+_VAGUE_PHRASES = ("improve", "better", "optimize", "enhance", "more effective", "increase efficiency")
+_ACTION_VERBS  = ("add", "use", "ask", "write", "give", "paste", "include", "specify")
+
+
 def _score_slides(slides: list[dict]) -> float:
     """Return a quality score between 0 and 1 for a carousel.
 
     Scores based on:
-    - Hook strength (non-generic, tension/contrast)
-    - Presence of actionable example (Instead of / Try)
-    - Presence of insight (because / —)
+    - Hook strength (specific, non-generic)
+    - Presence of actionable prompt example (quoted + instruction)
+    - Presence of insight/explanation (because / em-dash)
     - Specificity (avoids vague filler)
-    - Structural variety across slides
+    - Structural variety (insight + action + example)
     """
 
     score = 0
@@ -933,12 +935,7 @@ def _score_slides(slides: list[dict]) -> float:
 
     # --- 1. Hook strength ---
     hook = slides[0]["heading"].lower()
-
-    weak_hooks = [
-        "improve", "better", "more effective", "tips", "guide"
-    ]
-
-    if not any(w in hook for w in weak_hooks) and len(hook.split()) >= 4:
+    if not any(w in hook for w in _WEAK_HOOKS) and len(hook.split()) >= 4:
         score += 1
 
     # --- 2. Actionable prompt example ---
@@ -947,33 +944,29 @@ def _score_slides(slides: list[dict]) -> float:
 
     # --- 3. Insight presence ---
     if any(
-        ("because" in (s["heading"] + s["body"]).lower()
-         or "—" in (s["heading"] + s["body"]))
+        "because" in (s["heading"] + s["body"]).lower()
+        or "\u2014" in (s["heading"] + s["body"])
+        or " — " in (s["heading"] + s["body"])
         for s in slides if s["type"] == "content"
     ):
         score += 1
 
     # --- 4. Specificity (penalise vague language) ---
-    vague_phrases = [
-        "improve", "better", "optimize", "enhance",
-        "more effective", "increase efficiency"
-    ]
-
     vague_count = sum(
-        any(v in (s["heading"] + s["body"]).lower() for v in vague_phrases)
+        any(v in (s["heading"] + s["body"]).lower() for v in _VAGUE_PHRASES)
         for s in slides if s["type"] == "content"
     )
-
     if vague_count <= 1:
         score += 1
 
     # --- 5. Structural variety ---
+    content_text = [(s["heading"] + " " + s["body"]).lower() for s in slides if s["type"] == "content"]
     patterns = {
-        "contrast": any("instead of" in (s["heading"] + s["body"]).lower() for s in slides),
-        "insight": any("because" in (s["heading"] + s["body"]).lower() for s in slides),
-        "action": any((s["heading"].lower().startswith(("add", "use", "try", "ask"))) for s in slides),
+        "insight": any("because" in t or " — " in t for t in content_text),
+        "action":  any(s.get("heading", "").lower().startswith(_ACTION_VERBS)
+                       for s in slides if s["type"] == "content"),
+        "example": any('"' in t or "\u201c" in t or "\u2018" in t for t in content_text),
     }
-
     if sum(patterns.values()) >= 2:
         score += 1
 

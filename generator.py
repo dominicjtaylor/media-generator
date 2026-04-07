@@ -36,6 +36,7 @@ _TEXT_ONLY_STYLES: list[str] = ["text_only", "headings_and_text"]
 # Detected once at import time; restart the server after adding/removing the key.
 _IMAGE_ENABLED: bool = bool(os.getenv("LUMMI_API_KEY"))
 
+QUALITY_THRESHOLD = 0.65
 
 def select_template_style() -> str:
     """Return a template style name based on current API availability.
@@ -286,6 +287,15 @@ BAD (generic — could apply to any topic):
   "Most people use Claude wrong"
 GOOD (topic-specific — reader instantly recognises it's about their problem):
   "Stop building everything at once in Claude Code"
+
+---
+
+HEADING STYLE (if applicable):
+
+Headings must:
+- Stand alone as a complete phrase
+- Never end with words that require continuation (e.g. "with", "for", "a", "the")
+- Read naturally if shown alone on a slide
 
 ---
 
@@ -721,6 +731,33 @@ def _validate_completeness(slides: list[dict]) -> None:
             + "\nRewrite each slide as a complete sentence."
         )
 
+def _is_valid_heading(text: str) -> bool:
+    plain = re.sub(r'\*\*(.*?)\*\*', r'\1', text).strip().lower()
+
+    words = plain.split()
+    if not words:
+        return False
+
+    last = words[-1].rstrip('.,!?')
+
+    # Rule 1: dangling connector/preposition
+    if last in {
+        "with", "without", "using", "by", "for", "to",
+        "in", "on", "at", "from", "into", "about"
+    }:
+        return False
+
+    # Rule 2: article/determiner at end
+    if last in {"a", "an", "the", "this", "that", "these", "those", "your"}:
+        return False
+
+    # Rule 3: adjective with no noun (more general)
+    if last.endswith(("er", "est")) or last in {"clear", "better", "faster", "specific"}:
+        # only flag if it's a short phrase (likely incomplete)
+        if len(words) <= 6:
+            return False
+
+    return True
 
 # ---------------------------------------------------------------------------
 # CTA handle validation
@@ -761,6 +798,71 @@ def _has_depth(slides: list[dict]) -> bool:
             has_insight = True
     return has_example and has_insight
 
+# ---------------------------------------------------------------------------
+# Quality scoring (moves system from pass/fail → quality-based selection)
+# ---------------------------------------------------------------------------
+
+def _score_slides(slides: list[dict]) -> float:
+    """Return a quality score between 0 and 1 for a carousel.
+
+    Scores based on:
+    - Hook strength (non-generic, tension/contrast)
+    - Presence of actionable example (Instead of / Try)
+    - Presence of insight (because / —)
+    - Specificity (avoids vague filler)
+    - Structural variety across slides
+    """
+
+    score = 0
+    max_score = 5
+
+    # --- 1. Hook strength ---
+    hook = slides[0]["heading"].lower()
+
+    weak_hooks = [
+        "improve", "better", "more effective", "tips", "guide"
+    ]
+
+    if not any(w in hook for w in weak_hooks) and len(hook.split()) >= 4:
+        score += 1
+
+    # --- 2. Actionable prompt example ---
+    if _has_actionable_prompt_example(slides):
+        score += 1
+
+    # --- 3. Insight presence ---
+    if any(
+        ("because" in (s["heading"] + s["body"]).lower()
+         or "—" in (s["heading"] + s["body"]))
+        for s in slides if s["type"] == "content"
+    ):
+        score += 1
+
+    # --- 4. Specificity (penalise vague language) ---
+    vague_phrases = [
+        "improve", "better", "optimize", "enhance",
+        "more effective", "increase efficiency"
+    ]
+
+    vague_count = sum(
+        any(v in (s["heading"] + s["body"]).lower() for v in vague_phrases)
+        for s in slides if s["type"] == "content"
+    )
+
+    if vague_count <= 1:
+        score += 1
+
+    # --- 5. Structural variety ---
+    patterns = {
+        "contrast": any("instead of" in (s["heading"] + s["body"]).lower() for s in slides),
+        "insight": any("because" in (s["heading"] + s["body"]).lower() for s in slides),
+        "action": any((s["heading"].lower().startswith(("add", "use", "try", "ask"))) for s in slides),
+    }
+
+    if sum(patterns.values()) >= 2:
+        score += 1
+
+    return score / max_score
 
 # ---------------------------------------------------------------------------
 # Backend: Anthropic
@@ -1328,11 +1430,30 @@ def generate_slides(
                 "Slide generation attempt %d/%d (num_slides=%d, style=%s)",
                 attempt, max_retries, num_slides, template_style,
             )
-            raw    = backend(topic, num_slides, error_context, template_style)
-            logger.debug("Raw LLM output: %s", raw[:500])
-            slides = _parse_json_slides(raw, num_slides, template_style)
-            slides = _enforce_slide_limits(slides, template_style)
-            slides = _enforce_bold_caps(slides)
+            # raw    = backend(topic, num_slides, error_context, template_style)
+            candidates = []
+            for i in range(3):
+                raw = backend(topic, num_slides, error_context, template_style)
+
+                candidate_slides = _parse_json_slides(raw, num_slides, template_style)
+                candidate_slides = _enforce_slide_limits(candidate_slides, template_style)
+                candidate_slides = _enforce_bold_caps(candidate_slides)
+
+                score = _score_slides(candidate_slides)
+                logger.info("Candidate %d score: %.2f", i + 1, score)
+
+                candidates.append((score, candidate_slides))
+
+            # Select best candidate
+            best_score, slides = max(candidates, key=lambda x: x[0])
+
+            logger.info("Best candidate score selected: %.2f", best_score)
+
+            if best_score < QUALITY_THRESHOLD:
+                raise ValueError(
+                    f"Low quality slides (score={best_score:.2f} < {QUALITY_THRESHOLD}) — retrying"
+                )
+
             hook_text = slides[0]["heading"]
             if not _is_complete_hook(hook_text):
                 raise ValueError(
@@ -1361,15 +1482,23 @@ def generate_slides(
                 "Generated %d slides (validated: completeness, CTA handle, prompt example, depth)",
                 len(slides),
             )
-            slides  = review_and_improve(slides, template_style)
+            # Validate headings BEFORE review (cheaper + cleaner)
+            for s in slides:
+                if not _is_valid_heading(s["heading"]):
+                    raise ValueError(f"Incomplete heading: {s['heading']}")
+            if best_score < 0.85:
+                slides = review_and_improve(slides, template_style)
             caption = generate_caption(slides)
-            caption = (
-                f"{caption}\n\n"
-                f"[DEBUG] template={template_style} | image_enabled={_IMAGE_ENABLED}"
-            )
+            if os.environ.get("DEBUG", "false").lower() == "true":
+                caption += f"\n\n[DEBUG] template={template_style} | image_enabled={_IMAGE_ENABLED}"
+            # caption = (
+            #     f"{caption}\n\n"
+            #     f"[DEBUG] template={template_style} | image_enabled={_IMAGE_ENABLED}"
+            # )
             return slides, caption
         except Exception as exc:
             logger.warning("Attempt %d/%d failed: %s", attempt, max_retries, exc)
+            logger.info("FAIL_REASON: %s", str(exc))
             last_error    = exc
             error_context = str(exc)   # fed back into the next LLM call
             if attempt < max_retries:

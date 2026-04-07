@@ -278,8 +278,8 @@ e.g.   {hook_example}
 
 REQUIREMENTS:
 - MUST use a keyword or phrase directly from the topic — generic hooks are invalid
-- Complete sentence — no dangling ending, no trailing em-dash
-- Max 8 words
+- Must be concise and scannable — target 4–8 words
+- Do NOT end with a bare em-dash (—) or arrow (→)
 - Do NOT start with "Claude" — the subject should reflect the topic
 - Must create tension, curiosity, or contrast
 
@@ -413,23 +413,21 @@ Good: "Use structured prompts — because Claude needs clear instructions to res
 
 {_word_limits_section(template_style)}
 
-COMPLETENESS (CRITICAL):
+COMPLETENESS:
 
-Every slide MUST be a complete, self-contained sentence. Read each slide before outputting.
+HEADINGS ("heading" field):
+- Should be concise and scannable — target 2–6 words, up to 8 maximum
+- Sentence-like headings are fine if short and readable
+- Do NOT end with a bare em-dash (—) or arrow (→)
+- A phrase is valid: "Specific prompts work better" ✓
 
-NEVER end a slide with these incomplete fragments:
-  ✗ "→ Try"              (contrast left unfinished)
-  ✗ "→ Try:"             (contrast left unfinished)
-  ✗ "Instead of:"        (no contrast provided)
-  ✗ "Because"            (reason cut off)
-  ✗ "Then"               (step cut off)
-  ✗ "And" / "Or"         (conjunction dangling)
-
-CONTRAST slides MUST have BOTH sides written in full:
+BODY TEXT ("text" field, or the full text in text_only):
+- MUST be a complete, self-contained sentence
+- NEVER end with incomplete fragments:
+  ✗ "→ Try"    ✗ "Instead of:"    ✗ "Because"    ✗ "Then"    ✗ "And"
+- CONTRAST slides MUST have BOTH sides written in full:
   ✗ BAD:  Instead of: "Explain this" → Try
   ✓ GOOD: Instead of: "Explain this" → Try: "Explain this simply with examples"
-
-If any slide ends abruptly → rewrite the entire slide before outputting.
 
 ---
 
@@ -460,7 +458,7 @@ Common errors:
 - "Incorrect number of slides"         → regenerate EXACTLY {num_slides} slides
 - "No actionable prompt example found" → add a slide with a quoted prompt AND a comparison (Try/Bad/Better/→)
 - "Slides lack depth"                  → add one comparison slide AND one because/insight slide
-- "Incomplete slide text"              → rewrite the named slide(s) as complete sentences
+- "Incomplete slide text"              → complete the body sentence; headings may be short phrases
 - "CTA slide is missing @claudeinsights" → add "@claudeinsights" to the final slide
 - "Invalid JSON"                       → fix the JSON formatting
 Do NOT repeat the same mistake.
@@ -708,6 +706,34 @@ def _has_actionable_prompt_example(slides: list[dict]) -> bool:
 # Slide completeness validation
 # ---------------------------------------------------------------------------
 
+def _compress_heading(text: str, max_words: int = 6) -> str:
+    """Shorten an overly long heading to at most *max_words* words.
+
+    Tries to end at a natural boundary (em-dash, colon) in the second half of
+    the text before hard-truncating, to preserve meaning.  Bold markers are
+    preserved and unclosed markers are stripped.
+    """
+    plain_words = text.split()
+    if len(plain_words) <= max_words:
+        return text
+
+    truncated = " ".join(plain_words[:max_words])
+    if truncated.count("**") % 2 != 0:
+        truncated = truncated.rsplit("**", 1)[0].rstrip()
+
+    # Prefer a clause boundary in the second half so the phrase still reads well
+    min_pos = int(len(truncated) * 0.5)
+    for punct in ("—", ":"):
+        pos = truncated.rfind(punct)
+        if pos >= min_pos:
+            candidate = truncated[:pos].rstrip()
+            last = candidate.split()[-1].lower().rstrip('.,!?:"\'') if candidate.split() else ""
+            if last not in _INCOMPLETE_TERMINALS:
+                return candidate
+
+    return truncated
+
+
 def _is_complete_slide(text: str) -> bool:
     """Return True if *text* reads as a finished thought.
 
@@ -756,19 +782,64 @@ def _is_complete_slide(text: str) -> bool:
 
     return True
 
-def _validate_completeness(slides: list[dict]) -> None:
-    """Raise ValueError listing every slide whose text is incomplete."""
-    broken = [
-        f"[{s['type']}] {s['heading']!r}"
-        for s in slides
-        if not _is_complete_slide(s["heading"])
-    ]
+def _validate_completeness(
+    slides: list[dict],
+    template_style: str = "text_only",
+) -> list[dict]:
+    """Validate completeness and auto-correct minor heading issues.
+
+    Behaviour varies by template style:
+
+    text_only:
+        The "heading" field holds the full slide text.  Incomplete terminals or
+        dangling "→ Try" patterns are hard failures (trigger a retry).
+
+    headings_and_text / headings_text_image:
+        The "heading" field is a short phrase — it is NOT required to be a
+        complete sentence.  Only check:
+          • Heading word count: if > 10 words, auto-compress (not a failure).
+          • Body completeness: the "body" field must be a complete sentence;
+            incomplete terminals there are still hard failures.
+
+    Returns the (possibly auto-corrected) slides list.
+    """
+    is_heading_style = template_style in ("headings_and_text", "headings_text_image")
+    corrected = []
+    broken: list[str] = []
+
+    for s in slides:
+        heading = s.get("heading", "")
+        body    = s.get("body", "")
+
+        if is_heading_style:
+            # Auto-correct headings that are clearly too long (>10 words)
+            heading_words = len(heading.split())
+            if heading_words > 10:
+                old = heading
+                heading = _compress_heading(heading, max_words=6)
+                logger.info(
+                    "Auto-compressed %s heading (%d→%d words): %r → %r",
+                    s["type"], heading_words, len(heading.split()), old, heading,
+                )
+            # Only check the body for sentence completeness
+            if body and not _is_complete_slide(body):
+                broken.append(f"[{s['type']} body] {body!r}")
+        else:
+            # text_only: heading IS the full text — check it for completeness
+            if not _is_complete_slide(heading):
+                broken.append(f"[{s['type']}] {heading!r}")
+
+        corrected.append({**s, "heading": heading, "body": body})
+
     if broken:
         raise ValueError(
-            "Incomplete slide text detected — the following slides end abruptly:\n"
+            "Incomplete slide text detected — the following end abruptly:\n"
             + "\n".join(broken)
-            + "\nRewrite each slide as a complete sentence."
+            + "\nRewrite each as a complete sentence."
         )
+
+    return corrected
+
 
 def _is_valid_heading(text: str) -> bool:
     plain = re.sub(r'\*\*(.*?)\*\*', r'\1', text).strip().lower()
@@ -790,9 +861,8 @@ def _is_valid_heading(text: str) -> bool:
     if last in {"a", "an", "the", "this", "that", "these", "those", "your"}:
         return False
 
-    # Rule 3: adjective with no noun (more general)
+    # Rule 3: comparative adjective with no noun (likely incomplete phrase)
     if last.endswith(("er", "est")) or last in {"clear", "better", "faster", "specific"}:
-        # only flag if it's a short phrase (likely incomplete)
         if len(words) <= 6:
             return False
 
@@ -801,22 +871,23 @@ def _is_valid_heading(text: str) -> bool:
 
     return True
 
+
 def _clean_heading_punctuation(slides: list[dict]) -> list[dict]:
     """Replace em dashes in headings with commas for better readability."""
     result = []
     for slide in slides:
         heading = slide.get("heading", "")
-        
+
         if "—" in heading:
             cleaned = re.sub(r'\s*—\s*', ', ', heading)
-            cleaned = re.sub(r'\s+,', ',', cleaned)     # remove space before comma
-            cleaned = re.sub(r',\s*,', ',', cleaned)    # collapse double commas
-            cleaned = re.sub(r'\s{2,}', ' ', cleaned)   # collapse double spaces
+            cleaned = re.sub(r'\s+,', ',', cleaned)    # remove space before comma
+            cleaned = re.sub(r',\s*,', ',', cleaned)   # collapse double commas
+            cleaned = re.sub(r'\s{2,}', ' ', cleaned)  # collapse double spaces
             logger.info("Replaced em dash in heading: %r → %r", heading, cleaned)
             slide = {**slide, "heading": cleaned}
-        
+
         result.append(slide)
-    
+
     return result
 
 # ---------------------------------------------------------------------------
@@ -1541,10 +1612,19 @@ def generate_slides(
                 )
 
             hook_text = slides[0]["heading"]
-            if not _is_complete_hook(hook_text):
+            # For heading styles the hook is a short phrase, not a sentence —
+            # only reject genuinely broken forms (trailing em-dash / bare arrow).
+            # For text_only the full sentence check still applies.
+            hook_is_heading_style = template_style in ("headings_and_text", "headings_text_image")
+            hook_broken = (
+                hook_text.rstrip().endswith("—")
+                or hook_text.rstrip().endswith("→")
+                or (not hook_is_heading_style and not _is_complete_hook(hook_text))
+            )
+            if hook_broken:
                 raise ValueError(
-                    f"Hook is not a complete thought: {hook_text!r}. "
-                    "Retrying for a hook with a full payoff."
+                    f"Hook is incomplete: {hook_text!r}. "
+                    "Retrying for a complete hook."
                 )
             if not _has_actionable_prompt_example(slides):
                 raise ValueError(
@@ -1558,7 +1638,7 @@ def generate_slides(
                     "(Instead of/Try/micro-example) AND one insight slide (because/—/=). "
                     "Retrying for more informative content."
                 )
-            _validate_completeness(slides)   # raises if any slide ends abruptly
+            slides = _validate_completeness(slides, template_style)  # auto-corrects headings; raises if body is broken
             if not _has_cta_handle(slides):
                 raise ValueError(
                     "CTA slide is missing @claudeinsights. "

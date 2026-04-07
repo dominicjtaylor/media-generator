@@ -566,6 +566,9 @@ def _enforce_slide_limits(slides: list[dict], template_style: str = "text_only")
         if template_style == "text_only":
             max_h    = limits[slide_type]
             enforced = enforce_word_limit(heading, max_h)
+            if not _is_valid_heading(enforced):
+                logger.info("Reverting truncation (invalid heading): %r → %r", enforced, heading)
+                enforced = heading
             if enforced != heading:
                 logger.info(
                     "Truncated %s slide from %d→%d words: %r",

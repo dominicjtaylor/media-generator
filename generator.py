@@ -29,10 +29,24 @@ logger = logging.getLogger("carousel.generator")
 
 TEMPLATE_STYLES: list[str] = ["text_only", "headings_and_text", "headings_text_image"]
 
+# Text-only pool used when no Lummi API key is present — prevents any
+# image-fetch attempt or image-related fallback from being triggered.
+_TEXT_ONLY_STYLES: list[str] = ["text_only", "headings_and_text"]
+
+# Detected once at import time; restart the server after adding/removing the key.
+_IMAGE_ENABLED: bool = bool(os.getenv("LUMMI_API_KEY"))
+
 
 def select_template_style() -> str:
-    """Return one of the three template style names at random."""
-    return random.choice(TEMPLATE_STYLES)
+    """Return a template style name based on current API availability.
+
+    Without LUMMI_API_KEY: random choice from text-only styles only.
+    With LUMMI_API_KEY:    full rotation including headings_text_image.
+    """
+    pool = TEMPLATE_STYLES if _IMAGE_ENABLED else _TEXT_ONLY_STYLES
+    chosen = random.choice(pool)
+    logger.info("Template style selected: %r  (image_enabled=%s)", chosen, _IMAGE_ENABLED)
+    return chosen
 
 
 # Per-style word limits.  For heading styles the limits are split across the
@@ -1304,6 +1318,10 @@ def generate_slides(
             )
             slides  = review_and_improve(slides, template_style)
             caption = generate_caption(slides)
+            caption = (
+                f"{caption}\n\n"
+                f"[DEBUG] template={template_style} | image_enabled={_IMAGE_ENABLED}"
+            )
             return slides, caption
         except Exception as exc:
             logger.warning("Attempt %d/%d failed: %s", attempt, max_retries, exc)

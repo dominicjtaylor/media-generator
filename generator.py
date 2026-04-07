@@ -304,6 +304,12 @@ Headings are standalone titles, not sentence transitions.
 
 Transitions should appear in the body text ONLY.
 
+HEADINGS MUST NOT use em dashes (—).
+Use commas or split into clean phrases instead.
+
+BAD: "Better prompts — better results"
+GOOD: "Better prompts, better results"
+
 ---
 
 CONTENT VARIETY (REQUIRED):
@@ -773,6 +779,21 @@ def _is_valid_heading(text: str) -> bool:
         return False
 
     return True
+
+def _clean_heading_punctuation(slides: list[dict]) -> list[dict]:
+    """Replace em dashes in headings with commas for better readability."""
+    result = []
+    for slide in slides:
+        heading = slide.get("heading", "")
+        
+        if "—" in heading:
+            cleaned = heading.replace("—", ",")
+            logger.info("Replaced em dash in heading: %r → %r", heading, cleaned)
+            slide = {**slide, "heading": cleaned}
+        
+        result.append(slide)
+    
+    return result
 
 # ---------------------------------------------------------------------------
 # CTA handle validation
@@ -1453,6 +1474,7 @@ def generate_slides(
                 candidate_slides = _parse_json_slides(raw, num_slides, template_style)
                 candidate_slides = _enforce_slide_limits(candidate_slides, template_style)
                 candidate_slides = _enforce_bold_caps(candidate_slides)
+                candidate_slides = _clean_heading_punctuation(candidate_slides)
 
                 score = _score_slides(candidate_slides)
                 logger.info("Candidate %d score: %.2f", i + 1, score)
@@ -1510,6 +1532,7 @@ def generate_slides(
                     raise ValueError(f"Incomplete heading: {s['heading']}")
             if best_score < 0.85:
                 slides = review_and_improve(slides, template_style)
+                slides = _clean_heading_punctuation(slides)
             caption = generate_caption(slides)
             if os.environ.get("DEBUG", "false").lower() == "true":
                 caption += f"\n\n[DEBUG] template={template_style} | image_enabled={_IMAGE_ENABLED}"

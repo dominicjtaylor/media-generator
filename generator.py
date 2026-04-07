@@ -479,6 +479,10 @@ def enforce_word_limit(text: str, max_words: int) -> str:
     if truncated.count("**") % 2 != 0:
         truncated = truncated.rsplit("**", 1)[0].rstrip()
 
+    # Fix unbalanced quotes after truncation
+    if truncated.count('"') % 2 != 0:
+        truncated = truncated.rsplit('"', 1)[0].rstrip()
+
     # If already ends with sentence-final punctuation, we're done
     stripped = truncated.rstrip()
     if stripped and stripped[-1] in '.!?"':
@@ -678,8 +682,30 @@ def _is_complete_slide(text: str) -> bool:
     if re.search(r'[→\->\s][Tt]ry\s*:?\s*$', plain):
         return False
 
-    return True
+    # Unbalanced quotes → incomplete
+    quote_chars = ['"', '“', '”', '‘', '’']
+    quote_count = sum(plain.count(q) for q in quote_chars)
+    if quote_count % 2 != 0:
+        return False
 
+    lower = plain.lower()
+    # "Instead of" must be paired with a resolution
+    if "instead of" in lower:
+        if not any(x in lower for x in ["try", "better"]):
+            return False
+
+   # Ensure meaningful content after "Try:"
+    match = re.search(r'try\s*:\s*(.+)', lower)
+    if match:
+        after = match.group(1).strip()
+        if len(after.split()) < 3:
+            return False 
+
+    # Detect quote opened but not properly completed
+    if re.search(r'".{0,20}$', plain):  # short trailing open quote
+        return False
+
+    return True
 
 def _validate_completeness(slides: list[dict]) -> None:
     """Raise ValueError listing every slide whose text is incomplete."""

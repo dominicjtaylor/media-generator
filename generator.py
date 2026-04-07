@@ -519,10 +519,15 @@ def enforce_word_limit(text: str, max_words: int) -> str:
         last_pos = stripped.rfind(punct)
         if last_pos >= min_pos:
             candidate = stripped[:last_pos].rstrip()
+
+            # NEW: avoid ending on incomplete contrast
+            if re.search(r'(→|->)\s*try\s*:?\s*$', candidate.lower()):
+                continue
+
             if not _ends_with_incomplete(candidate):
                 return candidate
 
-    # If no clean boundary found, return the hard-truncated form as-is — the
+        # If no clean boundary found, return the hard-truncated form as-is — the
     # slide completeness validator will catch it and trigger a retry.
     return stripped
 
@@ -1458,6 +1463,13 @@ def generate_slides(
             best_score, slides = max(candidates, key=lambda x: x[0])
 
             logger.info("Best candidate score selected: %.2f", best_score)
+
+            # --- Guard: detect truncated contrast (→ Try: with no payload) ---
+            if any(
+                re.search(r'(→|->)\s*try\s*:?\s*$', s["heading"].lower())
+                for s in slides
+            ):
+                raise ValueError("Truncated contrast detected (ends with 'Try:') — retrying")
 
             if best_score < QUALITY_THRESHOLD:
                 raise ValueError(

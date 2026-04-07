@@ -458,7 +458,7 @@ Common errors:
 - "Incorrect number of slides"         → regenerate EXACTLY {num_slides} slides
 - "No actionable prompt example found" → add a slide with a quoted prompt AND a comparison (Try/Bad/Better/→)
 - "Slides lack depth"                  → add one comparison slide AND one because/insight slide
-- "Incomplete slide text"              → complete the body sentence; headings may be short phrases
+- "Truncated slide content"            → remove the bare arrow or add the missing noun
 - "CTA slide is missing @claudeinsights" → add "@claudeinsights" to the final slide
 - "Invalid JSON"                       → fix the JSON formatting
 Do NOT repeat the same mistake.
@@ -473,15 +473,14 @@ Do NOT repeat the same mistake.
 # Incomplete-ending detection — shared by enforce_word_limit and validators
 # ---------------------------------------------------------------------------
 
-# Words and tokens that, when they appear at the end of a slide, indicate
-# an incomplete sentence.  Used both when choosing truncation cutpoints and
-# when validating the finished output.
+# Tokens that signal genuinely broken/truncated output — not stylistic fragments.
+# Kept intentionally narrow: only bare arrows (contrast started, never completed)
+# and naked articles/determiners that cannot stand alone.
+# Words like "because", "instead", "first", "try" are valid fragment endings
+# and are no longer treated as failures.
 _INCOMPLETE_TERMINALS: frozenset[str] = frozenset({
-    "try", "try:", "instead", "instead:", "because", "because:",
-    "then", "then:", "next", "next:", "now", "now:",
-    "first", "first:", "and", "or", "but", "→", "->",
-    "better:", "bad:", "with", "for", "of", "in", "at", "to",
-    "the", "a", "an",
+    "→", "->",          # bare arrow: contrast started but never resolved
+    "the", "a", "an",   # article with no following noun — always truncated
 })
 
 
@@ -527,30 +526,18 @@ def enforce_word_limit(text: str, max_words: int) -> str:
     if stripped and stripped[-1] in '.!?"':
         return stripped
 
-    def _ends_with_incomplete(text: str) -> bool:
-        """True if the last meaningful word is a dangling terminal."""
-        last = text.rstrip().split()[-1].lower().rstrip('.,!?:"\'') if text.strip() else ""
-        return last in _INCOMPLETE_TERMINALS
-
     # Try to end at the last clause boundary in the second half.
-    # Skip any cutpoint that would leave a dangling terminal (e.g. "Try")
-    # because that produces exactly the broken "→ Try" fragments we want to
-    # prevent.
+    # Only skip a cutpoint if it would leave a bare arrow (→ / ->) at the end,
+    # which means a contrast was started but never resolved.
     min_pos = int(len(stripped) * 0.55)  # must keep at least 55% of the text
     for punct in ('—', ':', ','):
         last_pos = stripped.rfind(punct)
         if last_pos >= min_pos:
             candidate = stripped[:last_pos].rstrip()
-
-            # NEW: avoid ending on incomplete contrast
-            if re.search(r'(→|->)\s*try\s*:?\s*$', candidate.lower()):
-                continue
-
-            if not _ends_with_incomplete(candidate):
+            last_tok = candidate.split()[-1].lower().rstrip('.,!?:"\'') if candidate.split() else ""
+            if last_tok not in ("→", "->"):
                 return candidate
 
-        # If no clean boundary found, return the hard-truncated form as-is — the
-    # slide completeness validator will catch it and trigger a retry.
     return stripped
 
 
@@ -735,71 +722,52 @@ def _compress_heading(text: str, max_words: int = 6) -> str:
 
 
 def _is_complete_slide(text: str) -> bool:
-    """Return True if *text* reads as a finished thought.
+    """Return True unless text is clearly truncated or nonsensical.
 
-    Catches two failure modes:
-    1. The last meaningful word is a known incomplete terminal (e.g. "Try",
-       "Because", "→") — meaning the sentence was cut before its payload.
-    2. A "→ Try" or "→ Try:" pattern appears at the very end with nothing
-       after it — the contrast was started but never completed.
+    Only catches genuinely broken output - not stylistic fragments:
+      - empty string
+      - ends with a bare arrow meaning a contrast was never resolved
+      - ends with a lone article (the / a / an) with no following noun
+      - bare 'Try:' at the very end with no payload after the colon
+
+    Fragments like "Instead of: Write me an essay", "First, match your task",
+    or text ending with "because" / "instead" / "first" are all valid and pass.
     """
-    # Strip bold markers for plain-text analysis
     plain = re.sub(r'\*\*(.*?)\*\*', r'\1', text).strip()
     if not plain:
         return False
 
-    # Pattern 1: last meaningful token is a known incomplete terminal
-    last_word = plain.split()[-1].lower().rstrip('.,!?:"\'')
-    if last_word in _INCOMPLETE_TERMINALS:
+    last_word = plain.split()[-1].lower().rstrip('.,!?:"\'''')
+
+    # Bare arrow - contrast started, never resolved
+    if last_word in ("→", "->"):
         return False
 
-    # Pattern 2: "→ Try" or "→ Try:" at the end with no content after it
-    if re.search(r'[→\->\s][Tt]ry\s*:?\s*$', plain):
+    # Lone article - always a truncation artefact
+    if last_word in ("the", "a", "an"):
         return False
 
-    # Unbalanced quotes → incomplete
-    quote_chars = ['"', '“', '”', '‘', '’']
-    quote_count = sum(plain.count(q) for q in quote_chars)
-    if quote_count % 2 != 0:
-        return False
-
-    lower = plain.lower()
-    # "Instead of" must be paired with a resolution
-    if "instead of" in lower:
-        if not any(x in lower for x in ["try", "better"]):
-            return False
-
-   # Ensure meaningful content after "Try:"
-    match = re.search(r'try\s*:\s*(.+)', lower)
-    if match:
-        after = match.group(1).strip()
-        if len(after.split()) < 3:
-            return False 
-
-    # Detect quote opened but not properly completed
-    if re.search(r'".{0,20}$', plain):  # short trailing open quote
+    # arrow Try: at the very end with no payload after the colon
+    if re.search(r'[→>]\s*[Tt]ry\s*:\s*$', plain):
         return False
 
     return True
-
 def _validate_completeness(
     slides: list[dict],
     template_style: str = "text_only",
 ) -> list[dict]:
-    """Validate completeness and auto-correct minor heading issues.
+    """Auto-correct minor issues and hard-fail only on genuinely broken output.
 
-    Behaviour varies by template style:
+    What this does:
+      - Auto-compress headings >10 words (never a hard failure)
+      - Hard-fail only when _is_complete_slide() returns False, which now only
+        catches: empty text, bare arrow (arrow), lone article (a/an/the), or
+        "arrow Try:" with no payload.
 
-    text_only:
-        The "heading" field holds the full slide text.  Incomplete terminals or
-        dangling "→ Try" patterns are hard failures (trigger a retry).
-
-    headings_and_text / headings_text_image:
-        The "heading" field is a short phrase — it is NOT required to be a
-        complete sentence.  Only check:
-          • Heading word count: if > 10 words, auto-compress (not a failure).
-          • Body completeness: the "body" field must be a complete sentence;
-            incomplete terminals there are still hard failures.
+    What this does NOT do:
+      - Reject fragments e.g. "Instead of: ..." or "First, match your task"
+      - Reject text ending with "because", "instead", "then", "first", etc.
+      - Enforce grammar or sentence structure
 
     Returns the (possibly auto-corrected) slides list.
     """
@@ -812,7 +780,7 @@ def _validate_completeness(
         body    = s.get("body", "")
 
         if is_heading_style:
-            # Auto-correct headings that are clearly too long (>10 words)
+            # Auto-correct oversized headings — never a hard failure
             heading_words = len(heading.split())
             if heading_words > 10:
                 old = heading
@@ -821,11 +789,11 @@ def _validate_completeness(
                     "Auto-compressed %s heading (%d→%d words): %r → %r",
                     s["type"], heading_words, len(heading.split()), old, heading,
                 )
-            # Only check the body for sentence completeness
+            # Check body for genuinely broken output only
             if body and not _is_complete_slide(body):
                 broken.append(f"[{s['type']} body] {body!r}")
         else:
-            # text_only: heading IS the full text — check it for completeness
+            # text_only: heading IS the full text
             if not _is_complete_slide(heading):
                 broken.append(f"[{s['type']}] {heading!r}")
 
@@ -833,9 +801,8 @@ def _validate_completeness(
 
     if broken:
         raise ValueError(
-            "Incomplete slide text detected — the following end abruptly:\n"
+            "Truncated slide content detected (bare arrow or missing noun):\n"
             + "\n".join(broken)
-            + "\nRewrite each as a complete sentence."
         )
 
     return corrected

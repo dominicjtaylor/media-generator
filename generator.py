@@ -292,10 +292,17 @@ GOOD (topic-specific — reader instantly recognises it's about their problem):
 
 HEADING STYLE (if applicable):
 
-Headings must:
+HEADINGS MUST:
 - Stand alone as a complete phrase
 - Never end with words that require continuation (e.g. "with", "for", "a", "the")
 - Read naturally if shown alone on a slide
+
+HEADINGS MUST NOT start with transition words:
+- Do NOT use: First, Then, Next, Now, Finally
+
+Headings are standalone titles, not sentence transitions.
+
+Transitions should appear in the body text ONLY.
 
 ---
 
@@ -756,6 +763,9 @@ def _is_valid_heading(text: str) -> bool:
         # only flag if it's a short phrase (likely incomplete)
         if len(words) <= 6:
             return False
+
+    if plain.startswith(("first", "then", "next", "now", "finally")):
+        return False
 
     return True
 

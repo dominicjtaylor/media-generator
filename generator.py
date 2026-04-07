@@ -368,7 +368,7 @@ RULES FOR FLOW:
         - NEVER use transition words in headings
     Outcome slide: Finally…
 - Do NOT write random, disconnected tips — every slide must earn the next one
-- The real prompt example (CONTRAST slide) belongs in the middle of the carousel, not at the end
+- The real prompt example belongs in the middle of the carousel, not at the end
 
 ---
 
@@ -376,26 +376,28 @@ REAL PROMPT EXAMPLE (MANDATORY):
 
 At least ONE content slide MUST include a concrete Claude prompt example.
 
-This can be:
-- a before/after comparison (Instead of → Try)
-- OR a single well-specified prompt used in context
-
-A comparison is preferred ONLY when demonstrating a common mistake.
-
-A quoted prompt ALONE is NOT valid. Pair it with a before/after or bad/better contrast.
+Choose the format that fits the content naturally — do NOT force a comparison
+when the content does not involve a common mistake or transformation.
 
 Valid formats:
 
-  A) Instead of → Try:
+  A) Instead of → Try (use when showing a common mistake):
      Instead of: "Explain this"
      Try: "Explain this simply with 3 examples"
 
-  B) Bad → Better:
+  B) Bad → Better (use when contrasting a weak vs strong approach):
      Bad: "Summarise this"
      Better: "Summarise this in bullet points with key takeaways"
 
-Invalid (missing comparison):
-  ✗ "Explain this simply with 3 examples"  ← quote with no contrast = INVALID
+  C) Prompt shown in context (use when demonstrating good practice directly):
+     "'Act as a teacher. Explain X in 3 steps with examples.' — Claude adjusts
+     tone and depth **instantly**"
+
+Formats A and B are for when the contrast IS the point — a mistake being fixed.
+Format C is for when you want to show what a good prompt looks like in use.
+
+A short bare quote (1–3 words) with nothing around it is NOT valid.
+A substantive quoted prompt (4+ words) shown with context IS valid without contrast.
 
 ---
 
@@ -456,7 +458,7 @@ SELF-CORRECTION:
 If you receive an error message with the topic, you MUST fix the specific issue.
 Common errors:
 - "Incorrect number of slides"         → regenerate EXACTLY {num_slides} slides
-- "No actionable prompt example found" → add a slide with a quoted prompt AND a comparison (Try/Bad/Better/→)
+- "No actionable prompt example found" → add a slide with a concrete Claude prompt example (contrast format A/B, or a quoted prompt of 4+ words shown in context)
 - "Slides lack depth"                  → add one comparison slide AND one because/insight slide
 - "Truncated slide content"            → remove the bare arrow or add the missing noun
 - "CTA slide is missing @claudeinsights" → add "@claudeinsights" to the final slide
@@ -660,21 +662,25 @@ def _is_complete_hook(text: str) -> bool:
 # Actionable prompt example validation
 # ---------------------------------------------------------------------------
 
-# Improvement signals — present in any valid comparison format (B or C)
+# Improvement signals — present in contrast formats (Instead of / Try / Bad / Better / →)
 _IMPROVEMENT_SIGNALS = ("instead of", "try", "bad:", "better:", "→", "->")
 
-# Quote characters — straight and curly
-_QUOTE_CHARS = ('"', '\u201c', '\u201d', '\u2018', '\u2019')
+# Matches text inside any straight or curly quote pair
+_QUOTED_CONTENT = re.compile(r'["\u201c\u2018]([^"\u201c\u201d\u2018\u2019\n]+)["\u201d\u2019]')
 
 
 def _has_actionable_prompt_example(slides: list[dict]) -> bool:
-    """Return True if at least one content slide contains BOTH:
+    """Return True if at least one content slide contains a concrete Claude
+    prompt example in any of these forms:
 
-    1. A quoted prompt (straight or curly quotes), AND
-    2. An improvement signal (Instead of / Try / Bad / Better / →)
+    A) A quoted prompt WITH an improvement signal (Instead of / Try / Bad / Better / →)
+       — the classic before/after contrast format. Short quotes (e.g. "Fix this")
+       are valid here because the contrast supplies the context.
 
-    A quoted prompt without a comparison is not enough — the slide must
-    show the reader why one phrasing is better than another.
+    B) A quoted prompt of 4+ words shown in context — a substantive prompt
+       demonstrated in use, without needing a before/after comparison.
+
+    A bare short quote (1–3 words) with no comparison is NOT valid.
     Checks both heading and body fields to support two-field heading styles.
     """
     for slide in slides:
@@ -682,10 +688,20 @@ def _has_actionable_prompt_example(slides: list[dict]) -> bool:
             continue
         text = slide.get("heading", "") + " " + slide.get("body", "")
         text_lower = text.lower()
-        has_quote = any(q in text for q in _QUOTE_CHARS)
+
         has_improvement = any(signal in text_lower for signal in _IMPROVEMENT_SIGNALS)
-        if has_quote and has_improvement:
+        quoted_strings = _QUOTED_CONTENT.findall(text)
+
+        if not quoted_strings:
+            continue
+
+        if has_improvement:
+            return True  # format A — contrast always valid
+
+        # Format B — substantive prompt (4+ words) shown in context
+        if any(len(q.split()) >= 4 for q in quoted_strings):
             return True
+
     return False
 
 

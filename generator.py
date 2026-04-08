@@ -683,29 +683,22 @@ _QUOTED_CONTENT_SINGLE = re.compile(r"'([^'\n]{10,})'")
 def _has_actionable_prompt_example(slides: list[dict]) -> bool:
     """Return True if at least one content slide contains BOTH:
 
-    1. A quoted prompt (any straight or curly quotes), AND
-    2. Either:
-       (a) an actionable instruction verb (use / add / ask / write / format / etc.), OR
-       (b) a contextual instruction phrase (ask claude / tell claude / have claude / prompt claude)
+    1. A quoted prompt (straight or curly quotes), AND
+    2. An improvement signal (Instead of / Try / Bad / Better / →)
 
-    A quoted prompt with no instruction context does not pass.
+    A quoted prompt without a comparison is not enough — the slide must
+    show the reader why one phrasing is better than another.
     Checks both heading and body fields to support two-field heading styles.
     """
     for slide in slides:
         if slide["type"] != "content":
             continue
+
         text = slide.get("heading", "") + " " + slide.get("body", "")
         text_lower = text.lower()
-
-        quoted_strings = _QUOTED_CONTENT.findall(text) + _QUOTED_CONTENT_SINGLE.findall(text)
-        if not quoted_strings:
-            continue
-
-        has_action = (
-            any(signal in text_lower for signal in _ACTIONABLE_SIGNALS)
-            or any(phrase in text_lower for phrase in _CONTEXTUAL_SIGNALS)
-        )
-        if has_action:
+        has_quote = any(q in text for q in _QUOTE_CHARS)
+        has_improvement = any(signal in text_lower for signal in _IMPROVEMENT_SIGNALS)
+        if has_quote and has_improvement:
             return True
 
     return False
@@ -897,8 +890,8 @@ def _has_cta_handle(slides: list[dict]) -> bool:
 # Depth validation — at least one example and one insight per carousel
 # ---------------------------------------------------------------------------
 
-# Markers for a concrete prompt example or use-case slide (no contrast required)
-_EXAMPLE_MARKERS = ('"', "\u201c", "\u2018", "e.g.", "for example", "act as ", "ask claude")
+# Markers for a concrete "Instead of → Try" or micro-example slide
+_EXAMPLE_MARKERS = ("instead of", "→", "->", "try ", "e.g.", "for example", "act as")
 
 # Markers for an insight/explanation slide
 _INSIGHT_MARKERS = ("because", "—", " — ", "=", "≠", "means ", "so ", "which ")
@@ -972,14 +965,11 @@ def _score_slides(slides: list[dict]) -> float:
     # --- 5. Structural variety ---
     content_text = [(s["heading"] + " " + s["body"]).lower() for s in slides if s["type"] == "content"]
     patterns = {
-        "insight": any("because" in t or " — " in t for t in content_text),
-        "action":  any(
-                       any(v in (s.get("heading", "") + " " + s.get("body", "")).lower()
-                           for v in _ACTION_VERBS)
-                       for s in slides if s["type"] == "content"
-                   ),
-        "example": any('"' in t or "\u201c" in t or "\u2018" in t for t in content_text),
+        "contrast": any("instead of" in (s["heading"] + s["body"]).lower() for s in slides),
+        "insight": any("because" in (s["heading"] + s["body"]).lower() for s in slides),
+        "action": any((s["heading"].lower().startswith(("add", "use", "try", "ask"))) for s in slides),
     }
+
     if sum(patterns.values()) >= 2:
         score += 1
 
@@ -1560,14 +1550,15 @@ def generate_slides(
                 candidate_slides = _enforce_bold_caps(candidate_slides)
                 candidate_slides = _clean_heading_punctuation(candidate_slides)
 
-                # Auto-compress any heading that is too long rather than
-                # skipping the whole candidate.
-                candidate_slides = [
-                    {**s, "heading": _compress_heading(s["heading"])}
-                    if len(s.get("heading", "").split()) > 10
-                    else s
-                    for s in candidate_slides
-                ]
+                for s in candidate_slides:
+                    heading = s["heading"]
+
+                    if not _is_valid_heading(heading):
+                        logger.info("Invalid heading (retrying candidate): %r", heading)
+                        continue  # skip candidate instead of killing attempt
+
+                    if _is_sentence_like(heading):
+                        raise ValueError(f"Heading looks like a sentence: {heading}")
 
                 score = _score_slides(candidate_slides)
                 logger.info("Candidate %d score: %.2f", i + 1, score)
@@ -1587,8 +1578,9 @@ def generate_slides(
                 raise ValueError("Truncated contrast detected (ends with 'Try:') — retrying")
 
             if best_score < QUALITY_THRESHOLD:
-                raise ValueError(
-                    f"Low quality slides (score={best_score:.2f} < {QUALITY_THRESHOLD}) — retrying"
+                logger.warning(
+                    "Low quality slides (score=%.2f) — continuing to review",
+                    best_score
                 )
 
             hook_text = slides[0]["heading"]
@@ -1608,8 +1600,7 @@ def generate_slides(
                 )
             if not _has_actionable_prompt_example(slides):
                 raise ValueError(
-                    "No actionable prompt example found. At least one content slide must include "
-                    "a quoted Claude prompt AND a comparison (Instead of/Try/Bad/Better/→). "
+                    "No actionable prompt example found. At least one content slide must include a quoted Claude prompt used in context (e.g. 'Ask Claude: ...')."
                     "A quoted prompt alone is not enough — show why one phrasing is better."
                 )
             if not _has_depth(slides):

@@ -36,7 +36,7 @@ _TEXT_ONLY_STYLES: list[str] = ["text_only", "headings_and_text"]
 # Detected once at import time; restart the server after adding/removing the key.
 _IMAGE_ENABLED: bool = bool(os.getenv("LUMMI_API_KEY"))
 
-QUALITY_THRESHOLD = 0.65
+QUALITY_THRESHOLD = 0.6
 
 def select_template_style() -> str:
     """Return a template style name based on current API availability.
@@ -668,6 +668,12 @@ _ACTIONABLE_SIGNALS = (
     "act as ", "paste ", "include ", "specify ", "tell ", "give ",
 )
 
+# Contextual phrases that indicate Claude is being directed — looser than
+# _ACTIONABLE_SIGNALS so natural phrasing ("ask claude to...") still passes.
+_CONTEXTUAL_SIGNALS = (
+    "ask claude", "tell claude", "have claude", "prompt claude",
+)
+
 # Matches text inside curly or straight double-quote pairs
 _QUOTED_CONTENT = re.compile(r'["\u201c]([^"\u201c\u201d\n]+)["\u201d]')
 # Matches straight single-quote pairs with 10+ chars inside (avoids contractions like "it's")
@@ -678,8 +684,9 @@ def _has_actionable_prompt_example(slides: list[dict]) -> bool:
     """Return True if at least one content slide contains BOTH:
 
     1. A quoted prompt (any straight or curly quotes), AND
-    2. An actionable instruction signal — a verb telling the reader to do
-       something with a prompt (use / add / ask / write / format / etc.)
+    2. Either:
+       (a) an actionable instruction verb (use / add / ask / write / format / etc.), OR
+       (b) a contextual instruction phrase (ask claude / tell claude / have claude / prompt claude)
 
     A quoted prompt with no instruction context does not pass.
     Checks both heading and body fields to support two-field heading styles.
@@ -694,7 +701,10 @@ def _has_actionable_prompt_example(slides: list[dict]) -> bool:
         if not quoted_strings:
             continue
 
-        has_action = any(signal in text_lower for signal in _ACTIONABLE_SIGNALS)
+        has_action = (
+            any(signal in text_lower for signal in _ACTIONABLE_SIGNALS)
+            or any(phrase in text_lower for phrase in _CONTEXTUAL_SIGNALS)
+        )
         if has_action:
             return True
 
@@ -963,8 +973,11 @@ def _score_slides(slides: list[dict]) -> float:
     content_text = [(s["heading"] + " " + s["body"]).lower() for s in slides if s["type"] == "content"]
     patterns = {
         "insight": any("because" in t or " — " in t for t in content_text),
-        "action":  any(s.get("heading", "").lower().startswith(_ACTION_VERBS)
-                       for s in slides if s["type"] == "content"),
+        "action":  any(
+                       any(v in (s.get("heading", "") + " " + s.get("body", "")).lower()
+                           for v in _ACTION_VERBS)
+                       for s in slides if s["type"] == "content"
+                   ),
         "example": any('"' in t or "\u201c" in t or "\u2018" in t for t in content_text),
     }
     if sum(patterns.values()) >= 2:

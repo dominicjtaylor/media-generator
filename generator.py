@@ -681,24 +681,28 @@ _QUOTED_CONTENT_SINGLE = re.compile(r"'([^'\n]{10,})'")
 
 
 def _has_actionable_prompt_example(slides: list[dict]) -> bool:
-    """Return True if at least one content slide contains BOTH:
-
-    1. A quoted prompt (straight or curly quotes), AND
-    2. An improvement signal (Instead of / Try / Bad / Better / →)
-
-    A quoted prompt without a comparison is not enough — the slide must
-    show the reader why one phrasing is better than another.
-    Checks both heading and body fields to support two-field heading styles.
-    """
     for slide in slides:
         if slide["type"] != "content":
             continue
 
-        text = slide.get("heading", "") + " " + slide.get("body", "")
-        text_lower = text.lower()
-        has_quote = any(q in text for q in _QUOTE_CHARS)
-        has_improvement = any(signal in text_lower for signal in _IMPROVEMENT_SIGNALS)
-        if has_quote and has_improvement:
+        text = (slide.get("heading", "") + " " + slide.get("body", "")).lower()
+
+        # Must contain a meaningful quoted prompt (not 1–2 words)
+        quoted = _QUOTED_CONTENT.findall(text) + _QUOTED_CONTENT_SINGLE.findall(text)
+
+        if not quoted:
+            continue
+
+        # Ensure at least one quoted segment is substantial (4+ words)
+        has_substantial_prompt = any(len(q.split()) >= 4 for q in quoted)
+
+        if not has_substantial_prompt:
+            continue
+
+        # Must include an action/context signal
+        has_action = any(signal in text for signal in _ACTIONABLE_SIGNALS + _CONTEXTUAL_SIGNALS)
+
+        if has_action:
             return True
 
     return False
@@ -891,7 +895,14 @@ def _has_cta_handle(slides: list[dict]) -> bool:
 # ---------------------------------------------------------------------------
 
 # Markers for a concrete "Instead of → Try" or micro-example slide
-_EXAMPLE_MARKERS = ("instead of", "→", "->", "try ", "e.g.", "for example", "act as")
+_EXAMPLE_MARKERS = (
+    '"', "“", "‘",  # quoted prompts
+    "ask claude",
+    "tell claude",
+    "act as",
+    "for example",
+    "e.g.",
+)
 
 # Markers for an insight/explanation slide
 _INSIGHT_MARKERS = ("because", "—", " — ", "=", "≠", "means ", "so ", "which ")
@@ -965,9 +976,9 @@ def _score_slides(slides: list[dict]) -> float:
     # --- 5. Structural variety ---
     content_text = [(s["heading"] + " " + s["body"]).lower() for s in slides if s["type"] == "content"]
     patterns = {
-        "contrast": any("instead of" in (s["heading"] + s["body"]).lower() for s in slides),
+        "example": any('"' in (s["heading"] + s["body"]) for s in slides),
         "insight": any("because" in (s["heading"] + s["body"]).lower() for s in slides),
-        "action": any((s["heading"].lower().startswith(("add", "use", "try", "ask"))) for s in slides),
+        "action": any(s["heading"].lower().startswith(_ACTION_VERBS) for s in slides),
     }
 
     if sum(patterns.values()) >= 2:
@@ -1557,9 +1568,6 @@ def generate_slides(
                         logger.info("Invalid heading (retrying candidate): %r", heading)
                         continue  # skip candidate instead of killing attempt
 
-                    if _is_sentence_like(heading):
-                        raise ValueError(f"Heading looks like a sentence: {heading}")
-
                 score = _score_slides(candidate_slides)
                 logger.info("Candidate %d score: %.2f", i + 1, score)
 
@@ -1600,13 +1608,11 @@ def generate_slides(
                 )
             if not _has_actionable_prompt_example(slides):
                 raise ValueError(
-                    "No actionable prompt example found. At least one content slide must include a quoted Claude prompt used in context (e.g. 'Ask Claude: ...')."
-                    "A quoted prompt alone is not enough — show why one phrasing is better."
+                    "No actionable prompt example found. At least one content slide must include a meaningful Claude prompt used in context (e.g. 'Ask Claude: ...')."
                 )
             if not _has_depth(slides):
                 raise ValueError(
-                    "Slides lack depth: need at least one example slide "
-                    "(Instead of/Try/micro-example) AND one insight slide (because/—/=). "
+                    "Slides lack depth: need at least one concrete prompt example AND one insight (because/—/=)."
                     "Retrying for more informative content."
                 )
             slides = _validate_completeness(slides, template_style)  # auto-corrects headings; raises if body is broken

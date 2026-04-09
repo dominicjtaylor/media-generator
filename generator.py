@@ -62,8 +62,17 @@ def select_template_style() -> str:
     With LUMMI_API_KEY or local images: full rotation including headings_text_image.
     """
     available_templates = TEMPLATE_STYLES if _IMAGE_ENABLED else _TEXT_ONLY_STYLES
+    if _IMAGE_ENABLED:
+        weights = [
+            0.6 if t == "headings_text_image" else 0.2
+            for t in available_templates
+        ]
+        chosen = random.choices(available_templates, weights=weights, k=1)[0]
+    else:
+        weights = [1 / len(available_templates)] * len(available_templates)
+        chosen = random.choice(available_templates)
     print("AVAILABLE TEMPLATES:", available_templates)
-    chosen = random.choice(available_templates)
+    print("TEMPLATE WEIGHTS:", dict(zip(available_templates, weights)))
     print("SELECTED TEMPLATE:", chosen)
     logger.info("Template style selected: %r  (image_enabled=%s)", chosen, _IMAGE_ENABLED)
     return chosen

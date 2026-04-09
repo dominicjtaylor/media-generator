@@ -349,13 +349,10 @@ PROGRESSIVE FLOW — follow this exact arc:
 {carousel_arc}
 
 RULES FOR FLOW:
-- Each slide must build on the previous one — "because of this → here's what to do next"
-- Use transition words to signal progression:
-    Slide 2: (no transition — state the core principle directly)
-    Step slides:
-        - Use transition words in the BODY text only (First…, Then…, Next…, Now…)
-        - NEVER use transition words in headings
-    Outcome slide: Finally…
+- Use transition words sparingly in body text (First…, Then…, Next…, Now…, Finally…)
+- Transitions must NOT make the sentence depend on the previous slide
+- Each slide must make sense independently — a reader who sees only one slide must understand it
+- NEVER use transition words in headings
 - Do NOT write random, disconnected tips — every slide must earn the next one
 - The real prompt example belongs in the middle of the carousel, not at the end
 
@@ -400,7 +397,7 @@ Good: "Use structured prompts — because Claude needs clear instructions to res
 COMPLETENESS:
 
 HEADINGS ("heading" field):
-- Should be concise and scannable — target 2–6 words, up to 8 maximum
+- Should be short and scannable (prefer under 8 words, but clarity comes first)
 - Sentence-like headings are fine if short and readable
 - Do NOT end with a bare em-dash (—) or arrow (→)
 - A phrase is valid: "Specific prompts work better" ✓
@@ -877,6 +874,20 @@ def _clean_heading_punctuation(slides: list[dict]) -> list[dict]:
         result.append(slide)
 
     return result
+
+
+def adapt_to_template(slides: list[dict], template_style: str) -> list[dict]:
+    """Map canonical headings_and_text slides to the target template format."""
+    if template_style == "text_only":
+        adapted = []
+        for s in slides:
+            body = s.get("body", "").strip()
+            heading = s.get("heading", "").strip()
+            adapted.append({**s, "heading": body if body else heading, "body": ""})
+        return adapted
+    # headings_and_text and headings_text_image: no change needed
+    return slides
+
 
 # ---------------------------------------------------------------------------
 # CTA handle validation
@@ -1545,6 +1556,7 @@ def generate_slides(
     backend      = backends[provider]
     last_error: Optional[Exception] = None
     error_context: str              = ""
+    generation_style = "headings_and_text"  # Always generate in canonical format
 
     for attempt in range(1, max_retries + 1):
         try:
@@ -1554,10 +1566,10 @@ def generate_slides(
             )
             candidates = []
             for i in range(3):
-                raw = backend(topic, num_slides, error_context, template_style)
+                raw = backend(topic, num_slides, error_context, generation_style)
 
-                candidate_slides = _parse_json_slides(raw, num_slides, template_style)
-                candidate_slides = _enforce_slide_limits(candidate_slides, template_style)
+                candidate_slides = _parse_json_slides(raw, num_slides, generation_style)
+                candidate_slides = _enforce_slide_limits(candidate_slides, generation_style)
                 candidate_slides = _enforce_bold_caps(candidate_slides)
                 candidate_slides = _clean_heading_punctuation(candidate_slides)
 
@@ -1595,7 +1607,7 @@ def generate_slides(
             # For heading styles the hook is a short phrase, not a sentence —
             # only reject genuinely broken forms (trailing em-dash / bare arrow).
             # For text_only the full sentence check still applies.
-            hook_is_heading_style = template_style in ("headings_and_text", "headings_text_image")
+            hook_is_heading_style = True  # always heading format during generation
             hook_broken = (
                 hook_text.rstrip().endswith("—")
                 or hook_text.rstrip().endswith("→")
@@ -1615,7 +1627,7 @@ def generate_slides(
                     "Slides lack depth: need at least one concrete prompt example AND one insight (because/—/=)."
                     "Retrying for more informative content."
                 )
-            slides = _validate_completeness(slides, template_style)  # auto-corrects headings; raises if body is broken
+            slides = _validate_completeness(slides, generation_style)  # auto-corrects headings; raises if body is broken
             if not _has_cta_handle(slides):
                 raise ValueError(
                     "CTA slide is missing @claudeinsights. "
@@ -1633,8 +1645,9 @@ def generate_slides(
                 for s in slides
             ]
             if best_score < 0.85:
-                slides = review_and_improve(slides, template_style)
+                slides = review_and_improve(slides, generation_style)
                 slides = _clean_heading_punctuation(slides)
+            slides = adapt_to_template(slides, template_style)
             caption = generate_caption(slides)
             if os.environ.get("DEBUG", "false").lower() == "true":
                 caption += f"\n\n[DEBUG] template={template_style} | image_enabled={_IMAGE_ENABLED}"

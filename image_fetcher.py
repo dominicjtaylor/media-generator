@@ -442,3 +442,25 @@ def fetch_local_image() -> dict:
         "focal_x":     0.5,
         "focal_y":     0.3,  # slightly above centre looks better for hero images
     }
+
+
+def get_image_for_heading_template(topic: str) -> dict:
+    """Return image data for the headings_text_image template.
+
+    Priority:
+      1. Lummi API  — used when LUMMI_API_KEY is set
+      2. Local file — used when key is absent or the API call fails
+
+    Always returns a valid image dict; raises RuntimeError only if both
+    sources are exhausted (i.e. no key AND no local images).
+    """
+    api_key = os.environ.get("LUMMI_API_KEY")
+    if api_key:
+        try:
+            logger.info("Fetching Lummi image for topic: %r", topic)
+            return fetch_lummi_image(topic)
+        except Exception as exc:
+            logger.warning("Lummi API failed (%s) — using local image fallback", exc)
+
+    logger.info("Using local image fallback")
+    return fetch_local_image()

@@ -47,13 +47,27 @@ _IMAGE_ENABLED: bool = bool(os.getenv("LUMMI_API_KEY")) or _LOCAL_IMAGE_ENABLED
 QUALITY_THRESHOLD = 0.6
 
 def select_template_style() -> str:
-    """Return a template style name based on current API availability.
+    """Return a template style name based on current API/image availability.
 
-    Without LUMMI_API_KEY: random choice from text-only styles only.
-    With LUMMI_API_KEY:    full rotation including headings_text_image.
+    When images are enabled, headings_text_image is strongly favoured
+    (~90% probability) while other templates remain occasionally possible.
+    When images are unavailable, a uniform random choice is made from the
+    text-only pool.
     """
     pool = TEMPLATE_STYLES if _IMAGE_ENABLED else _TEXT_ONLY_STYLES
-    chosen = random.choice(pool)
+
+    if _IMAGE_ENABLED and "headings_text_image" in pool:
+        dominant_weight = 0.9
+        other_weight    = (1.0 - dominant_weight) / max(len(pool) - 1, 1)
+        weights = [
+            dominant_weight if t == "headings_text_image" else other_weight
+            for t in pool
+        ]
+        chosen = random.choices(pool, weights=weights, k=1)[0]
+        logger.debug("Template weights: %s", dict(zip(pool, weights)))
+    else:
+        chosen = random.choice(pool)
+
     logger.info("Template style selected: %r  (image_enabled=%s)", chosen, _IMAGE_ENABLED)
     return chosen
 

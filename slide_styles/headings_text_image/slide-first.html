@@ -14,7 +14,7 @@
   font-family:'Inter', sans-serif;
 }
 
-.slide {
+/* .slide {
   width:1080px;
   height:1350px;
   background:linear-gradient(135deg,#111,#0a0a0a);
@@ -22,6 +22,19 @@
   padding:80px 90px;
   position:relative;
   overflow:hidden;
+} */
+
+.slide {
+  width:1080px;
+  height:1350px;
+  display:flex;
+  flex-direction:column;
+  justify-content:space-between;
+  padding:80px 90px;
+  position:relative;
+  overflow:hidden;
+  background:linear-gradient(135deg,#111,#0a0a0a);
+  color:#fff;
 }
 
 /* ---------- TEXT ---------- */
@@ -94,10 +107,10 @@
   left:50%;
   transform:translateX(-50%);
 
-  width:940px;
+  width:1000px;
 
   /* 🔑 adaptive height */
-  height:clamp(320px, 45vh, 650px);
+  height:clamp(320px, 46vh, 850px);
 
   border-radius:28px;
   overflow:hidden;
@@ -159,19 +172,20 @@
 <body>
 <div class="slide">
 
-  <div class="brand">Claude Insights</div>
-
-  <div class="swipe">SWIPE</div>
-
-  <div class="headline">
-    {{TEXT}}
+  <div class="top">
+    <div class="brand">Claude Insights</div>
+    <div class="swipe">SWIPE</div>
+    <div class="headline">{{TEXT}}</div>
   </div>
+  <!-- <div class="brand">Claude Insights</div>
+  <div class="swipe">SWIPE</div>
+  <div class="headline">{{TEXT}}</div> -->
 
   <div class="handle">@claudeinsights</div>
 
   <!-- IMAGE (BOTTOM-ANCHORED, EXPANDS UP) -->
   <div class="image-box">
-    <img src="image.png" alt="visual">
+    <img src="example.png" alt="visual">
   </div>
 
   <!-- Accent -->

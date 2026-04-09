@@ -27,15 +27,15 @@
 /* ---------- TEXT ---------- */
 
 .brand {
-  font-size:28px;
+  font-size:34px;
   color:#cfcfcf;
   opacity:.85;
 }
 
 .headline {
   margin-top:220px;
-  font-size:90px;
-  font-weight:300;
+  font-size:105px;
+  font-weight:400;
   line-height:1.05;
   max-width:820px;
 }
@@ -51,13 +51,13 @@
   gap:12px;
   border:1px solid rgba(255,255,255,.4);
   border-radius:999px;
-  padding:12px 22px;
-  font-size:22px;
+  padding:12px 24px;
+  font-size:30px;
 }
 
 .logo {
-  width:22px;
-  height:22px;
+  width:40px;
+  height:40px;
   border-radius:50%;
 }
 
@@ -67,7 +67,7 @@
   position:absolute;
   bottom:80px;
   left:90px;
-  font-size:28px;
+  font-size:34px;
   opacity:.7;
 }
 
@@ -108,10 +108,47 @@
 /* ---------- ICON ---------- */
 
 .bookmark {
-  width:30px;
-  height:30px;
+  width:40px;
+  height:50px;
   background:white;
   clip-path: polygon(0 0,100% 0,100% 100%,50% 75%,0 100%);
+}
+
+/* ---------- TOP RIGHT DOUBLE ARROW ---------- */
+
+.top-arrow {
+  position: absolute;
+  top: 40px;
+  right: 130px;
+  width: 30px;
+  height: 60px;
+  opacity: 0.7;
+}
+
+/* first arrow */
+.top-arrow::before,
+.top-arrow::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  width: 30px;
+  height: 30px;
+
+  border-top: 3px solid var(--accent);
+  border-right: 3px solid var(--accent);
+
+  transform: rotate(-45deg);
+}
+
+/* top arrow */
+.top-arrow::before {
+  top: 0;
+}
+
+/* bottom arrow */
+.top-arrow::after {
+  top: 20px;
+  opacity: 0.6;
 }
 
 </style>
@@ -128,7 +165,7 @@
 
   <div class="cta">
     <img src="../../logo.png" class="logo">
-    Claude Insights
+    Follow for daily Claude workflows
   </div>
 
   <!-- HANDLE (now included) -->
@@ -141,6 +178,8 @@
   <div class="circle">
     <div class="bookmark"></div>
   </div>
+
+  <div class="top-arrow"></div>
 
 </div>
 </body>

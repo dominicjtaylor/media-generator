@@ -37,6 +37,16 @@ _STOPWORDS: frozenset[str] = frozenset({
     "top", "guide", "claude", "ai",
 })
 
+# Generic tech/AI terms that make an image broadly suitable as a fallback.
+# Any image whose filename contains at least one of these is preferred over
+# a fully random pick when exact/fuzzy matching finds no strong candidate.
+_BROAD_TECH_TERMS: frozenset[str] = frozenset({
+    "tech", "computer", "digital", "data", "code", "coding",
+    "robot", "abstract", "network", "software", "circuit",
+    "screen", "terminal", "keyboard", "interface", "future",
+    "innovation", "machine", "algorithm", "cloud",
+})
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -62,17 +72,55 @@ def _image_candidates() -> list[Path]:
 # Public selection function
 # ---------------------------------------------------------------------------
 
+def _fuzzy_score(topic_tokens: set[str], file_tokens: list[str]) -> float:
+    """Score topic-to-filename relevance using fuzzy matching.
+
+    For each (topic_token, file_token) pair award:
+      1.0  — exact match
+      0.6  — one is a substring of the other (min length 4 to avoid noise,
+             e.g. "code" in "coding")
+      0.4  — shared prefix of ≥5 chars (catches stem variants like
+             "computing" / "computer" → common prefix "comput")
+    Returns the sum over all topic tokens of the best match found.
+    """
+    score = 0.0
+    for t in topic_tokens:
+        best = 0.0
+        for f in file_tokens:
+            if t == f:
+                best = 1.0
+                break                           # can't do better
+            if len(t) >= 4 and len(f) >= 4:
+                if t in f or f in t:
+                    best = max(best, 0.6)
+                elif len(t) >= 5 and len(f) >= 5:
+                    # shared prefix length
+                    pfx = next(
+                        (i for i, (a, b) in enumerate(zip(t, f)) if a != b),
+                        min(len(t), len(f)),
+                    )
+                    if pfx >= 5:
+                        best = max(best, 0.4)
+        score += best
+    return score
+
+
 def select_relevant_image(topic: str) -> dict:
     """Return the most topically relevant image from LOCAL_IMAGE_DIR.
 
-    Scores each candidate by keyword overlap between its filename
-    (words separated by hyphens/underscores) and the topic text.
-    Falls back to a random image when no overlap is found.
+    Selection uses a tiered strategy:
+
+    1. Fuzzy match — score every image by substring overlap between its
+       filename tokens and the topic tokens; pick the highest scorer.
+    2. Category bias — if no image scores above zero, prefer images whose
+       filenames contain a broad tech/AI term (_BROAD_TECH_TERMS) and
+       pick randomly among the best-matching category images.
+    3. Random fallback — if no category match exists, pick any image.
 
     Returns:
         {
             "file_path": str,    # path suitable for open() / shutil.copy2()
-            "filename":  str,    # e.g. "ai-productivity-focus.jpg"
+            "filename":  str,    # e.g. "Retro Blue Computer.png"
             "keywords":  list,   # tokens extracted from the filename stem
         }
     """
@@ -82,33 +130,56 @@ def select_relevant_image(topic: str) -> dict:
 
     topic_tokens = set(_tokenize(topic))
 
-    best: Optional[Path] = None
-    best_score = -1
-
+    # --- Tier 1: fuzzy scoring ---
+    scored: list[tuple[float, Path]] = []
     for path in candidates:
-        stem_text = path.stem.replace("-", " ").replace("_", " ")
-        file_tokens = set(_tokenize(stem_text))
-        score = len(topic_tokens & file_tokens)
-        if score > best_score:
-            best_score = score
-            best = path
+        stem_text  = path.stem.replace("-", " ").replace("_", " ")
+        file_tokens = _tokenize(stem_text)
+        score = _fuzzy_score(topic_tokens, file_tokens)
+        scored.append((score, path))
 
-    if best_score == 0:
-        best = random.choice(candidates)
+    best_score = max(s for s, _ in scored)
+
+    if best_score > 0:
+        # All images that share the top score compete equally — pick randomly.
+        top_tier = [p for s, p in scored if s == best_score]
+        chosen   = random.choice(top_tier)
         logger.info(
-            "No keyword overlap for topic %r — using random image %r",
-            topic, best.name,
+            "Selected image %r (fuzzy_score=%.2f, pool=%d) for topic %r",
+            chosen.name, best_score, len(top_tier), topic,
         )
+        tier = "fuzzy"
+
     else:
-        logger.info(
-            "Selected image %r (overlap_score=%d) for topic %r",
-            best.name, best_score, topic,
-        )
+        # --- Tier 2: category bias ---
+        category_matches = [
+            path for path in candidates
+            if any(
+                term in path.stem.lower().replace("-", " ").replace("_", " ")
+                for term in _BROAD_TECH_TERMS
+            )
+        ]
+        if category_matches:
+            chosen = random.choice(category_matches)
+            logger.info(
+                "No fuzzy match for topic %r — using category image %r (%d candidates)",
+                topic, chosen.name, len(category_matches),
+            )
+            tier = "category"
+        else:
+            # --- Tier 3: random fallback ---
+            chosen = random.choice(candidates)
+            logger.info(
+                "No match for topic %r — using random image %r",
+                topic, chosen.name,
+            )
+            tier = "random"
 
-    stem_text = best.stem.replace("-", " ").replace("_", " ")
+    stem_text = chosen.stem.replace("-", " ").replace("_", " ")
+    logger.debug("Image selection tier=%r file=%r", tier, chosen.name)
     return {
-        "file_path": str(best),
-        "filename":  best.name,
+        "file_path": str(chosen),
+        "filename":  chosen.name,
         "keywords":  _tokenize(stem_text),
     }
 

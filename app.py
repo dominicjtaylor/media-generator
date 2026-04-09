@@ -90,17 +90,26 @@ def _stream(topic: str, num_slides: int) -> Generator[str, None, None]:
     # Step 2: Fetch image (only for headings_text_image)
     image_data = None
     if style == "headings_text_image":
-        yield _sse({"step": "fetching_image", "message": "Fetching image from Lummi..."})
-        from image_fetcher import fetch_lummi_image
+        import os as _os
+        yield _sse({"step": "fetching_image", "message": "Fetching image..."})
         try:
-            image_data = fetch_lummi_image(topic)
-            logger.info("Lummi image fetched: %s", image_data["url"])
-            caption += (
-                f"\n\nImage by {image_data['author_name']} via Lummi"
-                f" — {image_data['author_url']}"
-            )
+            if _os.getenv("LUMMI_API_KEY"):
+                from image_fetcher import fetch_lummi_image
+                image_data = fetch_lummi_image(topic)
+                logger.info("Lummi image fetched: %s", image_data.get("local_path"))
+            else:
+                from local_image import get_image_for_heading_template
+                logger.info("Using local image fallback for topic: %r", topic)
+                image_data = get_image_for_heading_template(topic)
+
+            if image_data.get("author_name"):
+                author_url = image_data.get("author_url", "")
+                credit = image_data["author_name"]
+                if author_url:
+                    credit += f" ({author_url})"
+                caption += f"\n\nImage credit: {credit}"
         except Exception as exc:
-            logger.warning("Lummi fetch failed (%s) — falling back to text_only", exc)
+            logger.warning("Image fetch failed (%s) — falling back to text_only", exc)
             style      = "text_only"
             image_data = None
             try:

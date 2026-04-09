@@ -19,6 +19,7 @@ import os
 import random
 import re
 import time
+from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger("carousel.generator")
@@ -34,7 +35,14 @@ TEMPLATE_STYLES: list[str] = ["text_only", "headings_and_text", "headings_text_i
 _TEXT_ONLY_STYLES: list[str] = ["text_only", "headings_and_text"]
 
 # Detected once at import time; restart the server after adding/removing the key.
-_IMAGE_ENABLED: bool = bool(os.getenv("LUMMI_API_KEY"))
+# _IMAGE_ENABLED is True when EITHER the Lummi API key is present OR a populated
+# local fallback directory exists (assets/lummi_images/ with at least one image).
+_LOCAL_IMAGE_DIR: Path = Path("assets/lummi_images")
+_LOCAL_IMAGE_ENABLED: bool = _LOCAL_IMAGE_DIR.is_dir() and any(
+    p.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}
+    for p in _LOCAL_IMAGE_DIR.iterdir()
+)
+_IMAGE_ENABLED: bool = bool(os.getenv("LUMMI_API_KEY")) or _LOCAL_IMAGE_ENABLED
 
 QUALITY_THRESHOLD = 0.6
 

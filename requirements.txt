@@ -12,3 +12,5 @@ python-dotenv>=1.0.0
 fastapi>=0.111.0
 uvicorn[standard]>=0.30.0
 aiofiles>=23.2.1          # required by FastAPI StaticFiles
+beautifulsoup4
+requests

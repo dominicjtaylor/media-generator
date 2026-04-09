@@ -90,27 +90,22 @@ def _stream(topic: str, num_slides: int) -> Generator[str, None, None]:
     # Step 2: Fetch image (only for headings_text_image)
     image_data = None
     if style == "headings_text_image":
-        yield _sse({"step": "fetching_image", "message": "Fetching image from Lummi..."})
-        from image_fetcher import fetch_lummi_image
+        yield _sse({"step": "fetching_image", "message": "Fetching image..."})
+        from image_fetcher import get_image_for_heading_template
+        lummi_key = os.environ.get("LUMMI_API_KEY")
+        logger.info("Using image source: %s", "API" if lummi_key else "LOCAL_FALLBACK")
         try:
-            image_data = fetch_lummi_image(topic)
-            logger.info("Lummi image fetched: %s", image_data["url"])
-            caption += (
-                f"\n\nImage by {image_data['author_name']} via Lummi"
-                f" — {image_data['author_url']}"
-            )
-        except Exception as exc:
-            logger.warning("Lummi fetch failed (%s) — falling back to text_only", exc)
-            style      = "text_only"
-            image_data = None
-            try:
-                slides, caption = generate_slides(
-                    topic, num_slides=num_slides, template_style=style
+            image_data = get_image_for_heading_template(topic)
+            logger.info("Image ready: %s (author: %r)", image_data["local_path"], image_data["author_name"])
+            if image_data["author_name"]:
+                caption += (
+                    f"\n\nImage by {image_data['author_name']} via Lummi"
+                    f" — {image_data['author_url']}"
                 )
-            except Exception as exc2:
-                logger.error("Fallback generation failed: %s", exc2)
-                yield _sse({"step": "error", "message": f"Content generation failed: {exc2}"})
-                return
+        except Exception as exc:
+            logger.error("Image fetch failed (both API and local): %s", exc)
+            yield _sse({"step": "error", "message": f"Image fetch failed: {exc}"})
+            return
 
     # Step 3: Render slides to PNG via Playwright
     print("Rendering slides via Playwright")

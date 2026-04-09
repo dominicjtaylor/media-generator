@@ -19,6 +19,7 @@ fetch_lummi_image(topic: str) -> dict
 import json
 import logging
 import os
+import random
 import tempfile
 import urllib.error
 import urllib.parse
@@ -400,4 +401,44 @@ def fetch_lummi_image(topic: str) -> dict:
         "height":      height,
         "focal_x":     focal_x,
         "focal_y":     focal_y,
+    }
+
+
+def fetch_local_image() -> dict:
+    """Pick a random image from the local assets directory.
+
+    Returns the same dict shape as fetch_lummi_image() so callers are
+    interchangeable.  author_name/url are empty for local images — no
+    credit line is appended to the caption.
+
+    Raises
+    ------
+    RuntimeError   If the local image directory is missing or empty.
+    """
+    from generator import LOCAL_IMAGE_DIR
+
+    candidates = [
+        f for f in os.listdir(LOCAL_IMAGE_DIR)
+        if f.lower().endswith((".jpg", ".jpeg", ".png"))
+    ] if os.path.isdir(LOCAL_IMAGE_DIR) else []
+
+    if not candidates:
+        raise RuntimeError(
+            f"No local images found in {LOCAL_IMAGE_DIR!r}. "
+            "Add .jpg/.png files or set LUMMI_API_KEY."
+        )
+
+    chosen = random.choice(candidates)
+    local_path = os.path.join(LOCAL_IMAGE_DIR, chosen)
+    logger.info("Local image selected: %s", local_path)
+
+    return {
+        "local_path":  local_path,
+        "author_name": "",
+        "author_url":  "",
+        "image_page":  "",
+        "width":       0,
+        "height":      0,
+        "focal_x":     0.5,
+        "focal_y":     0.3,  # slightly above centre looks better for hero images
     }

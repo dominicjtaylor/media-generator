@@ -29,23 +29,42 @@ logger = logging.getLogger("carousel.generator")
 
 TEMPLATE_STYLES: list[str] = ["text_only", "headings_and_text", "headings_text_image"]
 
-# Text-only pool used when no Lummi API key is present — prevents any
-# image-fetch attempt or image-related fallback from being triggered.
+# Text-only pool used when no image source is available.
 _TEXT_ONLY_STYLES: list[str] = ["text_only", "headings_and_text"]
 
+# Local image directory — checked at import time as a fallback when no API key is present.
+LOCAL_IMAGE_DIR: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "lummi_images")
+
+# True when the local directory exists and contains at least one image file.
+_LOCAL_IMAGE_ENABLED: bool = (
+    os.path.isdir(LOCAL_IMAGE_DIR)
+    and any(
+        f.lower().endswith((".jpg", ".jpeg", ".png"))
+        for f in os.listdir(LOCAL_IMAGE_DIR)
+    )
+)
+
 # Detected once at import time; restart the server after adding/removing the key.
-_IMAGE_ENABLED: bool = bool(os.getenv("LUMMI_API_KEY"))
+_IMAGE_ENABLED: bool = bool(os.getenv("LUMMI_API_KEY")) or _LOCAL_IMAGE_ENABLED
+
+print("LOCAL_IMAGE_DIR:", LOCAL_IMAGE_DIR)
+print("DIR EXISTS:", os.path.exists(LOCAL_IMAGE_DIR))
+print("DIR CONTENTS:", os.listdir(LOCAL_IMAGE_DIR) if os.path.exists(LOCAL_IMAGE_DIR) else None)
+print("_LOCAL_IMAGE_ENABLED:", _LOCAL_IMAGE_ENABLED)
+print("_IMAGE_ENABLED:", _IMAGE_ENABLED)
 
 QUALITY_THRESHOLD = 0.6
 
 def select_template_style() -> str:
-    """Return a template style name based on current API availability.
+    """Return a template style name based on current image availability.
 
-    Without LUMMI_API_KEY: random choice from text-only styles only.
-    With LUMMI_API_KEY:    full rotation including headings_text_image.
+    Without any image source: random choice from text-only styles only.
+    With LUMMI_API_KEY or local images: full rotation including headings_text_image.
     """
-    pool = TEMPLATE_STYLES if _IMAGE_ENABLED else _TEXT_ONLY_STYLES
-    chosen = random.choice(pool)
+    available_templates = TEMPLATE_STYLES if _IMAGE_ENABLED else _TEXT_ONLY_STYLES
+    print("AVAILABLE TEMPLATES:", available_templates)
+    chosen = random.choice(available_templates)
+    print("SELECTED TEMPLATE:", chosen)
     logger.info("Template style selected: %r  (image_enabled=%s)", chosen, _IMAGE_ENABLED)
     return chosen
 

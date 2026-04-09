@@ -133,27 +133,41 @@ def process_topic(
     # Step 2: Fetch image for the image template
     image_data = None
     if style == "headings_text_image":
-        from image_fetcher import fetch_lummi_image
+        from image_fetcher import fetch_lummi_image, fetch_local_image
+        lummi_ok = bool(os.environ.get("LUMMI_API_KEY"))
         try:
-            logger.info("Fetching Lummi image for topic: %r", topic)
-            image_data = fetch_lummi_image(topic)
-            logger.info(
-                "Lummi image: %s (author: %s | focal: %.2f, %.2f)",
-                image_data["local_path"], image_data["author_name"],
-                image_data.get("focal_x", 0.5), image_data.get("focal_y", 0.5),
-            )
-            caption += (
-                f"\n\nImage by {image_data['author_name']} via Lummi"
-                f" — {image_data['author_url']}"
-            )
+            if lummi_ok:
+                logger.info("Fetching Lummi image for topic: %r", topic)
+                image_data = fetch_lummi_image(topic)
+                logger.info(
+                    "Lummi image: %s (author: %s | focal: %.2f, %.2f)",
+                    image_data["local_path"], image_data["author_name"],
+                    image_data.get("focal_x", 0.5), image_data.get("focal_y", 0.5),
+                )
+                if image_data["author_name"]:
+                    caption += (
+                        f"\n\nImage by {image_data['author_name']} via Lummi"
+                        f" — {image_data['author_url']}"
+                    )
+            else:
+                logger.info("No LUMMI_API_KEY — using local image fallback")
+                image_data = fetch_local_image()
+                logger.info("Local image: %s", image_data["local_path"])
         except Exception as exc:
-            logger.warning(
-                "Lummi image fetch failed (%s) — falling back to text_only style", exc
-            )
-            style      = "text_only"
-            image_data = None
-            # Re-generate with the fallback style (different prompts and word limits)
-            slides, caption = generate_slides(topic, max_retries=retries, template_style=style)
+            print("IMAGE FETCH FAILED:", exc)
+            logger.warning("Image fetch failed (%s) — trying local fallback", exc)
+            try:
+                image_data = fetch_local_image()
+                logger.info("Local fallback image: %s", image_data["local_path"])
+            except Exception as local_exc:
+                logger.warning(
+                    "Local image fallback also failed (%s) — falling back to text_only style",
+                    local_exc,
+                )
+                style      = "text_only"
+                image_data = None
+                # Re-generate with the fallback style (different prompts and word limits)
+                slides, caption = generate_slides(topic, max_retries=retries, template_style=style)
 
     # Step 3: Render slides to PNG
     from renderer import render_slides

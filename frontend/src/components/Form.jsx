@@ -1,11 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react'
 
-const TONES  = ['professional', 'casual', 'educational', 'inspiring']
 const SLIDES = [4, 5, 7, 10]
 
 export default function Form({ onGenerate, loading, onReset }) {
   const [topic,    setTopic]    = useState('')
-  const [tone,     setTone]     = useState('professional')
   const [slides,   setSlides]   = useState(5)
   const [expanded, setExpanded] = useState(false)
   const inputRef = useRef(null)
@@ -17,8 +15,7 @@ export default function Form({ onGenerate, loading, onReset }) {
   const handleSubmit = (e) => {
     e?.preventDefault()
     if (!canSubmit) return
-    console.log('[Form] Submitting — topic:', topic.trim(), '| num_slides:', slides)
-    onGenerate({ topic, tone, slides })
+    onGenerate({ topic, slides })
   }
 
   const handleKeyDown = (e) => {
@@ -86,54 +83,28 @@ export default function Form({ onGenerate, loading, onReset }) {
         </button>
 
         {expanded && (
-          <div className="px-4 pb-4 pt-1 grid grid-cols-2 gap-4 border-t border-gray-100 dark:border-gray-800 animate-fade-in">
-
-            {/* Tone */}
-            <div className="space-y-1.5">
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400">Tone</label>
-              <div className="flex flex-col gap-1">
-                {TONES.map(t => (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => setTone(t)}
-                    className={`
-                      text-left text-sm px-3 py-1.5 rounded-lg capitalize transition-colors
-                      ${tone === t
-                        ? 'bg-accent text-white font-medium'
-                        : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
-                      }
-                    `}
-                  >
-                    {t}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Slide count */}
+          <div className="px-4 pb-4 pt-1 border-t border-gray-100 dark:border-gray-800 animate-fade-in">
             <div className="space-y-1.5">
               <label className="block text-xs font-medium text-gray-500 dark:text-gray-400">Slides</label>
-              <div className="flex flex-col gap-1">
+              <div className="flex gap-2">
                 {SLIDES.map(n => (
                   <button
                     key={n}
                     type="button"
                     onClick={() => setSlides(n)}
                     className={`
-                      text-left text-sm px-3 py-1.5 rounded-lg transition-colors
+                      text-sm px-3 py-1.5 rounded-lg transition-colors
                       ${slides === n
                         ? 'bg-accent text-white font-medium'
                         : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
                       }
                     `}
                   >
-                    {n} slides
+                    {n}
                   </button>
                 ))}
               </div>
             </div>
-
           </div>
         )}
       </div>

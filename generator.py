@@ -19,6 +19,7 @@ import os
 import random
 import re
 import time
+from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger("carousel.generator")
@@ -29,51 +30,44 @@ logger = logging.getLogger("carousel.generator")
 
 TEMPLATE_STYLES: list[str] = ["text_only", "headings_and_text", "headings_text_image"]
 
-# Text-only pool used when no image source is available.
+# Text-only pool used when no Lummi API key is present — prevents any
+# image-fetch attempt or image-related fallback from being triggered.
 _TEXT_ONLY_STYLES: list[str] = ["text_only", "headings_and_text"]
 
-# Local image directory — checked at import time as a fallback when no API key is present.
-LOCAL_IMAGE_DIR: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "lummi_images")
-
-# True when the local directory exists and contains at least one image file.
-_LOCAL_IMAGE_ENABLED: bool = (
-    os.path.isdir(LOCAL_IMAGE_DIR)
-    and any(
-        f.lower().endswith((".jpg", ".jpeg", ".png"))
-        for f in os.listdir(LOCAL_IMAGE_DIR)
-    )
-)
-
 # Detected once at import time; restart the server after adding/removing the key.
+# _IMAGE_ENABLED is True when EITHER the Lummi API key is present OR a populated
+# local fallback directory exists (assets/lummi_images/ with at least one image).
+_LOCAL_IMAGE_DIR: Path = Path("assets/lummi_images")
+_LOCAL_IMAGE_ENABLED: bool = _LOCAL_IMAGE_DIR.is_dir() and any(
+    p.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}
+    for p in _LOCAL_IMAGE_DIR.iterdir()
+)
 _IMAGE_ENABLED: bool = bool(os.getenv("LUMMI_API_KEY")) or _LOCAL_IMAGE_ENABLED
-
-print("LOCAL_IMAGE_DIR:", LOCAL_IMAGE_DIR)
-print("DIR EXISTS:", os.path.exists(LOCAL_IMAGE_DIR))
-print("DIR CONTENTS:", os.listdir(LOCAL_IMAGE_DIR) if os.path.exists(LOCAL_IMAGE_DIR) else None)
-print("_LOCAL_IMAGE_ENABLED:", _LOCAL_IMAGE_ENABLED)
-print("_IMAGE_ENABLED:", _IMAGE_ENABLED)
 
 QUALITY_THRESHOLD = 0.6
 
 def select_template_style() -> str:
-    """Return a template style name based on current image availability.
+    """Return a template style name based on current API/image availability.
 
-    Without any image source: random choice from text-only styles only.
-    With LUMMI_API_KEY or local images: full rotation including headings_text_image.
+    When images are enabled, headings_text_image is strongly favoured
+    (~90% probability) while other templates remain occasionally possible.
+    When images are unavailable, a uniform random choice is made from the
+    text-only pool.
     """
-    available_templates = TEMPLATE_STYLES if _IMAGE_ENABLED else _TEXT_ONLY_STYLES
-    if _IMAGE_ENABLED:
+    pool = TEMPLATE_STYLES if _IMAGE_ENABLED else _TEXT_ONLY_STYLES
+
+    if _IMAGE_ENABLED and "headings_text_image" in pool:
+        dominant_weight = 0.9
+        other_weight    = (1.0 - dominant_weight) / max(len(pool) - 1, 1)
         weights = [
-            0.6 if t == "headings_text_image" else 0.2
-            for t in available_templates
+            dominant_weight if t == "headings_text_image" else other_weight
+            for t in pool
         ]
-        chosen = random.choices(available_templates, weights=weights, k=1)[0]
+        chosen = random.choices(pool, weights=weights, k=1)[0]
+        logger.debug("Template weights: %s", dict(zip(pool, weights)))
     else:
-        weights = [1 / len(available_templates)] * len(available_templates)
-        chosen = random.choice(available_templates)
-    print("AVAILABLE TEMPLATES:", available_templates)
-    print("TEMPLATE WEIGHTS:", dict(zip(available_templates, weights)))
-    print("SELECTED TEMPLATE:", chosen)
+        chosen = random.choice(pool)
+
     logger.info("Template style selected: %r  (image_enabled=%s)", chosen, _IMAGE_ENABLED)
     return chosen
 
@@ -377,10 +371,13 @@ PROGRESSIVE FLOW — follow this exact arc:
 {carousel_arc}
 
 RULES FOR FLOW:
-- Use transition words sparingly in body text (First…, Then…, Next…, Now…, Finally…)
-- Transitions must NOT make the sentence depend on the previous slide
-- Each slide must make sense independently — a reader who sees only one slide must understand it
-- NEVER use transition words in headings
+- Each slide must build on the previous one — "because of this → here's what to do next"
+- Use transition words to signal progression:
+    Slide 2: (no transition — state the core principle directly)
+    Step slides:
+        - Use transition words in the BODY text only (First…, Then…, Next…, Now…)
+        - NEVER use transition words in headings
+    Outcome slide: Finally…
 - Do NOT write random, disconnected tips — every slide must earn the next one
 - The real prompt example belongs in the middle of the carousel, not at the end
 
@@ -425,7 +422,7 @@ Good: "Use structured prompts — because Claude needs clear instructions to res
 COMPLETENESS:
 
 HEADINGS ("heading" field):
-- Should be short and scannable (prefer under 8 words, but clarity comes first)
+- Should be concise and scannable — target 2–6 words, up to 8 maximum
 - Sentence-like headings are fine if short and readable
 - Do NOT end with a bare em-dash (—) or arrow (→)
 - A phrase is valid: "Specific prompts work better" ✓
@@ -706,27 +703,30 @@ _QUOTED_CONTENT_SINGLE = re.compile(r"'([^'\n]{10,})'")
 
 
 def _has_actionable_prompt_example(slides: list[dict]) -> bool:
+    """Return True if at least one content slide contains BOTH:
+
+    1. A quoted prompt (any straight or curly quotes), AND
+    2. Either:
+       (a) an actionable instruction verb (use / add / ask / write / format / etc.), OR
+       (b) a contextual instruction phrase (ask claude / tell claude / have claude / prompt claude)
+
+    A quoted prompt with no instruction context does not pass.
+    Checks both heading and body fields to support two-field heading styles.
+    """
     for slide in slides:
         if slide["type"] != "content":
             continue
+        text = slide.get("heading", "") + " " + slide.get("body", "")
+        text_lower = text.lower()
 
-        text = (slide.get("heading", "") + " " + slide.get("body", "")).lower()
-
-        # Must contain a meaningful quoted prompt (not 1–2 words)
-        quoted = _QUOTED_CONTENT.findall(text) + _QUOTED_CONTENT_SINGLE.findall(text)
-
-        if not quoted:
+        quoted_strings = _QUOTED_CONTENT.findall(text) + _QUOTED_CONTENT_SINGLE.findall(text)
+        if not quoted_strings:
             continue
 
-        # Ensure at least one quoted segment is substantial (4+ words)
-        has_substantial_prompt = any(len(q.split()) >= 4 for q in quoted)
-
-        if not has_substantial_prompt:
-            continue
-
-        # Must include an action/context signal
-        has_action = any(signal in text for signal in _ACTIONABLE_SIGNALS + _CONTEXTUAL_SIGNALS)
-
+        has_action = (
+            any(signal in text_lower for signal in _ACTIONABLE_SIGNALS)
+            or any(phrase in text_lower for phrase in _CONTEXTUAL_SIGNALS)
+        )
         if has_action:
             return True
 
@@ -903,20 +903,6 @@ def _clean_heading_punctuation(slides: list[dict]) -> list[dict]:
 
     return result
 
-
-def adapt_to_template(slides: list[dict], template_style: str) -> list[dict]:
-    """Map canonical headings_and_text slides to the target template format."""
-    if template_style == "text_only":
-        adapted = []
-        for s in slides:
-            body = s.get("body", "").strip()
-            heading = s.get("heading", "").strip()
-            adapted.append({**s, "heading": body if body else heading, "body": ""})
-        return adapted
-    # headings_and_text and headings_text_image: no change needed
-    return slides
-
-
 # ---------------------------------------------------------------------------
 # CTA handle validation
 # ---------------------------------------------------------------------------
@@ -933,15 +919,8 @@ def _has_cta_handle(slides: list[dict]) -> bool:
 # Depth validation — at least one example and one insight per carousel
 # ---------------------------------------------------------------------------
 
-# Markers for a concrete "Instead of → Try" or micro-example slide
-_EXAMPLE_MARKERS = (
-    '"', "“", "‘",  # quoted prompts
-    "ask claude",
-    "tell claude",
-    "act as",
-    "for example",
-    "e.g.",
-)
+# Markers for a concrete prompt example or use-case slide (no contrast required)
+_EXAMPLE_MARKERS = ('"', "\u201c", "\u2018", "e.g.", "for example", "act as ", "ask claude")
 
 # Markers for an insight/explanation slide
 _INSIGHT_MARKERS = ("because", "—", " — ", "=", "≠", "means ", "so ", "which ")
@@ -1015,11 +994,14 @@ def _score_slides(slides: list[dict]) -> float:
     # --- 5. Structural variety ---
     content_text = [(s["heading"] + " " + s["body"]).lower() for s in slides if s["type"] == "content"]
     patterns = {
-        "example": any('"' in (s["heading"] + s["body"]) for s in slides),
-        "insight": any("because" in (s["heading"] + s["body"]).lower() for s in slides),
-        "action": any(s["heading"].lower().startswith(_ACTION_VERBS) for s in slides),
+        "insight": any("because" in t or " — " in t for t in content_text),
+        "action":  any(
+                       any(v in (s.get("heading", "") + " " + s.get("body", "")).lower()
+                           for v in _ACTION_VERBS)
+                       for s in slides if s["type"] == "content"
+                   ),
+        "example": any('"' in t or "\u201c" in t or "\u2018" in t for t in content_text),
     }
-
     if sum(patterns.values()) >= 2:
         score += 1
 
@@ -1034,6 +1016,7 @@ def _generate_anthropic(
     num_slides: int,
     error_context: str = "",
     template_style: str = "text_only",
+    hook: Optional[str] = None,
 ) -> str:
     try:
         import anthropic
@@ -1060,6 +1043,8 @@ def _generate_anthropic(
     )
 
     user_content = f"Topic: {topic}"
+    if hook:
+        user_content += f"\n\nOpening hook (must be the first slide heading, verbatim): {hook}"
     if error_context:
         user_content += f"\n\nPREVIOUS ATTEMPT FAILED — fix this error:\n{error_context}"
 
@@ -1081,6 +1066,7 @@ def _generate_openai(
     num_slides: int,
     error_context: str = "",
     template_style: str = "text_only",
+    hook: Optional[str] = None,
 ) -> str:
     try:
         from openai import OpenAI
@@ -1100,6 +1086,8 @@ def _generate_openai(
     )
 
     user_content = f"Topic: {topic}"
+    if hook:
+        user_content += f"\n\nOpening hook (must be the first slide heading, verbatim): {hook}"
     if error_context:
         user_content += f"\n\nPREVIOUS ATTEMPT FAILED — fix this error:\n{error_context}"
 
@@ -1539,6 +1527,7 @@ def generate_slides(
     num_slides: int = 5,
     max_retries: int = 3,
     template_style: Optional[str] = None,
+    hook: Optional[str] = None,
 ) -> tuple[list[dict], str]:
     """
     Generate carousel slides for *topic* using the configured LLM.
@@ -1584,7 +1573,6 @@ def generate_slides(
     backend      = backends[provider]
     last_error: Optional[Exception] = None
     error_context: str              = ""
-    generation_style = "headings_and_text"  # Always generate in canonical format
 
     for attempt in range(1, max_retries + 1):
         try:
@@ -1594,19 +1582,21 @@ def generate_slides(
             )
             candidates = []
             for i in range(3):
-                raw = backend(topic, num_slides, error_context, generation_style)
+                raw = backend(topic, num_slides, error_context, template_style, hook)
 
-                candidate_slides = _parse_json_slides(raw, num_slides, generation_style)
-                candidate_slides = _enforce_slide_limits(candidate_slides, generation_style)
+                candidate_slides = _parse_json_slides(raw, num_slides, template_style)
+                candidate_slides = _enforce_slide_limits(candidate_slides, template_style)
                 candidate_slides = _enforce_bold_caps(candidate_slides)
                 candidate_slides = _clean_heading_punctuation(candidate_slides)
 
-                for s in candidate_slides:
-                    heading = s["heading"]
-
-                    if not _is_valid_heading(heading):
-                        logger.info("Invalid heading (retrying candidate): %r", heading)
-                        continue  # skip candidate instead of killing attempt
+                # Auto-compress any heading that is too long rather than
+                # skipping the whole candidate.
+                candidate_slides = [
+                    {**s, "heading": _compress_heading(s["heading"])}
+                    if len(s.get("heading", "").split()) > 10
+                    else s
+                    for s in candidate_slides
+                ]
 
                 score = _score_slides(candidate_slides)
                 logger.info("Candidate %d score: %.2f", i + 1, score)
@@ -1626,16 +1616,15 @@ def generate_slides(
                 raise ValueError("Truncated contrast detected (ends with 'Try:') — retrying")
 
             if best_score < QUALITY_THRESHOLD:
-                logger.warning(
-                    "Low quality slides (score=%.2f) — continuing to review",
-                    best_score
+                raise ValueError(
+                    f"Low quality slides (score={best_score:.2f} < {QUALITY_THRESHOLD}) — retrying"
                 )
 
             hook_text = slides[0]["heading"]
             # For heading styles the hook is a short phrase, not a sentence —
             # only reject genuinely broken forms (trailing em-dash / bare arrow).
             # For text_only the full sentence check still applies.
-            hook_is_heading_style = True  # always heading format during generation
+            hook_is_heading_style = template_style in ("headings_and_text", "headings_text_image")
             hook_broken = (
                 hook_text.rstrip().endswith("—")
                 or hook_text.rstrip().endswith("→")
@@ -1648,14 +1637,17 @@ def generate_slides(
                 )
             if not _has_actionable_prompt_example(slides):
                 raise ValueError(
-                    "No actionable prompt example found. At least one content slide must include a meaningful Claude prompt used in context (e.g. 'Ask Claude: ...')."
+                    "No actionable prompt example found. At least one content slide must include "
+                    "a quoted Claude prompt AND a comparison (Instead of/Try/Bad/Better/→). "
+                    "A quoted prompt alone is not enough — show why one phrasing is better."
                 )
             if not _has_depth(slides):
                 raise ValueError(
-                    "Slides lack depth: need at least one concrete prompt example AND one insight (because/—/=)."
+                    "Slides lack depth: need at least one example slide "
+                    "(Instead of/Try/micro-example) AND one insight slide (because/—/=). "
                     "Retrying for more informative content."
                 )
-            slides = _validate_completeness(slides, generation_style)  # auto-corrects headings; raises if body is broken
+            slides = _validate_completeness(slides, template_style)  # auto-corrects headings; raises if body is broken
             if not _has_cta_handle(slides):
                 raise ValueError(
                     "CTA slide is missing @claudeinsights. "
@@ -1673,9 +1665,8 @@ def generate_slides(
                 for s in slides
             ]
             if best_score < 0.85:
-                slides = review_and_improve(slides, generation_style)
+                slides = review_and_improve(slides, template_style)
                 slides = _clean_heading_punctuation(slides)
-            slides = adapt_to_template(slides, template_style)
             caption = generate_caption(slides)
             if os.environ.get("DEBUG", "false").lower() == "true":
                 caption += f"\n\n[DEBUG] template={template_style} | image_enabled={_IMAGE_ENABLED}"

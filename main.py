@@ -133,18 +133,35 @@ def process_topic(
     # Step 2: Fetch image for the image template
     image_data = None
     if style == "headings_text_image":
-        from image_fetcher import get_image_for_heading_template
-        image_data = get_image_for_heading_template(topic)
-        logger.info(
-            "Image ready: %s (author: %r | focal: %.2f, %.2f)",
-            image_data["local_path"], image_data["author_name"],
-            image_data.get("focal_x", 0.5), image_data.get("focal_y", 0.5),
-        )
-        if image_data["author_name"]:
-            caption += (
-                f"\n\nImage by {image_data['author_name']} via Lummi"
-                f" — {image_data['author_url']}"
+        try:
+            if os.getenv("LUMMI_API_KEY"):
+                from image_fetcher import fetch_lummi_image
+                logger.info("Fetching Lummi image for topic: %r", topic)
+                image_data = fetch_lummi_image(topic)
+            else:
+                from local_image import get_image_for_heading_template
+                logger.info("Using local image fallback for topic: %r", topic)
+                image_data = get_image_for_heading_template(topic)
+
+            logger.info(
+                "Image: %s (author: %r | focal: %.2f, %.2f)",
+                image_data["local_path"], image_data["author_name"],
+                image_data.get("focal_x", 0.5), image_data.get("focal_y", 0.5),
             )
+            if image_data.get("author_name"):
+                author_url = image_data.get("author_url", "")
+                credit = image_data["author_name"]
+                if author_url:
+                    credit += f" ({author_url})"
+                caption += f"\n\nImage credit: {credit}"
+        except Exception as exc:
+            logger.warning(
+                "Image fetch failed (%s) — falling back to text_only style", exc
+            )
+            style      = "text_only"
+            image_data = None
+            # Re-generate with the fallback style (different prompts and word limits)
+            slides, caption = generate_slides(topic, max_retries=retries, template_style=style)
 
     # Step 3: Render slides to PNG
     from renderer import render_slides

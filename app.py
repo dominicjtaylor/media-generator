@@ -19,9 +19,11 @@ Pipeline
 import json
 import logging
 import os
+import re as _re
 from pathlib import Path
 from typing import Generator
 
+import anthropic as _anthropic
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
@@ -44,6 +46,41 @@ DIST        = Path(__file__).parent / "frontend" / "dist"
 RENDERS_DIR = Path("/tmp/renders")
 RENDERS_DIR.mkdir(parents=True, exist_ok=True)
 
+# Arc labels used to tell Claude where in the narrative each slide sits.
+_ARC = ["Problem", "Cost", "Shift", "System", "Proof", "Decision", "CTA"]
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _claude(prompt: str, max_tokens: int = 1024) -> str:
+    """Single-turn Claude call, returns response text."""
+    client = _anthropic.Anthropic()
+    model  = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+    msg = client.messages.create(
+        model=model,
+        max_tokens=max_tokens,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return msg.content[0].text
+
+
+def _parse_json(text: str):
+    """Parse JSON from a Claude response, stripping markdown code fences."""
+    text = text.strip()
+    text = _re.sub(r"^```(?:json)?\s*", "", text)
+    text = _re.sub(r"\s*```$", "", text.strip())
+    return json.loads(text.strip())
+
+
+def _arc_position(slide_number: int, total: int) -> str:
+    """Map a 1-based slide number to its arc stage name."""
+    if total <= 1:
+        return _ARC[0]
+    idx = round((slide_number - 1) / max(total - 1, 1) * (len(_ARC) - 1))
+    return _ARC[min(idx, len(_ARC) - 1)]
+
 
 # ---------------------------------------------------------------------------
 # Schemas
@@ -56,6 +93,37 @@ class GenerateRequest(BaseModel):
     def validate_num_slides(self) -> None:
         if not (4 <= self.num_slides <= 10):
             raise HTTPException(status_code=422, detail="num_slides must be between 4 and 10")
+
+
+class HookRequest(BaseModel):
+    topic:      str
+    num_slides: int = 5
+
+
+class SlidesRequest(BaseModel):
+    topic:      str
+    hook:       str
+    num_slides: int = 5
+
+
+class QcRequest(BaseModel):
+    topic:  str
+    slides: list[dict]
+
+
+class RegenerateRequest(BaseModel):
+    topic:       str
+    slide_index: int
+    hook:        str
+    slides:      list[dict]
+    issue:       str = ""
+    suggestion:  str = ""
+
+
+class RenderRequest(BaseModel):
+    topic:  str
+    slides: list[dict]
+    style:  str = "text_only"
 
 
 # ---------------------------------------------------------------------------
@@ -157,9 +225,295 @@ def _stream(topic: str, num_slides: int) -> Generator[str, None, None]:
 # API routes  -- registered before static file mounts
 # ---------------------------------------------------------------------------
 
+_HOOK_PROMPT = """\
+You are writing Instagram carousel hooks. Generate 4 distinct hook options for a carousel \
+about the following topic.
+
+Topic: {topic}
+
+Return a JSON array of exactly 4 objects. Each object has:
+- "hook": the opening line text (1-2 sentences, punchy, attention-grabbing, max 12 words)
+- "format": one of "Question", "Bold Claim", "Stat/Fact", "Mistake"
+
+Rules:
+- Each hook must use a different format (one of each)
+- Hooks must be specific to the topic
+- No markdown fences — return only the JSON array
+
+Example:
+[
+  {{"hook": "Most people prompt AI the wrong way.", "format": "Mistake"}},
+  {{"hook": "What if one sentence doubled your AI output?", "format": "Question"}},
+  {{"hook": "93% of users never use system prompts — and it shows.", "format": "Stat/Fact"}},
+  {{"hook": "ChatGPT is only as smart as the context you give it.", "format": "Bold Claim"}}
+]"""
+
+_QC_PROMPT = """\
+Review these Instagram carousel slides for quality issues.
+
+Topic: {topic}
+Slides (JSON):
+{slides_json}
+
+For each slide that has a genuine problem, return a flag object.
+Return a JSON array of flag objects — empty array [] if all slides are good.
+
+Each flag object must have:
+  "slide_index": integer (0-based)
+  "issue": one-sentence description of the problem
+  "suggestion": one-sentence fix
+
+Common problems to flag:
+- Vague or generic advice with no specifics
+- Heading and body say identical things
+- Body exceeds ~40 words
+- Incomplete sentence or dangling thought
+- Hook slide doesn't hook the reader
+- CTA slide lacks a clear call to action
+
+Return only JSON. No markdown, no explanation."""
+
+_REGEN_PROMPT = """\
+Rewrite slide {slide_num} of {total} for an Instagram carousel about "{topic}".
+
+Arc position: {arc} — write content fitting this narrative stage.
+
+Current slide (to replace):
+  Heading: {heading}
+  Body: {body}
+
+{issue_block}\
+Requirements:
+- Return JSON: {{"type": "{slide_type}", "heading": "...", "body": "..."}}
+- Heading: 3-7 words, punchy
+- Body: 20-35 words, specific and actionable
+- Must be clearly different from the original
+- No markdown, just the JSON object"""
+
+
 @app.get("/healthz", tags=["meta"])
 def healthz():
     return {"status": "ok"}
+
+
+@app.post("/hooks", tags=["carousel"])
+def hooks_route(req: HookRequest):
+    """Generate 4 hook options for a given topic."""
+    topic = req.topic.strip()
+    if not topic:
+        raise HTTPException(status_code=422, detail="topic must not be empty")
+
+    prompt = _HOOK_PROMPT.format(topic=topic)
+    try:
+        raw  = _claude(prompt, max_tokens=512)
+        data = _parse_json(raw)
+        if not isinstance(data, list):
+            raise ValueError("Expected a JSON array")
+        hooks = [
+            {"hook": str(h.get("hook", "")), "format": str(h.get("format", ""))}
+            for h in data[:4]
+        ]
+    except Exception as exc:
+        logger.error("Hook generation failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Hook generation failed: {exc}")
+
+    return {"hooks": hooks}
+
+
+def _slides_stream(topic: str, hook: str, num_slides: int) -> Generator[str, None, None]:
+    """SSE stream: generate slides using the selected hook."""
+    style = select_template_style()
+    yield _sse({"step": "generating", "message": "Generating slides..."})
+
+    try:
+        slides, caption = generate_slides(
+            topic, num_slides=num_slides, template_style=style, hook=hook
+        )
+    except Exception as exc:
+        logger.error("Slide generation failed: %s", exc)
+        yield _sse({"step": "error", "message": f"Content generation failed: {exc}"})
+        return
+
+    image_data = None
+    if style == "headings_text_image":
+        yield _sse({"step": "fetching_image", "message": "Fetching image..."})
+        try:
+            if os.getenv("LUMMI_API_KEY"):
+                from image_fetcher import fetch_lummi_image
+                image_data = fetch_lummi_image(topic)
+            else:
+                from local_image import get_image_for_heading_template
+                image_data = get_image_for_heading_template(topic)
+            if image_data.get("author_name"):
+                author_url = image_data.get("author_url", "")
+                credit = image_data["author_name"]
+                if author_url:
+                    credit += f" ({author_url})"
+                caption += f"\n\nImage credit: {credit}"
+        except Exception as exc:
+            logger.warning("Image fetch failed (%s) — falling back to text_only", exc)
+            style      = "text_only"
+            image_data = None
+            try:
+                slides, caption = generate_slides(
+                    topic, num_slides=num_slides, template_style=style, hook=hook
+                )
+            except Exception as exc2:
+                yield _sse({"step": "error", "message": f"Content generation failed: {exc2}"})
+                return
+
+    slide_models = [
+        {"type": s.get("type", "content"), "heading": s.get("heading", ""), "description": s.get("body", "")}
+        for s in slides
+    ]
+    yield _sse({
+        "step":    "complete",
+        "slides":  slide_models,
+        "caption": caption,
+        "style":   style,
+        **({"image_data": {"local_path": image_data.get("local_path", "")}} if image_data else {}),
+    })
+
+
+@app.post("/slides", tags=["carousel"])
+def slides_route(req: SlidesRequest):
+    """Generate carousel slides using the user-selected hook (SSE stream)."""
+    topic = req.topic.strip()
+    hook  = req.hook.strip()
+    if not topic:
+        raise HTTPException(status_code=422, detail="topic must not be empty")
+    if not hook:
+        raise HTTPException(status_code=422, detail="hook must not be empty")
+    if not (4 <= req.num_slides <= 10):
+        raise HTTPException(status_code=422, detail="num_slides must be between 4 and 10")
+
+    return StreamingResponse(
+        _slides_stream(topic, hook, req.num_slides),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.post("/qc", tags=["carousel"])
+def qc_route(req: QcRequest):
+    """QC-check slides and return a list of flags."""
+    topic = req.topic.strip()
+    if not topic:
+        raise HTTPException(status_code=422, detail="topic must not be empty")
+    if not req.slides:
+        raise HTTPException(status_code=422, detail="slides must not be empty")
+
+    slides_json = json.dumps(req.slides, indent=2)
+    prompt      = _QC_PROMPT.format(topic=topic, slides_json=slides_json)
+    try:
+        raw   = _claude(prompt, max_tokens=1024)
+        flags = _parse_json(raw)
+        if not isinstance(flags, list):
+            flags = []
+    except Exception as exc:
+        logger.warning("QC parse failed (%s) — returning no flags", exc)
+        flags = []
+
+    return {"flags": flags}
+
+
+@app.post("/regenerate", tags=["carousel"])
+def regenerate_route(req: RegenerateRequest):
+    """Regenerate a single slide at the given index."""
+    topic = req.topic.strip()
+    idx   = req.slide_index
+    if not (0 <= idx < len(req.slides)):
+        raise HTTPException(status_code=422, detail="slide_index out of range")
+
+    slide      = req.slides[idx]
+    total      = len(req.slides)
+    arc        = _arc_position(idx + 1, total)
+    slide_type = slide.get("type", "content")
+    issue_block = (
+        f"Issue flagged: {req.issue}\nSuggestion: {req.suggestion}\n\n"
+        if req.issue else ""
+    )
+
+    prompt = _REGEN_PROMPT.format(
+        slide_num=idx + 1,
+        total=total,
+        topic=topic,
+        arc=arc,
+        heading=slide.get("heading", ""),
+        body=slide.get("description", ""),
+        issue_block=issue_block,
+        slide_type=slide_type,
+    )
+    try:
+        raw        = _claude(prompt, max_tokens=256)
+        new_slide  = _parse_json(raw)
+        if not isinstance(new_slide, dict):
+            raise ValueError("Expected a JSON object")
+        new_slide.setdefault("type", slide_type)
+    except Exception as exc:
+        logger.error("Regenerate failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Regeneration failed: {exc}")
+
+    return {"slide": {"type": new_slide.get("type", slide_type),
+                      "heading": new_slide.get("heading", ""),
+                      "description": new_slide.get("body", new_slide.get("description", ""))}}
+
+
+def _render_stream(
+    topic: str, slides: list[dict], style: str
+) -> Generator[str, None, None]:
+    """SSE stream: render approved slides to PNG."""
+    yield _sse({"step": "rendering", "message": "Rendering slides..."})
+
+    internal_slides = [
+        {"type": s.get("type", "content"), "heading": s.get("heading", ""), "body": s.get("description", "")}
+        for s in slides
+    ]
+
+    image_data = None
+    if style == "headings_text_image":
+        try:
+            if os.getenv("LUMMI_API_KEY"):
+                from image_fetcher import fetch_lummi_image
+                image_data = fetch_lummi_image(topic)
+            else:
+                from local_image import get_image_for_heading_template
+                image_data = get_image_for_heading_template(topic)
+        except Exception as exc:
+            logger.warning("Image fetch failed for render (%s) — using text_only", exc)
+            style = "text_only"
+
+    try:
+        png_paths, run_id = render_slides(
+            internal_slides,
+            renders_base=str(RENDERS_DIR),
+            template_style=style,
+            image_data=image_data,
+        )
+    except Exception as exc:
+        logger.error("Rendering failed: %s", exc)
+        yield _sse({"step": "error", "message": f"Rendering failed: {exc}"})
+        return
+
+    image_urls = [f"/renders/{run_id}/slide-{i + 1}.png" for i in range(len(png_paths))]
+    logger.info("Render complete: %d images (run=%s style=%s)", len(image_urls), run_id, style)
+    yield _sse({"step": "complete", "images": image_urls})
+
+
+@app.post("/render", tags=["carousel"])
+def render_route(req: RenderRequest):
+    """Render approved slides to PNG (SSE stream)."""
+    topic = req.topic.strip()
+    if not topic:
+        raise HTTPException(status_code=422, detail="topic must not be empty")
+    if not req.slides:
+        raise HTTPException(status_code=422, detail="slides must not be empty")
+
+    return StreamingResponse(
+        _render_stream(topic, req.slides, req.style),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.post("/generate", tags=["carousel"])

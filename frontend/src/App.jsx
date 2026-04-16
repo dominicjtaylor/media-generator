@@ -1,37 +1,67 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import Form from './components/Form.jsx'
+import HookPicker from './components/HookPicker.jsx'
+import SlideReview from './components/SlideReview.jsx'
 import Output from './components/Output.jsx'
 import Toast from './components/Toast.jsx'
 
-// ---------------------------------------------------------------------------
-// Mock response — used when VITE_MOCK=true (bypasses API in dev)
-// ---------------------------------------------------------------------------
-const MOCK_DATA = {
-  slides: [
-    { heading: 'Transform Your Life Daily',   description: 'Start journaling today and unlock clarity, creativity, and personal growth you never imagined possible.' },
-    { heading: 'Reduce Stress Instantly',      description: 'Writing your thoughts daily lowers cortisol levels and helps you process emotions before they overwhelm you.' },
-    { heading: 'Boost Your Creativity',        description: 'Journaling sparks new ideas by connecting thoughts freely, giving your creative mind space to breathe and explore.' },
-    { heading: 'Track Real Progress',          description: 'Reviewing past entries reveals patterns, celebrates wins, and shows how far you have grown over time.' },
-    { heading: 'Start Your Journey Tonight',   description: 'Grab a notebook, write three sentences. Your future self will thank you. Begin tonight.' },
-  ],
-  images:     [],    // set to array of PNG URLs to test image gallery
-  images_url: null,
-  csv:        null,
-  caption:    "You're probably journaling wrong — here's what actually works.\n\nMost people write vague entries and wonder why nothing changes.\nThe problem isn't the habit, it's the structure.\n\nThree focused sentences beats three unfocused pages.\nReview last week's entry before writing today's.\n\nFollow @claudeinsights for more AI tips\n\n#Journaling #Productivity #AITools #SelfImprovement",
+// Stage flow:
+// idle → hooks_loading → hook_selection
+//      → slides_loading → qc_loading → review
+//      → rendering → done
+// Any stage → error
+
+function LoadingPane({ message }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-16 gap-4 animate-fade-in">
+      <svg className="animate-spin h-6 w-6 text-accent" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+      </svg>
+      <p className="text-sm text-gray-500 dark:text-gray-400">{message || 'Working…'}</p>
+    </div>
+  )
 }
 
-// ---------------------------------------------------------------------------
-// App
-// ---------------------------------------------------------------------------
-export default function App() {
-  const [dark, setDark]         = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
-  const [status, setStatus]     = useState('idle')   // idle | loading | done | error
-  const [responseData, setData] = useState(null)     // full API response object
-  const [errorMsg, setErrorMsg] = useState('')
-  const [stepMessage, setStepMessage] = useState('') // current SSE progress message
-  const [toast, setToast]       = useState(null)     // { message, type }
+async function readSse(res, onEvent) {
+  const reader  = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer    = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop()
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue
+      try { onEvent(JSON.parse(line.slice(6))) } catch { /* ignore malformed */ }
+    }
+  }
+}
 
-  // Sync dark class on <html>
+export default function App() {
+  const [dark, setDark]       = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
+  const [status, setStatus]   = useState('idle')
+  const [stepMsg, setStepMsg] = useState('')
+  const [errorMsg, setError]  = useState('')
+  const [toast, setToast]     = useState(null)
+
+  // Pipeline data
+  const [topic,          setTopic]          = useState('')
+  const [numSlides,      setNumSlides]      = useState(5)
+  const [hooks,          setHooks]          = useState([])
+  const [selectedHook,   setSelectedHook]   = useState(null)
+  const [slides,         setSlides]         = useState([])
+  const [caption,        setCaption]        = useState('')
+  const [carouselStyle,  setCarouselStyle]  = useState('text_only')
+  const [flags,          setFlags]          = useState([])
+  const [images,         setImages]         = useState([])
+
+  // Keep slides in a ref so QC callbacks always read latest value
+  const slidesRef = useRef(slides)
+  useEffect(() => { slidesRef.current = slides }, [slides])
+
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dark)
   }, [dark])
@@ -41,81 +71,174 @@ export default function App() {
     setTimeout(() => setToast(null), 3500)
   }, [])
 
-  const handleGenerate = useCallback(async ({ topic, tone, slides }) => {
-    setStatus('loading')
-    setData(null)
-    setErrorMsg('')
-    setStepMessage('')
+  const goError = useCallback((msg) => {
+    setError(msg)
+    setStatus('error')
+    showToast(msg, 'error')
+  }, [showToast])
 
-    // Mock mode (set VITE_MOCK=true in .env.local to bypass the API)
-    if (import.meta.env.VITE_MOCK === 'true') {
-      await new Promise(r => setTimeout(r, 1800))
-      setData(MOCK_DATA)
-      setStatus('done')
-      showToast('Carousel generated! (demo mode)')
-      return
-    }
+  const reset = useCallback(() => {
+    setStatus('idle')
+    setError('')
+    setStepMsg('')
+    setHooks([])
+    setSelectedHook(null)
+    setSlides([])
+    setCaption('')
+    setFlags([])
+    setImages([])
+  }, [])
 
+  // ── Stage 1: form → hooks ─────────────────────────────────────────────────
+  const handleGenerate = useCallback(async ({ topic: t, slides: n }) => {
+    const trimmed = t.trim()
+    setTopic(trimmed)
+    setNumSlides(n)
+    setStatus('hooks_loading')
+    setStepMsg('Generating hook options…')
     try {
-      const res = await fetch('/generate', {
-        method: 'POST',
+      const res = await fetch('/hooks', {
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic: topic.trim(), num_slides: slides }),
+        body:    JSON.stringify({ topic: trimmed, num_slides: n }),
       })
-
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
         throw new Error(body.detail || `Server error (${res.status})`)
       }
-
-      // Stream SSE events from the response body
-      const reader  = res.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer    = ''
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() // keep any incomplete line for next chunk
-
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue
-          let event
-          try { event = JSON.parse(line.slice(6)) } catch { continue }
-
-          if (event.step === 'complete') {
-            setData({ images: event.images ?? [], slides: event.slides ?? [], csv: event.csv ?? null, caption: event.caption ?? null })
-            setStatus('done')
-            showToast(event.images?.length > 0 ? 'Carousel rendered!' : 'Slides generated!')
-          } else if (event.step === 'error') {
-            setErrorMsg(event.message || 'Something went wrong.')
-            setStatus('error')
-            showToast(event.message || 'Something went wrong.', 'error')
-          } else {
-            setStepMessage(event.message || '')
-          }
-        }
-      }
+      const data = await res.json()
+      setHooks(data.hooks || [])
+      setStatus('hook_selection')
     } catch (err) {
-      const message = err.message?.includes('Failed to fetch')
-        ? 'Could not reach the server. Check your connection.'
-        : err.message || 'Something went wrong.'
-      setErrorMsg(message)
-      setStatus('error')
-      showToast(message, 'error')
+      goError(err.message || 'Failed to generate hooks.')
     }
-  }, [showToast])
+  }, [goError])
 
-  const handleReset = useCallback(() => {
-    setStatus('idle')
-    setData(null)
-    setErrorMsg('')
+  // ── Stage 2: hook selected → slides (SSE) → auto-QC ─────────────────────
+  const runQc = useCallback(async (slidesToCheck) => {
+    setStatus('qc_loading')
+    setStepMsg('Running quality check…')
+    try {
+      const res = await fetch('/qc', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ topic, slides: slidesToCheck }),
+      })
+      const data = res.ok ? await res.json() : { flags: [] }
+      setFlags(data.flags || [])
+    } catch {
+      setFlags([])
+    }
+    setStatus('review')
+  }, [topic])
+
+  const handleHookSelect = useCallback(async (hook) => {
+    setSelectedHook(hook)
+    setStatus('slides_loading')
+    setStepMsg('Generating slides…')
+    try {
+      const res = await fetch('/slides', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ topic, hook: hook.hook, num_slides: numSlides }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.detail || `Server error (${res.status})`)
+      }
+      let gotComplete = false
+      await readSse(res, (event) => {
+        if (event.step === 'complete') {
+          gotComplete = true
+          setSlides(event.slides || [])
+          setCaption(event.caption || '')
+          setCarouselStyle(event.style || 'text_only')
+          runQc(event.slides || [])
+        } else if (event.step === 'error') {
+          goError(event.message || 'Slide generation failed.')
+        } else {
+          setStepMsg(event.message || '')
+        }
+      })
+      if (!gotComplete) goError('Slide generation did not complete.')
+    } catch (err) {
+      goError(err.message || 'Slide generation failed.')
+    }
+  }, [topic, numSlides, goError, runQc])
+
+  // ── Per-slide regenerate ──────────────────────────────────────────────────
+  const handleRegenerate = useCallback(async (index, flag) => {
+    const f = flag || {}
+    try {
+      const res = await fetch('/regenerate', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          topic,
+          slide_index: index,
+          hook:        selectedHook?.hook || '',
+          slides:      slidesRef.current,
+          issue:       f.issue       || '',
+          suggestion:  f.suggestion  || '',
+        }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.detail || `Regeneration failed (${res.status})`)
+      }
+      const data = await res.json()
+      setSlides(prev => prev.map((s, i) => i === index ? data.slide : s))
+      setFlags(prev => prev.filter(fl => fl.slide_index !== index))
+      showToast('Slide regenerated!')
+    } catch (err) {
+      showToast(err.message || 'Regeneration failed.', 'error')
+    }
+  }, [topic, selectedHook, showToast])
+
+  const handleDismissFlag = useCallback((slideIndex) => {
+    setFlags(prev => prev.filter(f => f.slide_index !== slideIndex))
   }, [])
+
+  const handleRerunQc = useCallback(() => runQc(slidesRef.current), [runQc])
+
+  // ── Stage 3: render ───────────────────────────────────────────────────────
+  const handleRender = useCallback(async () => {
+    setStatus('rendering')
+    setStepMsg('Rendering slides…')
+    try {
+      const res = await fetch('/render', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ topic, slides: slidesRef.current, style: carouselStyle }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.detail || `Render failed (${res.status})`)
+      }
+      let gotComplete = false
+      await readSse(res, (event) => {
+        if (event.step === 'complete') {
+          gotComplete = true
+          setImages(event.images || [])
+          setStatus('done')
+          showToast('Carousel rendered!')
+        } else if (event.step === 'error') {
+          goError(event.message || 'Rendering failed.')
+        } else {
+          setStepMsg(event.message || '')
+        }
+      })
+      if (!gotComplete && status !== 'error') goError('Render did not complete.')
+    } catch (err) {
+      goError(err.message || 'Rendering failed.')
+    }
+  }, [topic, carouselStyle, goError, showToast, status])
+
+  const LOADING_STAGES = new Set(['hooks_loading', 'slides_loading', 'qc_loading', 'rendering'])
 
   return (
     <div className="min-h-screen flex flex-col">
+
       {/* ── Header ─────────────────────────────────────────────── */}
       <header className="border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950">
         <div className="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between">
@@ -158,30 +281,79 @@ export default function App() {
 
         {/* Hero */}
         <div className="text-center space-y-2">
-          <h1 className="text-3xl font-bold tracking-tight">
-            Generate your carousel
-          </h1>
+          <h1 className="text-3xl font-bold tracking-tight">Generate your carousel</h1>
           <p className="text-gray-500 dark:text-gray-400 text-sm">
             Turn any topic into a polished Instagram carousel in seconds.
           </p>
         </div>
 
-        {/* Form */}
-        <Form
-          onGenerate={handleGenerate}
-          loading={status === 'loading'}
-          onReset={status !== 'idle' ? handleReset : null}
-        />
+        {/* ── idle: show form ── */}
+        {status === 'idle' && (
+          <Form onGenerate={handleGenerate} loading={false} onReset={null} />
+        )}
 
-        {/* Output */}
-        {(status === 'loading' || status === 'done' || status === 'error') && (
-          <Output
-            status={status}
-            data={responseData}
-            errorMsg={errorMsg}
-            stepMessage={stepMessage}
+        {/* ── loading spinner ── */}
+        {LOADING_STAGES.has(status) && <LoadingPane message={stepMsg} />}
+
+        {/* ── hook selection ── */}
+        {status === 'hook_selection' && (
+          <HookPicker
+            hooks={hooks}
+            topic={topic}
+            onSelect={handleHookSelect}
+            onBack={reset}
+          />
+        )}
+
+        {/* ── slide review ── */}
+        {status === 'review' && (
+          <SlideReview
+            slides={slides}
+            flags={flags}
+            caption={caption}
+            onRegenerate={handleRegenerate}
+            onDismissFlag={handleDismissFlag}
+            onRerunQc={handleRerunQc}
+            onRender={handleRender}
+            onBack={reset}
             onToast={showToast}
           />
+        )}
+
+        {/* ── error ── */}
+        {status === 'error' && (
+          <div className="rounded-xl border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 p-5 text-sm text-red-600 dark:text-red-400 animate-slide-up">
+            <div className="flex items-start gap-3">
+              <svg className="mt-0.5 shrink-0" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+              </svg>
+              <div className="space-y-2 flex-1">
+                <span>{errorMsg}</span>
+                <button onClick={reset} className="block text-xs underline opacity-70 hover:opacity-100">
+                  Start over
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── done: images + caption ── */}
+        {status === 'done' && (
+          <>
+            <Output
+              status="done"
+              data={{ images, slides, caption }}
+              errorMsg=""
+              stepMessage=""
+              onToast={showToast}
+            />
+            <button
+              onClick={reset}
+              className="mx-auto block text-sm text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+            >
+              Start over
+            </button>
+          </>
         )}
       </main>
 
@@ -190,7 +362,6 @@ export default function App() {
         Powered by Claude
       </footer>
 
-      {/* ── Toast ──────────────────────────────────────────────── */}
       {toast && <Toast message={toast.message} type={toast.type} />}
     </div>
   )

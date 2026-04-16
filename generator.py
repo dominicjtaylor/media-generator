@@ -1016,6 +1016,7 @@ def _generate_anthropic(
     num_slides: int,
     error_context: str = "",
     template_style: str = "text_only",
+    hook: Optional[str] = None,
 ) -> str:
     try:
         import anthropic
@@ -1042,6 +1043,8 @@ def _generate_anthropic(
     )
 
     user_content = f"Topic: {topic}"
+    if hook:
+        user_content += f"\n\nOpening hook (must be the first slide heading, verbatim): {hook}"
     if error_context:
         user_content += f"\n\nPREVIOUS ATTEMPT FAILED — fix this error:\n{error_context}"
 
@@ -1063,6 +1066,7 @@ def _generate_openai(
     num_slides: int,
     error_context: str = "",
     template_style: str = "text_only",
+    hook: Optional[str] = None,
 ) -> str:
     try:
         from openai import OpenAI
@@ -1082,6 +1086,8 @@ def _generate_openai(
     )
 
     user_content = f"Topic: {topic}"
+    if hook:
+        user_content += f"\n\nOpening hook (must be the first slide heading, verbatim): {hook}"
     if error_context:
         user_content += f"\n\nPREVIOUS ATTEMPT FAILED — fix this error:\n{error_context}"
 
@@ -1521,6 +1527,7 @@ def generate_slides(
     num_slides: int = 5,
     max_retries: int = 3,
     template_style: Optional[str] = None,
+    hook: Optional[str] = None,
 ) -> tuple[list[dict], str]:
     """
     Generate carousel slides for *topic* using the configured LLM.
@@ -1575,7 +1582,7 @@ def generate_slides(
             )
             candidates = []
             for i in range(3):
-                raw = backend(topic, num_slides, error_context, template_style)
+                raw = backend(topic, num_slides, error_context, template_style, hook)
 
                 candidate_slides = _parse_json_slides(raw, num_slides, template_style)
                 candidate_slides = _enforce_slide_limits(candidate_slides, template_style)

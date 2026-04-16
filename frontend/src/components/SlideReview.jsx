@@ -28,7 +28,7 @@ function RegenIcon() {
   )
 }
 
-function SlideCard({ slide, index, total, flag, onRegenerate, onDismissFlag }) {
+function SlideCard({ slide, index, total, flag, onRegenerate, onApplyFix, onDismissFlag }) {
   const [regenBusy, setRegenBusy] = useState(false)
   const { label, color } = slideLabel(index, total)
 
@@ -78,29 +78,50 @@ function SlideCard({ slide, index, total, flag, onRegenerate, onDismissFlag }) {
 
       {/* QC flag */}
       {flag && (
-        <div className="flex items-start gap-2 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2.5">
-          <svg className="mt-0.5 shrink-0 text-amber-500" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-            <line x1="12" y1="9" x2="12" y2="13"/>
-            <line x1="12" y1="17" x2="12.01" y2="17"/>
-          </svg>
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-medium text-amber-800 dark:text-amber-300">{flag.issue}</p>
-            {flag.suggestion && (
-              <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">{flag.suggestion}</p>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={() => onDismissFlag(index)}
-            aria-label="Dismiss flag"
-            className="shrink-0 text-amber-400 hover:text-amber-600 dark:hover:text-amber-200 transition-colors p-0.5"
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18"/>
-              <line x1="6" y1="6" x2="18" y2="18"/>
+        <div className="space-y-2 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2.5">
+          {/* Issue + dismiss */}
+          <div className="flex items-start gap-2">
+            <svg className="mt-0.5 shrink-0 text-amber-500" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+              <line x1="12" y1="9" x2="12" y2="13"/>
+              <line x1="12" y1="17" x2="12.01" y2="17"/>
             </svg>
-          </button>
+            <p className="flex-1 text-xs font-medium text-amber-800 dark:text-amber-300">{flag.issue}</p>
+            <button
+              type="button"
+              onClick={() => onDismissFlag(index)}
+              aria-label="Dismiss flag"
+              className="shrink-0 text-amber-400 hover:text-amber-600 dark:hover:text-amber-200 transition-colors p-0.5"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"/>
+                <line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
+          </div>
+
+          {/* Suggested replacement */}
+          {(flag.replacement_heading || flag.replacement_body) && (
+            <div className="rounded-md bg-white dark:bg-gray-900 border border-amber-200 dark:border-amber-800 px-3 py-2 space-y-0.5">
+              {flag.replacement_heading && (
+                <p className="text-xs font-semibold text-gray-800 dark:text-gray-200">{flag.replacement_heading}</p>
+              )}
+              {flag.replacement_body && (
+                <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">{flag.replacement_body}</p>
+              )}
+            </div>
+          )}
+
+          {/* Apply fix button */}
+          {(flag.replacement_heading || flag.replacement_body) && (
+            <button
+              type="button"
+              onClick={() => onApplyFix(index, flag)}
+              className="text-xs font-medium text-amber-700 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100 underline transition-colors"
+            >
+              Apply suggested fix
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -109,12 +130,13 @@ function SlideCard({ slide, index, total, flag, onRegenerate, onDismissFlag }) {
 
 export default function SlideReview({
   slides, flags, caption,
-  onRegenerate, onDismissFlag, onRerunQc, onRender, onBack, onToast,
+  onRegenerate, onApplyFix, onDismissFlag, onRerunQc, onRender, onBack, onToast,
 }) {
   const [qcBusy,  setQcBusy]  = useState(false)
   const [copied,  setCopied]  = useState(false)
 
-  const flagMap   = Object.fromEntries(flags.map(f => [f.slide_index, f]))
+  // QC flags use 1-based slide_number; convert to 0-based for lookup
+  const flagMap   = Object.fromEntries(flags.map(f => [f.slide_number - 1, f]))
   const flagCount = flags.length
 
   const handleRerunQc = async () => {
@@ -170,6 +192,7 @@ export default function SlideReview({
             total={slides.length}
             flag={flagMap[i] || null}
             onRegenerate={onRegenerate}
+            onApplyFix={onApplyFix}
             onDismissFlag={onDismissFlag}
           />
         ))}

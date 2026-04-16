@@ -231,13 +231,16 @@ about the following topic.
 
 Topic: {topic}
 
+Each hook must create the feeling "if I don't read this, I'll stay stuck" — urgency, \
+FOMO, or tension that makes scrolling past feel like a mistake.
+
 Return a JSON array of exactly 4 objects. Each object has:
-- "hook": the opening line text (1-2 sentences, punchy, attention-grabbing, max 12 words)
+- "hook": the opening line text (1-2 sentences, max 12 words, specific not generic)
 - "format": one of "Question", "Bold Claim", "Stat/Fact", "Mistake"
 
 Rules:
 - Each hook must use a different format (one of each)
-- Hooks must be specific to the topic
+- Hooks must be specific to the topic — no generic motivational lines
 - No markdown fences — return only the JSON array
 
 Example:
@@ -255,20 +258,21 @@ Topic: {topic}
 Slides (JSON):
 {slides_json}
 
-For each slide that has a genuine problem, return a flag object.
-Return a JSON array of flag objects — empty array [] if all slides are good.
+For each slide that has a genuine problem, return a flag object with a ready-to-use \
+replacement. Return a JSON array of flag objects — empty array [] if all slides are good.
 
 Each flag object must have:
-  "slide_index": integer (0-based)
+  "slide_number": integer (1-based slide number)
   "issue": one-sentence description of the problem
-  "suggestion": one-sentence fix
+  "replacement_heading": a better heading to replace the current one (3-7 words)
+  "replacement_body": better body text (20-35 words, specific and actionable)
 
 Common problems to flag:
 - Vague or generic advice with no specifics
 - Heading and body say identical things
 - Body exceeds ~40 words
 - Incomplete sentence or dangling thought
-- Hook slide doesn't hook the reader
+- Hook slide doesn't create urgency or curiosity
 - CTA slide lacks a clear call to action
 
 Return only JSON. No markdown, no explanation."""
@@ -276,6 +280,7 @@ Return only JSON. No markdown, no explanation."""
 _REGEN_PROMPT = """\
 Rewrite slide {slide_num} of {total} for an Instagram carousel about "{topic}".
 
+Opening hook of this carousel: "{hook}"
 Arc position: {arc} — write content fitting this narrative stage.
 
 Current slide (to replace):
@@ -287,6 +292,7 @@ Requirements:
 - Return JSON: {{"type": "{slide_type}", "heading": "...", "body": "..."}}
 - Heading: 3-7 words, punchy
 - Body: 20-35 words, specific and actionable
+- Content must flow naturally from the hook and arc position
 - Must be clearly different from the original
 - No markdown, just the JSON object"""
 
@@ -438,6 +444,7 @@ def regenerate_route(req: RegenerateRequest):
         slide_num=idx + 1,
         total=total,
         topic=topic,
+        hook=req.hook or topic,
         arc=arc,
         heading=slide.get("heading", ""),
         body=slide.get("description", ""),

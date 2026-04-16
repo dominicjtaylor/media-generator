@@ -188,15 +188,26 @@ export default function App() {
       }
       const data = await res.json()
       setSlides(prev => prev.map((s, i) => i === index ? data.slide : s))
-      setFlags(prev => prev.filter(fl => fl.slide_index !== index))
+      setFlags(prev => prev.filter(fl => (fl.slide_number - 1) !== index))
       showToast('Slide regenerated!')
     } catch (err) {
       showToast(err.message || 'Regeneration failed.', 'error')
     }
   }, [topic, selectedHook, showToast])
 
+  // Apply the QC-suggested replacement directly (no API call)
+  const handleApplyFix = useCallback((index, flag) => {
+    setSlides(prev => prev.map((s, i) => i === index ? {
+      ...s,
+      heading:     flag.replacement_heading || s.heading,
+      description: flag.replacement_body    || s.description,
+    } : s))
+    setFlags(prev => prev.filter(f => (f.slide_number - 1) !== index))
+    showToast('Fix applied!')
+  }, [showToast])
+
   const handleDismissFlag = useCallback((slideIndex) => {
-    setFlags(prev => prev.filter(f => f.slide_index !== slideIndex))
+    setFlags(prev => prev.filter(f => (f.slide_number - 1) !== slideIndex))
   }, [])
 
   const handleRerunQc = useCallback(() => runQc(slidesRef.current), [runQc])
@@ -312,6 +323,7 @@ export default function App() {
             flags={flags}
             caption={caption}
             onRegenerate={handleRegenerate}
+            onApplyFix={handleApplyFix}
             onDismissFlag={handleDismissFlag}
             onRerunQc={handleRerunQc}
             onRender={handleRender}

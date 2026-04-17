@@ -421,6 +421,19 @@ Each content slide MUST include at least ONE of:
 Bad:  "Use better prompts"
 Good: "Use structured prompts — because Claude needs clear instructions to respond **accurately**"
 
+MANDATORY FORMATS — the depth validator enforces BOTH of these:
+
+1. CONTRAST example (at least one content slide MUST use this format):
+   Instead of [x] → try [y]
+   e.g. 'Instead of "summarise this" → try "summarise in 5 bullet points for a busy reader"'
+
+2. INSIGHT (at least one content slide MUST use one of these formats):
+   [observation] — [implication]
+   [observation] because [reason]
+   e.g. "Specific prompts work better — because Claude needs clear instructions to respond accurately"
+
+If your slides do not include at least one of each, the output will be rejected.
+
 ---
 
 PROOF SLIDE (web-sourced evidence):
@@ -1065,7 +1078,7 @@ def _generate_anthropic(
 
     message = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=4096,
+        max_tokens=2048,
         system=_build_system_prompt(num_slides, template_style),
         messages=[{"role": "user", "content": user_content}],
         tools=[{"type": "web_search_20250305", "name": "web_search"}],
@@ -1600,33 +1613,21 @@ def generate_slides(
                 "Slide generation attempt %d/%d (num_slides=%d, style=%s)",
                 attempt, max_retries, num_slides, template_style,
             )
-            candidates = []
-            for i in range(3):
-                raw = backend(topic, num_slides, error_context, template_style, hook)
+            raw = backend(topic, num_slides, error_context, template_style, hook)
 
-                candidate_slides = _parse_json_slides(raw, num_slides, template_style)
-                candidate_slides = _enforce_slide_limits(candidate_slides, template_style)
-                candidate_slides = _enforce_bold_caps(candidate_slides)
-                candidate_slides = _clean_heading_punctuation(candidate_slides)
+            slides = _parse_json_slides(raw, num_slides, template_style)
+            slides = _enforce_slide_limits(slides, template_style)
+            slides = _enforce_bold_caps(slides)
+            slides = _clean_heading_punctuation(slides)
+            slides = [
+                {**s, "heading": _compress_heading(s["heading"])}
+                if len(s.get("heading", "").split()) > 10
+                else s
+                for s in slides
+            ]
 
-                # Auto-compress any heading that is too long rather than
-                # skipping the whole candidate.
-                candidate_slides = [
-                    {**s, "heading": _compress_heading(s["heading"])}
-                    if len(s.get("heading", "").split()) > 10
-                    else s
-                    for s in candidate_slides
-                ]
-
-                score = _score_slides(candidate_slides)
-                logger.info("Candidate %d score: %.2f", i + 1, score)
-
-                candidates.append((score, candidate_slides))
-
-            # Select best candidate
-            best_score, slides = max(candidates, key=lambda x: x[0])
-
-            logger.info("Best candidate score selected: %.2f", best_score)
+            score = _score_slides(slides)
+            logger.info("Slide score: %.2f", score)
 
             # --- Guard: detect truncated contrast (→ Try: with no payload) ---
             if any(
@@ -1635,9 +1636,9 @@ def generate_slides(
             ):
                 raise ValueError("Truncated contrast detected (ends with 'Try:') — retrying")
 
-            if best_score < QUALITY_THRESHOLD:
+            if score < QUALITY_THRESHOLD:
                 raise ValueError(
-                    f"Low quality slides (score={best_score:.2f} < {QUALITY_THRESHOLD}) — retrying"
+                    f"Low quality slides (score={score:.2f} < {QUALITY_THRESHOLD}) — retrying"
                 )
 
             hook_text = slides[0]["heading"]
@@ -1662,9 +1663,16 @@ def generate_slides(
                     "A quoted prompt alone is not enough — show why one phrasing is better."
                 )
             if not _has_depth(slides):
+                logger.error(
+                    "Depth check failed (attempt %d/%d) — missing example or insight. "
+                    "Slides: %s",
+                    attempt, max_retries,
+                    [(s["type"], (s.get("heading", "") + " " + s.get("body", ""))[:60]) for s in slides],
+                )
                 raise ValueError(
-                    "Slides lack depth: need at least one example slide "
-                    "(Instead of/Try/micro-example) AND one insight slide (because/—/=). "
+                    "Slides lack depth: need at least one contrast example "
+                    "(Instead of [x] → try [y]) AND at least one insight "
+                    "([observation] — [implication] or [observation] because [reason]). "
                     "Retrying for more informative content."
                 )
             slides = _validate_completeness(slides, template_style)  # auto-corrects headings; raises if body is broken
@@ -1684,7 +1692,8 @@ def generate_slides(
                 else s
                 for s in slides
             ]
-            if best_score < 0.85:
+            if score < 0.85:
+                time.sleep(2)
                 slides = review_and_improve(slides, template_style)
                 slides = _clean_heading_punctuation(slides)
             caption = generate_caption(slides)

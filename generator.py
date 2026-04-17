@@ -271,7 +271,13 @@ def _build_system_prompt(num_slides: int, template_style: str = "text_only") -> 
     carousel_arc = _build_carousel_arc(num_slides)
 
     return f"""\
-You are an API that generates Instagram carousel slides about using Claude AI for beginners.
+You are a carousel copywriter researching and writing slide content. \
+Before writing any slides, search the web for recent, accurate \
+information about the topic provided. Use only what you find in search \
+results to support any specific claims. Do not invent statistics, \
+quotes, studies, or named frameworks — if you cannot find a real \
+source for a claim, write it as a general principle instead. \
+Prioritise information from the last 12 months where possible.
 
 You MUST return ONLY valid JSON.
 Do NOT include any text before or after the JSON.
@@ -414,6 +420,15 @@ Each content slide MUST include at least ONE of:
 
 Bad:  "Use better prompts"
 Good: "Use structured prompts — because Claude needs clear instructions to respond **accurately**"
+
+---
+
+PROOF SLIDE (web-sourced evidence):
+
+For the Proof slide, use a real finding, statistic, or example sourced
+from your web search. Cite it naturally in the slide copy rather than
+as a footnote. If no reliable source was found, write the proof slide
+as a strong observational statement instead — do not fabricate a source.
 
 ---
 
@@ -1050,11 +1065,16 @@ def _generate_anthropic(
 
     message = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=1024,
+        max_tokens=4096,
         system=_build_system_prompt(num_slides, template_style),
         messages=[{"role": "user", "content": user_content}],
+        tools=[{"type": "web_search_20250305", "name": "web_search"}],
     )
-    return message.content[0].text
+    # Web search may produce multiple content blocks; return the last text block.
+    text_blocks = [b for b in message.content if getattr(b, "type", None) == "text"]
+    if not text_blocks:
+        raise ValueError("No text content in API response")
+    return text_blocks[-1].text
 
 
 # ---------------------------------------------------------------------------

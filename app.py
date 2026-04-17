@@ -260,30 +260,14 @@ Return as a JSON array of 4 objects:
 ]"""
 
 _QC_PROMPT = """\
-Review these Instagram carousel slides for quality issues.
+Read the following carousel slides, starting from slide 2. Flag any slides that \
+repeat the same idea, feel too vague, or don't advance the argument. \
+Do not evaluate slide 1. Suggest a replacement for each flagged slide.
 
-Topic: {topic}
-Slides (JSON):
-{slides_json}
+Return as a JSON array of objects with keys: slide_number, issue, \
+replacement_heading, replacement_body. Return an empty array if no issues found.
 
-For each slide that has a genuine problem, return a flag object with a ready-to-use \
-replacement. Return a JSON array of flag objects — empty array [] if all slides are good.
-
-Each flag object must have:
-  "slide_number": integer (1-based slide number)
-  "issue": one-sentence description of the problem
-  "replacement_heading": a better heading to replace the current one (3-7 words)
-  "replacement_body": better body text (20-35 words, specific and actionable)
-
-Common problems to flag:
-- Vague or generic advice with no specifics
-- Heading and body say identical things
-- Body exceeds ~40 words
-- Incomplete sentence or dangling thought
-- Hook slide doesn't create urgency or curiosity
-- CTA slide lacks a clear call to action
-
-Return only JSON. No markdown, no explanation."""
+Carousel: {slides_json}"""
 
 _REGEN_PROMPT = """\
 Rewrite slide {slide_num} of {total} for an Instagram carousel about "{topic}".
@@ -417,8 +401,9 @@ def qc_route(req: QcRequest):
     if not req.slides:
         raise HTTPException(status_code=422, detail="slides must not be empty")
 
-    slides_json = json.dumps(req.slides, indent=2)
-    prompt      = _QC_PROMPT.format(topic=topic, slides_json=slides_json)
+    slides_from_2 = req.slides[1:]   # slide 1 is the hook — never QC'd
+    slides_json   = json.dumps(slides_from_2, indent=2)
+    prompt        = _QC_PROMPT.format(slides_json=slides_json)
     try:
         raw   = _claude(prompt, max_tokens=1024)
         flags = _parse_json(raw)

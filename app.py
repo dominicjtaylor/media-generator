@@ -21,7 +21,8 @@ import logging
 import os
 import re as _re
 from pathlib import Path
-from typing import Generator
+from typing import Generator, Optional
+from urllib.parse import quote
 
 import anthropic as _anthropic
 from dotenv import load_dotenv
@@ -101,9 +102,10 @@ class HookRequest(BaseModel):
 
 
 class SlidesRequest(BaseModel):
-    topic:      str
-    hook:       str
-    num_slides: int = 5
+    topic:          str
+    hook:           str
+    num_slides:     int = 5
+    image_filename: Optional[str] = None
 
 
 class QcRequest(BaseModel):
@@ -121,9 +123,10 @@ class RegenerateRequest(BaseModel):
 
 
 class RenderRequest(BaseModel):
-    topic:  str
-    slides: list[dict]
-    style:  str = "text_only"
+    topic:          str
+    slides:         list[dict]
+    style:          str = "text_only"
+    image_filename: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -318,9 +321,10 @@ def hooks_route(req: HookRequest):
     return {"hooks": hooks}
 
 
-def _slides_stream(topic: str, hook: str, num_slides: int) -> Generator[str, None, None]:
+def _slides_stream(topic: str, hook: str, num_slides: int, image_filename: Optional[str] = None) -> Generator[str, None, None]:
     """SSE stream: generate slides using the selected hook."""
-    style = select_template_style()
+    # Use image template when the user has picked an image
+    style = "headings_text_image" if image_filename else select_template_style()
     yield _sse({"step": "generating", "message": "Generating slides..."})
 
     try:
@@ -336,13 +340,22 @@ def _slides_stream(topic: str, hook: str, num_slides: int) -> Generator[str, Non
     if style == "headings_text_image":
         yield _sse({"step": "fetching_image", "message": "Fetching image..."})
         try:
-            if os.getenv("LUMMI_API_KEY"):
+            if image_filename:
+                img_path = Path("assets/lummi_images") / image_filename
+                image_data = {
+                    "local_path": str(img_path.resolve()),
+                    "author_name": "",
+                    "author_url": "",
+                    "focal_x": 0.5,
+                    "focal_y": 0.5,
+                }
+            elif os.getenv("LUMMI_API_KEY"):
                 from image_fetcher import fetch_lummi_image
                 image_data = fetch_lummi_image(topic)
             else:
                 from local_image import get_image_for_heading_template
                 image_data = get_image_for_heading_template(topic)
-            if image_data.get("author_name"):
+            if image_data and image_data.get("author_name"):
                 author_url = image_data.get("author_url", "")
                 credit = image_data["author_name"]
                 if author_url:
@@ -386,7 +399,7 @@ def slides_route(req: SlidesRequest):
         raise HTTPException(status_code=422, detail="num_slides must be between 4 and 10")
 
     return StreamingResponse(
-        _slides_stream(topic, hook, req.num_slides),
+        _slides_stream(topic, hook, req.num_slides, req.image_filename),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
@@ -460,7 +473,7 @@ def regenerate_route(req: RegenerateRequest):
 
 
 def _render_stream(
-    topic: str, slides: list[dict], style: str
+    topic: str, slides: list[dict], style: str, image_filename: Optional[str] = None
 ) -> Generator[str, None, None]:
     """SSE stream: render approved slides to PNG."""
     yield _sse({"step": "rendering", "message": "Rendering slides..."})
@@ -473,7 +486,16 @@ def _render_stream(
     image_data = None
     if style == "headings_text_image":
         try:
-            if os.getenv("LUMMI_API_KEY"):
+            if image_filename:
+                img_path = Path("assets/lummi_images") / image_filename
+                image_data = {
+                    "local_path": str(img_path.resolve()),
+                    "author_name": "",
+                    "author_url": "",
+                    "focal_x": 0.5,
+                    "focal_y": 0.5,
+                }
+            elif os.getenv("LUMMI_API_KEY"):
                 from image_fetcher import fetch_lummi_image
                 image_data = fetch_lummi_image(topic)
             else:
@@ -510,7 +532,7 @@ def render_route(req: RenderRequest):
         raise HTTPException(status_code=422, detail="slides must not be empty")
 
     return StreamingResponse(
-        _render_stream(topic, req.slides, req.style),
+        _render_stream(topic, req.slides, req.style, req.image_filename),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
@@ -530,6 +552,36 @@ def generate(req: GenerateRequest):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ---------------------------------------------------------------------------
+# Local image library  (/api/images)
+# ---------------------------------------------------------------------------
+
+_LOCAL_IMAGE_DIR = Path("assets/lummi_images")
+_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+
+
+@app.get("/api/images", tags=["assets"])
+def list_images():
+    """Return the list of available local images."""
+    if not _LOCAL_IMAGE_DIR.exists():
+        return {"images": []}
+    images = [
+        {"filename": p.name, "url": f"/api/images/{quote(p.name)}"}
+        for p in sorted(_LOCAL_IMAGE_DIR.iterdir())
+        if p.is_file() and p.suffix.lower() in _IMAGE_EXTENSIONS
+    ]
+    return {"images": images}
+
+
+@app.get("/api/images/{filename:path}", tags=["assets"])
+def serve_image(filename: str):
+    """Serve a single image from the local image library."""
+    img_path = _LOCAL_IMAGE_DIR / filename
+    if not img_path.exists() or not img_path.is_file():
+        raise HTTPException(status_code=404, detail="Image not found")
+    return FileResponse(str(img_path))
 
 
 # ---------------------------------------------------------------------------

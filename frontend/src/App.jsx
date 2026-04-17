@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import Form from './components/Form.jsx'
 import HookPicker from './components/HookPicker.jsx'
+import ImagePicker from './components/ImagePicker.jsx'
 import SlideReview from './components/SlideReview.jsx'
 import Output from './components/Output.jsx'
 import Toast from './components/Toast.jsx'
 
 // Stage flow:
-// idle → hooks_loading → hook_selection
+// idle → hooks_loading → hook_selection → image_selection
 //      → slides_loading → qc_loading → review
 //      → rendering → done
 // Any stage → error
@@ -52,6 +53,7 @@ export default function App() {
   const [numSlides,      setNumSlides]      = useState(5)
   const [hooks,          setHooks]          = useState([])
   const [selectedHook,   setSelectedHook]   = useState(null)
+  const [selectedImage,  setSelectedImage]  = useState(null)
   const [slides,         setSlides]         = useState([])
   const [caption,        setCaption]        = useState('')
   const [carouselStyle,  setCarouselStyle]  = useState('text_only')
@@ -83,6 +85,7 @@ export default function App() {
     setStepMsg('')
     setHooks([])
     setSelectedHook(null)
+    setSelectedImage(null)
     setSlides([])
     setCaption('')
     setFlags([])
@@ -114,7 +117,13 @@ export default function App() {
     }
   }, [goError])
 
-  // ── Stage 2: hook selected → slides (SSE) → auto-QC ─────────────────────
+  // ── Stage 2a: hook selected → image selection ────────────────────────────
+  const handleHookSelect = useCallback((hook) => {
+    setSelectedHook(hook)
+    setStatus('image_selection')
+  }, [])
+
+  // ── Stage 2b: image selected → slides (SSE) → auto-QC ───────────────────
   const runQc = useCallback(async (slidesToCheck) => {
     setStatus('qc_loading')
     setStepMsg('Running quality check…')
@@ -132,15 +141,20 @@ export default function App() {
     setStatus('review')
   }, [topic])
 
-  const handleHookSelect = useCallback(async (hook) => {
-    setSelectedHook(hook)
+  const handleImageConfirm = useCallback(async (image) => {
+    setSelectedImage(image)
     setStatus('slides_loading')
     setStepMsg('Generating slides…')
     try {
       const res = await fetch('/slides', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ topic, hook: hook.hook, num_slides: numSlides }),
+        body:    JSON.stringify({
+          topic,
+          hook:           selectedHook.hook,
+          num_slides:     numSlides,
+          image_filename: image.filename,
+        }),
       })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
@@ -164,7 +178,7 @@ export default function App() {
     } catch (err) {
       goError(err.message || 'Slide generation failed.')
     }
-  }, [topic, numSlides, goError, runQc])
+  }, [topic, numSlides, selectedHook, goError, runQc])
 
   // ── Per-slide regenerate ──────────────────────────────────────────────────
   const handleRegenerate = useCallback(async (index, flag) => {
@@ -220,7 +234,7 @@ export default function App() {
       const res = await fetch('/render', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ topic, slides: slidesRef.current, style: carouselStyle }),
+        body:    JSON.stringify({ topic, slides: slidesRef.current, style: carouselStyle, image_filename: selectedImage?.filename || null }),
       })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
@@ -243,7 +257,7 @@ export default function App() {
     } catch (err) {
       goError(err.message || 'Rendering failed.')
     }
-  }, [topic, carouselStyle, goError, showToast, status])
+  }, [topic, carouselStyle, selectedImage, goError, showToast, status])
 
   const LOADING_STAGES = new Set(['hooks_loading', 'slides_loading', 'qc_loading', 'rendering'])
 
@@ -313,6 +327,14 @@ export default function App() {
             topic={topic}
             onSelect={handleHookSelect}
             onBack={reset}
+          />
+        )}
+
+        {/* ── image selection ── */}
+        {status === 'image_selection' && (
+          <ImagePicker
+            onSelect={handleImageConfirm}
+            onBack={() => setStatus('hook_selection')}
           />
         )}
 

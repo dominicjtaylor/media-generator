@@ -19,21 +19,47 @@
   height:1350px;
   background:linear-gradient(135deg,#111,#0a0a0a);
   color:#fff;
-  padding:100px 90px;
   position:relative;
   overflow:hidden;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  align-items:center;
 }
 
-/* ---------- TEXT ---------- */
+/* ---------- BRAND / HANDLE (absolute — don't affect flex centering) ---------- */
 
 .brand {
+  position:absolute;
+  top:100px;
+  left:90px;
   font-size:34px;
   color:#cfcfcf;
   opacity:.85;
 }
 
+.handle {
+  position:absolute;
+  bottom:80px;
+  left:90px;
+  font-size:34px;
+  opacity:.7;
+}
+
+/* ---------- CENTRED CONTENT BLOCK ---------- */
+
+.content-center {
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:28px;
+  text-align:center;
+  padding:0 90px;
+  max-width:960px;
+  width:100%;
+}
+
 .swipe {
-  margin-top:160px;
   display:inline-block;
   border:1px solid rgba(255,255,255,.4);
   border-radius:999px;
@@ -44,40 +70,14 @@
 }
 
 .headline {
-  margin-top:50px;
   font-size:105px;
   font-weight:400;
   line-height:1.05;
-  max-width:820px;
+  text-align:center;
 }
 
 .headline strong {
   font-weight:700;
-}
-
-.cta {
-  margin-top:70px;
-  display:inline-flex;
-  align-items:center;
-  gap:12px;
-  border:1px solid rgba(255,255,255,.4);
-  border-radius:999px;
-  padding:10px 24px;
-  font-size:26px;
-}
-
-.logo {
-  width:40px;
-  height:40px;
-  border-radius:50%;
-}
-
-.handle {
-  position:absolute;
-  bottom:80px;
-  left:90px;
-  font-size:34px;
-  opacity:.7;
 }
 
 /* ---------- ACCENT SYSTEM ---------- */
@@ -102,8 +102,6 @@
   justify-content:center;
   font-size:26px;
   font-weight:600;
-
-  /* sits above the bar to hide its origin */
   z-index:2;
 }
 
@@ -111,16 +109,9 @@
   position:absolute;
   height:12px;
   background:var(--accent);
-
-  /* vertical alignment (circle center) */
   bottom:calc(var(--circle-bottom) + (var(--circle-size) / 2));
-
-  /* start at circle center */
   left:calc(100% - var(--circle-right) - (var(--circle-size) / 2));
-
-  /* extend to right edge */
   width:calc(var(--circle-right) + (var(--circle-size) / 2));
-
   z-index:1;
 }
 
@@ -132,15 +123,9 @@
 
   <div class="brand">Claude Insights</div>
 
-  <div class="swipe">SWIPE</div>
-
-  <div class="headline">
-    {{TEXT}}
-  </div>
-
-  <div class="cta">
-    <img src="../../logo.png" class="logo">
-    Claude Insights
+  <div class="content-center">
+    <div class="swipe">SWIPE</div>
+    <div class="headline">{{TEXT}}</div>
   </div>
 
   <div class="handle">@claudeinsights</div>

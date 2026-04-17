@@ -1,10 +1,17 @@
 import React, { useState } from 'react'
 
-const FORMAT_COLORS = {
-  'Question':   'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300',
-  'Bold Claim': 'bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300',
-  'Stat/Fact':  'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300',
-  'Mistake':    'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300',
+const TYPE_LABELS = {
+  specific_promise:  'Specific Promise',
+  pattern_interrupt: 'Pattern Interrupt',
+  contrast:          'Contrast',
+  named_thing:       'Named Thing',
+}
+
+const TYPE_COLORS = {
+  specific_promise:  'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300',
+  pattern_interrupt: 'bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300',
+  contrast:          'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300',
+  named_thing:       'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300',
 }
 
 export default function HookPicker({ hooks, topic, onSelect, onBack }) {
@@ -29,7 +36,8 @@ export default function HookPicker({ hooks, topic, onSelect, onBack }) {
 
       <div className="space-y-3">
         {hooks.map((h, i) => {
-          const colorClass = FORMAT_COLORS[h.format] || 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
+          const colorClass = TYPE_COLORS[h.type] || 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
+          const label      = TYPE_LABELS[h.type] || h.type
           const isSelected = selected === i
           return (
             <button
@@ -46,7 +54,7 @@ export default function HookPicker({ hooks, topic, onSelect, onBack }) {
             >
               <div className="flex items-center gap-2 mb-2">
                 <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wide ${colorClass}`}>
-                  {h.format}
+                  {label}
                 </span>
                 {isSelected && (
                   <svg

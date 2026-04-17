@@ -226,29 +226,37 @@ def _stream(topic: str, num_slides: int) -> Generator[str, None, None]:
 # ---------------------------------------------------------------------------
 
 _HOOK_PROMPT = """\
-You are writing Instagram carousel hooks. Generate 4 distinct hook options for a carousel \
-about the following topic.
+Write 4 carousel hooks for {topic} that make my ideal client think: \
+if I don't read this, I'll stay stuck.
 
-Topic: {topic}
+Use these 4 formats, one each:
 
-Each hook must create the feeling "if I don't read this, I'll stay stuck" — urgency, \
-FOMO, or tension that makes scrolling past feel like a mistake.
+1. Specific promise — a concrete outcome with a number or timeframe
+   e.g. "How I fixed this in 3 days"
 
-Return a JSON array of exactly 4 objects. Each object has:
-- "hook": the opening line text (1-2 sentences, max 12 words, specific not generic)
-- "format": one of "Question", "Bold Claim", "Stat/Fact", "Mistake"
+2. Pattern interrupt — starts mid-thought or breaks an assumption
+   e.g. "Tell me if I'm wrong...", "Stop scrolling if you want to..."
 
-Rules:
-- Each hook must use a different format (one of each)
-- Hooks must be specific to the topic — no generic motivational lines
-- No markdown fences — return only the JSON array
+3. Contrast — exposes a gap between what people believe and reality
+   e.g. "You've been lied to about...", "This is the truth about..."
 
-Example:
+4. Named thing — makes the reader feel like they're missing something \
+specific that already exists
+   e.g. "This feels illegal to know", "This is all over Instagram"
+
+Rules for every hook:
+- Maximum 8 words
+- No full sentences — fragments and ellipses are fine
+- No generic AI phrasing (unleash, discover, unlock, game-changer)
+- Must create a gap the reader needs to close by swiping
+- Write for someone who is mid-scroll and slightly sceptical
+
+Return as a JSON array of 4 objects:
 [
-  {{"hook": "Most people prompt AI the wrong way.", "format": "Mistake"}},
-  {{"hook": "What if one sentence doubled your AI output?", "format": "Question"}},
-  {{"hook": "93% of users never use system prompts — and it shows.", "format": "Stat/Fact"}},
-  {{"hook": "ChatGPT is only as smart as the context you give it.", "format": "Bold Claim"}}
+  {{"type": "specific_promise", "hook": "..."}},
+  {{"type": "pattern_interrupt", "hook": "..."}},
+  {{"type": "contrast", "hook": "..."}},
+  {{"type": "named_thing", "hook": "..."}}
 ]"""
 
 _QC_PROMPT = """\
@@ -316,7 +324,7 @@ def hooks_route(req: HookRequest):
         if not isinstance(data, list):
             raise ValueError("Expected a JSON array")
         hooks = [
-            {"hook": str(h.get("hook", "")), "format": str(h.get("format", ""))}
+            {"hook": str(h.get("hook", "")), "type": str(h.get("type", ""))}
             for h in data[:4]
         ]
     except Exception as exc:

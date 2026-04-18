@@ -57,7 +57,11 @@ _ARC = ["Problem", "Cost", "Shift", "System", "Proof", "Decision", "CTA"]
 
 # Zero-width and invisible Unicode characters that browsers may append to
 # text copied from web pages.  Strip these before passing to any LLM call.
-_ZW_CHARS = _re.compile(r'[\u200b\u200c\u200d\u200e\u200f\u00ad\ufeff]+')
+_ZW_CHARS  = _re.compile(r'[\u200b\u200c\u200d\u200e\u200f\u00ad\ufeff]+')
+_CITE_RE   = _re.compile(r'<cite[^>]*>(.*?)</cite>', _re.DOTALL | _re.IGNORECASE)
+
+def _strip_citations(text: str) -> str:
+    return _CITE_RE.sub(r'\1', text)
 
 
 def _clean_topic(text: str) -> str:
@@ -472,6 +476,11 @@ def qc_route(req: QcRequest):
         flags = _parse_json(raw)
         if not isinstance(flags, list):
             flags = []
+        # Strip web-search citation tags from any replacement text
+        for f in flags:
+            for key in ("replacement_heading", "replacement_body"):
+                if isinstance(f.get(key), str):
+                    f[key] = _strip_citations(f[key])
         # Discard any flag that quotes text not present in the actual slide
         before = len(flags)
         flags  = [f for f in flags if _qc_flag_is_grounded(f, req.slides)]
@@ -537,8 +546,8 @@ def regenerate_route(req: RegenerateRequest):
         raise HTTPException(status_code=500, detail=f"Regeneration failed: {exc}")
 
     return {"slide": {"type": new_slide.get("type", slide_type),
-                      "heading": new_slide.get("heading", ""),
-                      "description": new_slide.get("body", new_slide.get("description", ""))}}
+                      "heading": _strip_citations(new_slide.get("heading", "")),
+                      "description": _strip_citations(new_slide.get("body", new_slide.get("description", "")))}}
 
 
 def _render_stream(
@@ -548,7 +557,9 @@ def _render_stream(
     yield _sse({"step": "rendering", "message": "Rendering slides..."})
 
     internal_slides = [
-        {"type": s.get("type", "content"), "heading": s.get("heading", ""), "body": s.get("description", "")}
+        {"type": s.get("type", "content"),
+         "heading": _strip_citations(s.get("heading", "")),
+         "body":    _strip_citations(s.get("description", ""))}
         for s in slides
     ]
 

@@ -24,6 +24,12 @@ from typing import Optional
 
 logger = logging.getLogger("carousel.generator")
 
+_CITE_RE = re.compile(r'<cite[^>]*>(.*?)</cite>', re.DOTALL | re.IGNORECASE)
+
+def _strip_citations(text: str) -> str:
+    """Remove <cite …>…</cite> tags injected by web search, keeping inner text."""
+    return _CITE_RE.sub(r'\1', text)
+
 # ---------------------------------------------------------------------------
 # Template styles and word limits
 # ---------------------------------------------------------------------------
@@ -1240,7 +1246,7 @@ def _parse_json_slides(
             )
 
         if template_style == "text_only":
-            text_val = (s.get("text") or "").strip()
+            text_val = _strip_citations((s.get("text") or "").strip())
             if not text_val:
                 raise ValueError(f"Slide {i} has empty 'text'")
             result.append({
@@ -1250,8 +1256,8 @@ def _parse_json_slides(
             })
         else:
             # heading styles: separate heading and body fields
-            heading_val = (s.get("heading") or "").strip()
-            body_val    = (s.get("text") or "").strip()
+            heading_val = _strip_citations((s.get("heading") or "").strip())
+            body_val    = _strip_citations((s.get("text") or "").strip())
 
             if not heading_val:
                 raise ValueError(f"Slide {i} has empty 'heading'")

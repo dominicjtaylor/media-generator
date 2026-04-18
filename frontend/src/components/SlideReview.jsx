@@ -72,7 +72,9 @@ function SlideCard({ slide, index, total, flag, onRegenerate, onApplyFix, onDism
       <div>
         <p className="font-semibold text-base leading-snug">{slide.heading}</p>
         {slide.description && (
-          <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed mt-1.5">{slide.description}</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed mt-1.5">
+            {slide.description.replace(/\*{1,2}(.*?)\*{1,2}/g, '$1').replace(/\n/g, ' · ')}
+          </p>
         )}
       </div>
 

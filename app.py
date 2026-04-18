@@ -483,12 +483,12 @@ def qc_route(req: QcRequest):
         flags = _parse_json(raw)
         if not isinstance(flags, list):
             flags = []
-        # Strip web-search citation tags and markdown from any replacement text
+        # Strip web-search citation tags from any replacement text
         for f in flags:
             if isinstance(f.get("replacement_heading"), str):
                 f["replacement_heading"] = _strip_citations(f["replacement_heading"])
             if isinstance(f.get("replacement_body"), str):
-                f["replacement_body"] = _strip_markdown(_strip_citations(f["replacement_body"]))
+                f["replacement_body"] = _strip_citations(f["replacement_body"])
         # Discard any flag that quotes text not present in the actual slide
         before = len(flags)
         flags  = [f for f in flags if _qc_flag_is_grounded(f, req.slides)]
@@ -555,7 +555,7 @@ def regenerate_route(req: RegenerateRequest):
 
     return {"slide": {"type": new_slide.get("type", slide_type),
                       "heading": _strip_citations(new_slide.get("heading", "")),
-                      "description": _strip_markdown(_strip_citations(new_slide.get("body", new_slide.get("description", ""))))}}
+                      "description": _strip_citations(new_slide.get("body", new_slide.get("description", "")))}}
 
 
 def _render_stream(
@@ -567,7 +567,7 @@ def _render_stream(
     internal_slides = [
         {"type": s.get("type", "content"),
          "heading": _strip_citations(s.get("heading", "")),
-         "body":    _strip_markdown(_strip_citations(s.get("description", "")))}
+         "body":    _strip_citations(s.get("description", ""))}
         for s in slides
     ]
 

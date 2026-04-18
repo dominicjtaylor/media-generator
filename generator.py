@@ -87,23 +87,23 @@ def select_template_style() -> str:
 # heading ({{HEADING}}) and body ({{TEXT}}) fields rendered separately.
 WORD_LIMITS: dict[str, dict[str, int]] = {
     "text_only": {
-        "hook":    8,
+        "hook":    12,
         "content": 15,
-        "cta":     12,
+        "cta":     10,
     },
     "headings_and_text": {
-        "hook_heading":    8,
+        "hook_heading":    12,
         "content_heading": 8,
-        "content_body":    35,
+        "content_body":    36,
         "cta_heading":     10,
-        "cta_body":        35,
+        "cta_body":        0,   # CTA body is always empty in new format
     },
     "headings_text_image": {
-        "hook_heading":    8,
+        "hook_heading":    12,
         "content_heading": 8,
-        "content_body":    35,
+        "content_body":    36,
         "cta_heading":     10,
-        "cta_body":        35,
+        "cta_body":        0,
     },
 }
 
@@ -178,30 +178,24 @@ def _build_carousel_arc(num_slides: int) -> str:
     lines = ["Slide 1: Hook — creates tension or curiosity about the specific topic"]
     for i, label in enumerate(slots, start=2):
         lines.append(f"Slide {i}: {label}")
-    lines.append(f"Slide {num_slides}: CTA — 'We show you [specific thing from this carousel topic] every day.' + 'Follow @claudeinsights'")
+    lines.append(f"Slide {num_slides}: CTA — short, high-impact heading specific to this carousel's topic; communicates ongoing daily value")
     return "\n".join(lines)
 
 
 def _word_limits_section(template_style: str) -> str:
-    """Return the WORD LIMITS block for the system prompt body.
-
-    For heading styles the full word limits are in _output_format_section;
-    this returns a short placeholder to avoid duplication.
-    """
     if template_style == "text_only":
         return """\
 WORD LIMITS:
 
-- Hook: max 8 words
+- Hook: max 12 words
 - Content slides: max 15 words
-- CTA: max 12 words
+- CTA: max 10 words
 
 ---"""
-    # Heading styles: word limits are stated in the OUTPUT FORMAT section at the end.
     return """\
 WORD LIMITS:
 
-See the OUTPUT FORMAT section at the end of this prompt for per-field word limits.
+See OUTPUT FORMAT section below for per-field limits.
 
 ---"""
 
@@ -221,325 +215,227 @@ OUTPUT FORMAT (STRICT JSON):
 {{
   "slides": [
     {{"type": "hook",    "text": "You're prompting Claude **wrong** — here's why"}},
-    {{"type": "content", "text": "Specific prompts work better — because Claude knows exactly what to do"}},
-    {{"type": "content", "text": "Structured prompts cut editing time — Claude returns answers **ready** to use"}},
+    {{"type": "content", "text": "Specific prompts work — Claude needs clear context to respond **accurately**"}},
+    {{"type": "content", "text": "Structured prompts cut editing time — answers arrive **ready** to use"}},
     {{"type": "content", "text": "Add your role upfront — 'Act as a teacher' changes every answer **instantly**"}},
-    {{"type": "cta",     "text": "We show you how to prompt Claude better every day. Follow @claudeinsights."}}
+    {{"type": "cta",     "text": "Daily Claude prompts, workflows, and builds."}}
   ]
 }}
 
 The "slides" array MUST contain EXACTLY {num_slides} objects.
 If your output does not meet ALL rules, regenerate internally until it does."""
 
-    # headings_and_text and headings_text_image share the same two-field format.
     image_hook_note = ""
     if template_style == "headings_text_image":
         image_hook_note = (
             "\nIMPORTANT: Slide 1 (hook) MUST have \"text\": \"\" — "
-            "an image is injected into that slide automatically. "
-            "Do NOT write body text for the hook.\n"
+            "an image is injected into that slide automatically.\n"
         )
 
     return f"""\
-WORD LIMITS (two-field format — enforce strictly):
+WORD LIMITS (enforce strictly):
 
-- Hook heading (Slide 1): max 8 words
-- Content heading:         max 8 words  \u2190 the bold title shown large
-- Content body (text):     max 35 words \u2190 the supporting explanation shown smaller
-- CTA heading:             max 10 words
-- CTA body (text):         max 35 words
+- Hook heading:     max 12 words | text: always ""
+- Content heading:  max 8 words  \u2190 large title
+- Content body:     2\u20133 lines, each \u226412 words, separated by \\n in the JSON string
+- CTA heading:      max 10 words | text: always ""
 {image_hook_note}
 OUTPUT FORMAT (STRICT JSON — two fields per slide):
 
-Each slide has TWO fields:
-  "heading" \u2014 short, punchy title phrase (see word limits above)
-  "text"    \u2014 supporting body sentence (empty string "" for hook slides)
+  "heading" \u2014 short, punchy title phrase
+  "text"    \u2014 body lines separated by \\n (empty "" for hook and CTA)
 
 {{
   "slides": [
-    {{"type": "hook",    "heading": "Stop prompting Claude the **wrong** way",        "text": ""}},
-    {{"type": "content", "heading": "Specific prompts work better",                    "text": "Because Claude needs clear instructions to respond accurately and completely"}},
-    {{"type": "content", "heading": "Match the prompt to the task",                   "text": "Ask Claude to 'explain X in 3 steps with examples' — specificity shapes the output **directly**"}},
-    {{"type": "content", "heading": "Add a role to every prompt",                      "text": "'Act as a teacher' changes every answer \u2014 Claude adjusts tone and depth **instantly**"}},
-    {{"type": "cta",     "heading": "We show you how to build with Claude every day.", "text": "Follow @claudeinsights"}}
+    {{"type": "hook",    "heading": "Stop prompting Claude the **wrong** way",       "text": ""}},
+    {{"type": "content", "heading": "Specific prompts work",                         "text": "Claude knows exactly what to do.\nSpecific = faster, **cleaner** output.\nAdd your role upfront."}},
+    {{"type": "content", "heading": "Match the prompt to the task",                  "text": "Ask Claude: 'Explain X in 3 steps'.\nSpecificity **shapes** every answer.\nTry this for any complex topic."}},
+    {{"type": "content", "heading": "Role prompts change everything",                "text": "'Act as a teacher. Walk me through X.'\nClaude adjusts tone and depth **instantly**.\nTwo words that improve every prompt."}},
+    {{"type": "cta",     "heading": "Daily Claude workflows, prompts, and builds.",  "text": ""}}
   ]
 }}
 
 The "slides" array MUST contain EXACTLY {num_slides} objects.
-Both "heading" and "text" are required on every slide (use "" for empty text).
+Both "heading" and "text" are required on every slide.
 If your output does not meet ALL rules, regenerate internally until it does."""
 
 
 def _build_system_prompt(num_slides: int, template_style: str = "text_only") -> str:
-    """Return the generation system prompt with the exact slide count baked in.
-
-    A hook style is chosen randomly at call time so every generation request
-    produces a structurally different opening — preventing the repetitive
-    "Claude is powerful — most people…" pattern.
-    """
+    """Return the generation system prompt with the exact slide count baked in."""
     content_count = num_slides - 2
     hook_name, hook_instruction, hook_example = random.choice(_HOOK_STYLES)
     carousel_arc = _build_carousel_arc(num_slides)
 
     return f"""\
-You are a carousel copywriter. Write like a smart 10 year old explaining something to their \
-friend. Use the shortest words possible. No jargon. No buzzwords. No corporate language. \
-If you can say it in 5 words instead of 10, use 5. Every sentence should feel like something \
-a real person would actually say out loud. Be specific — use real examples, real numbers, \
-real actions. Specific and simple beats vague and clever every time.
+You are writing conversion-optimised Instagram carousel slides for a modern AI/automation brand.
 
-Before writing any slides, search the web for recent, accurate information about the topic. \
-Use only what you find in search results to support any specific claims. Do not invent \
-statistics, quotes, studies, or named frameworks — if you cannot find a real source for a \
-claim, write it as a general principle instead.
+Goal: maximise swipe-through rate. Every slide must be understood in ≤1.5 seconds.
+Write as a revelation, not an explanation. Confident. Direct. No fluff.
+If it feels like teaching, rewrite it as a reveal.
+If it feels slow to read, compress it.
+If it feels generic, sharpen it.
 
-You MUST return ONLY valid JSON.
-Do NOT include any text before or after the JSON.
-Do NOT explain anything.
-Do NOT use markdown or code blocks.
+Before writing, search the web for accurate, recent information about the topic.
+Use only what you find. Do not invent statistics, quotes, or frameworks.
+
+You MUST return ONLY valid JSON. No text before or after. No markdown fences.
 
 ---
 
 SLIDE COUNT (CRITICAL):
 
-Generate EXACTLY {num_slides} slides. There are NO other slide count rules.
-Do NOT default to 5 slides. Do NOT add extra slides.
-
-Structure:
+Generate EXACTLY {num_slides} slides:
 - Slide 1 = hook
-- Slides 2 to {num_slides - 1} = content  ({content_count} content slide{"s" if content_count != 1 else ""})
+- Slides 2–{num_slides - 1} = content ({content_count} content slide{"s" if content_count != 1 else ""})
 - Slide {num_slides} = cta
 
 ---
 
-HOOK STYLE — use this style for Slide 1:
+GLOBAL RULES (every slide):
+
+- NO paragraphs
+- MAX 12 words per line
+- Each slide instantly scannable
+- Short, declarative language
+- Bold 1–2 key words per slide using **word** markers (outcomes, contrasts, actions)
+- NEVER bold filler words
+
+---
+
+HOOK — Slide 1:
 
 Style: {hook_name}
 Rule:  {hook_instruction}
 e.g.   {hook_example}
 
-REQUIREMENTS:
-- MUST use a keyword or phrase directly from the topic — generic hooks are invalid
-- Must be concise and scannable — target 4–8 words
-- Do NOT end with a bare em-dash (—) or arrow (→)
-- Do NOT start with "Claude" — the subject should reflect the topic
-- Must create tension, curiosity, or contrast
+- Heading only. No body text.
+- MUST use a keyword from the topic. ≤12 words.
+- Creates tension, curiosity, or contrast.
+- Do NOT start with "Claude". Do NOT end with — or →.
 
-BAD (generic — could apply to any topic):
-  "Most people use Claude wrong"
-GOOD (topic-specific — reader instantly recognises it's about their problem):
-  "Stop building everything at once in Claude Code"
+BAD: "Most people use Claude wrong"
+GOOD: "Stop building everything at once in Claude Code"
 
 ---
 
-HEADING STYLE (if applicable):
+HEADING RULES (all slides):
 
-HEADINGS MUST:
-- Stand alone as a complete phrase
-- Never end with words that require continuation (e.g. "with", "for", "a", "the")
-- Read naturally if shown alone on a slide
-
-HEADINGS MUST NOT start with transition words:
-- Do NOT use: First, Then, Next, Now, Finally
-
-Headings are standalone titles, not sentence transitions.
-
-Transitions should appear in the body text ONLY.
-
-HEADINGS MUST NOT use em dashes (—).
-Use commas or split into clean phrases instead.
-
-BAD: "Better prompts — better results"
-GOOD: "Better prompts, better results"
+- Stand alone as a complete phrase — no prepositions or articles at the end
+- NEVER start with: First, Then, Next, Now, Finally
+- NEVER use em dashes (—) — use commas or clean phrases instead
+  BAD: "Better prompts — better results"
+  GOOD: "Better prompts, better results"
+- Target 3–6 words. Max 8.
 
 ---
 
-CONTENT VARIETY (REQUIRED):
+CONTENT SLIDES (Slides 2–{num_slides - 1}):
 
-DEFAULT: Do NOT use the "Instead of X → Try Y" pattern by default.
-Prefer direct explanations, insights, tips, and concrete examples.
-Only use contrast when the slide is specifically about correcting a common mistake.
+Each content slide:
+- ONE idea only
+- Heading: ≤6 words, standalone phrase
+- Body: 2–3 short lines written as \\n-separated entries in the JSON string
+  Each line: ≤12 words, punchy declaration, stands alone
+  Use clear structures:
+    Step-based:    Step 1…, Step 2…, Step 3…
+    Contrast:      Wrong way vs right way
+    Tip + reason:  "Use X — because Y"
+    Insight:       "[fact] — [implication]"
+    Example:       "Ask Claude: 'do X in 3 steps'"
 
-Content slides should include a mix of these styles:
+Do NOT write a wall of text. No filler. No generic phrases.
+Vary structure — avoid repeating the same format on consecutive slides.
 
-  EXPLANATION  — state WHY something works, using "because" or a strong em-dash
-    e.g. "Specific prompts work better — because Claude knows exactly what to do"
-
-  TIP          — direct actionable advice starting with a verb (Add / Use / Ask)
-    e.g. "Add your role upfront — 'Act as a teacher' changes every answer **instantly**"
-
-  EXAMPLE      — a concrete prompt or use case shown in action
-    e.g. "Ask Claude: 'Explain X in 3 steps with examples' — specificity shapes the output"
-
-  OUTCOME      — the concrete result the reader gains, quantified or made tangible
-    e.g. "Structured prompts cut editing time — answers arrive **ready** to use"
-
-  INSIGHT      — a strong, standalone statement; no contrast needed
-    e.g. "Modes define scope — scope defines output quality"
-
-  CONTRAST     — use ONLY when the slide is about correcting a specific mistake
-    e.g. 'Instead of "Summarise this" → Try "Summarise this in 5 bullet points"'
-    Do NOT use this style unless fixing a mistake is the point of the slide.
-
-Vary sentence openings — avoid starting every slide with "Claude".
-Avoid repeating the same sentence structure more than once.
+Body transitions (First…, Then…, Step 1…) belong in body lines only, never headings.
 
 ---
 
-PROGRESSIVE FLOW — follow this exact arc:
+PROGRESSIVE ARC:
 
 {carousel_arc}
 
-RULES FOR FLOW:
-- Each slide must build on the previous one — "because of this → here's what to do next"
-- Use transition words to signal progression:
-    Slide 2: (no transition — state the core principle directly)
-    Step slides:
-        - Use transition words in the BODY text only (First…, Then…, Next…, Now…)
-        - NEVER use transition words in headings
-    Outcome slide: Finally…
-- Do NOT write random, disconnected tips — every slide must earn the next one
-- The real prompt example belongs in the middle of the carousel, not at the end
-
-WRITING STYLE (apply to every slide):
-
-Write each slide as if you are texting a friend who has never heard of this topic. \
-No long words. No abstract concepts. If a sentence needs re-reading to understand, \
-rewrite it. Each slide should land in one read.
+Each slide must earn the next. Do not write disconnected tips.
 
 ---
 
-REAL PROMPT EXAMPLE (MANDATORY):
+MANDATORY EXAMPLE RULE:
 
-At least ONE content slide MUST include a concrete Claude prompt example.
+At least ONE content slide MUST include a concrete Claude prompt shown in action.
 
-PREFERRED format — prompt shown in context:
-  "Ask Claude: 'Explain X in 3 steps with examples' — specificity shapes the output **directly**"
-  "'Act as a teacher. Walk me through X step by step.' — Claude adjusts tone and depth **instantly**"
+Preferred (prompt in context):
+  "Ask Claude: 'Explain X in 3 steps with examples'"
+  "'Act as a teacher. Walk me through X step by step.'"
 
-USE contrast formats ONLY when the slide is specifically about correcting a mistake:
-  Instead of → Try:
-     Instead of: "Explain this" → Try: "Explain this in 3 steps with examples"
-  Bad → Better:
-     Bad: "Summarise this" → Better: "Summarise this in 5 bullet points for a busy reader"
-
-Do NOT default to contrast. If the topic is not about a common mistake,
-show the prompt in action (preferred format above).
-
-A short bare quote (1–3 words) with nothing around it is NOT valid.
-A substantive quoted prompt (4+ words) shown with context IS valid without contrast.
+Contrast format (ONLY when correcting a mistake):
+  Instead of "Summarise this" → Try "Summarise in 5 bullet points"
 
 ---
 
-DEPTH PER SLIDE:
+DEPTH RULE:
 
-Each content slide MUST include at least ONE of:
-- a concrete example (a real Claude prompt shown in use)
-- a short explanation using "because…" (the reason behind the advice)
-- a concrete outcome (the specific result the reader gets)
+Each content slide must include at least ONE of:
+- A concrete example (real Claude prompt in use)
+- A "because…" explanation (the reason behind the advice)
+- A concrete outcome (specific result the reader gets)
 
-Bad:  "Use better prompts"
-Good: "Use structured prompts — because Claude needs clear instructions to respond **accurately**"
+BAD:  "Use better prompts"
+GOOD: "Use structured prompts — because Claude needs clear context to respond **accurately**"
 
-MANDATORY FORMATS — the depth validator enforces BOTH of these:
+MANDATORY FORMATS — validator enforces BOTH:
 
-1. CONTRAST example (at least one content slide MUST use this format):
+1. CONTRAST (at least one content slide):
    Instead of [x] → try [y]
-   e.g. 'Instead of "summarise this" → try "summarise in 5 bullet points for a busy reader"'
 
-2. INSIGHT (at least one content slide MUST use one of these formats):
+2. INSIGHT (at least one content slide):
    [observation] — [implication]
    [observation] because [reason]
-   e.g. "Specific prompts work better — because Claude needs clear instructions to respond accurately"
-
-If your slides do not include at least one of each, the output will be rejected.
 
 ---
 
-PROOF SLIDE (web-sourced evidence):
+PROOF SLIDE:
 
-For the Proof slide, use a real finding, statistic, or example sourced
-from your web search. Cite it naturally in the slide copy rather than
-as a footnote. If no reliable source was found, write the proof slide
-as a strong observational statement instead — do not fabricate a source.
+Use a real finding, statistic, or example from your web search.
+Cite it naturally in the slide copy. If no reliable source found,
+write a strong observational statement — do not fabricate a source.
 
 ---
 
 {_word_limits_section(template_style)}
 
-COMPLETENESS:
+---
 
-HEADINGS ("heading" field):
-- Should be concise and scannable — target 2–6 words, up to 8 maximum
-- Sentence-like headings are fine if short and readable
-- Do NOT end with a bare em-dash (—) or arrow (→)
-- A phrase is valid: "Specific prompts work better" ✓
+CTA — Slide {num_slides}:
 
-BODY TEXT ("text" field, or the full text in text_only):
-- MUST be a complete, self-contained unit of meaning
-- Must make sense when viewed in isolation — NOT as a continuation of the previous slide
-- Every sentence must be complete. Never end a body text mid-sentence.
-- Each slide body is two to three complete sentences with a full stop at the end of each one.
-- Do not write open-ended fragments.
-- NEVER end with words that require a follow-up on the next slide:
-  ✗ "Because"  ✗ "Instead of:"  ✗ "Instead"  ✗ "→ Try"  ✗ "Then"  ✗ "And"
-- Do NOT start a slide body with "Because..." if the premise lives in the previous slide
-- NEVER split a pattern across two slides:
-  ✗ Split: Slide 3 = 'Instead of: "Explain this"'  +  Slide 4 = 'Try: "Explain this in 3 steps"'
-  ✓ Same slide: 'Instead of: "Explain this" → Try: "Explain this in 3 steps with examples"'
-- CONTRAST format MUST have BOTH sides written in full on the SAME slide:
-  ✗ BAD:  Instead of: "Explain this" → Try
-  ✓ GOOD: Instead of: "Explain this" → Try: "Explain this simply with examples"
+- Heading only. No body text. ≤10 words.
+- High-impact. Specific to THIS carousel topic. Communicates ongoing value.
+- Do NOT use generic phrases ("more tips", "learn more", "follow us")
+- Do NOT include "@claudeinsights" or any handle in the generated text
+
+✓ GOOD: "Daily Claude prompts, workflows, and builds."
+✓ GOOD: "Every Claude Code shortcut, updated daily."
+✗ BAD:  "Follow for more Claude tips" (generic, weak)
 
 ---
 
-CTA RULE (MANDATORY):
+SELF-CHECK (mandatory before returning):
 
-For the final CTA slide, write a one-line statement in this format:
-"We show you [specific thing related to the carousel topic] every day."
-The [specific thing] must be directly tied to the topic of this carousel — it should feel
-like a natural continuation of what was just taught. Do NOT use generic phrases like
-"Claude tips" or "AI tools". Make it specific to this exact carousel.
+1. First slide: heading only, no body?
+2. CTA slide: heading only, no body?
+3. Every content slide: 2–3 body lines, each ≤12 words?
+4. No slide reads like a paragraph?
+5. Every slide understood in ≤1.5 seconds?
+6. Each slide self-contained — no continuation from previous?
 
-For heading styles: heading = "We show you [X] every day." | text = "Follow @claudeinsights"
-For text_only:      text = "We show you [X] every day. Follow @claudeinsights."
-
-✓ GOOD: "We show you how to build with Claude Code every day."
-✓ GOOD: "We show you how to write better prompts every day."
-✗ BAD:  "We show you Claude tips every day." (too generic)
+If any fails → rewrite before returning.
 
 ---
 
-EMPHASIS (bold using **word**):
-
-- 1–2 bold words per slide only
-- Bold ONLY: outcomes (better, faster, clearer), contrasts (wrong, mistake), actions (specific, structured)
-- NEVER bold filler words
-
----
-
-SELF-CHECK (mandatory — do this before returning your output):
-
-Review each slide independently. For every slide ask:
-1. Does this slide make complete sense if shown alone, without the previous slide?
-2. Does the body end on a complete thought? (not "because", "instead of", "and", "then")
-3. If using "Instead of → Try" — are BOTH sides present on THIS slide?
-4. Does the body start with "Because..." where the premise was stated in the previous slide?
-
-If any slide fails → rewrite it to be self-contained before returning.
-
----
-
-SELF-CORRECTION:
-
-If you receive an error message with the topic, you MUST fix the specific issue.
-Common errors:
-- "Incorrect number of slides"         → regenerate EXACTLY {num_slides} slides
-- "No actionable prompt example found" → add a slide with a concrete Claude prompt example (contrast format A/B, or a quoted prompt of 4+ words shown in context)
-- "Slides lack depth"                  → add a because/insight slide AND a slide with a concrete prompt example
-- "Truncated slide content"            → make the slide self-contained: complete the contrast on the same slide, or remove the dangling ending word
-- "CTA slide is missing @claudeinsights" → add "@claudeinsights" to the final slide
-- "Invalid JSON"                       → fix the JSON formatting
+SELF-CORRECTION (if you receive an error):
+- "Incorrect number of slides" → regenerate EXACTLY {num_slides} slides
+- "No actionable prompt example found" → add a concrete Claude prompt shown in use
+- "Slides lack depth" → add a because/insight line AND a concrete prompt example
+- "Truncated slide content" → complete the contrast on the same slide
+- "Invalid JSON" → fix the JSON formatting
 Do NOT repeat the same mistake.
 
 ---
@@ -567,7 +463,7 @@ _INCOMPLETE_TERMINALS: frozenset[str] = frozenset({
 # Word-limit enforcement (applied in code — never rely on LLM to obey)
 # ---------------------------------------------------------------------------
 
-_SENTENCE_END_RE = re.compile(r'(?<=[.!?])\s+')
+_SENTENCE_END_RE = re.compile(r'(?<=[.!?])\s+|\n')
 
 # Words that make a heading read as cut off when they land at the end.
 _BAD_HEADING_TERMINALS = frozenset({
@@ -695,10 +591,8 @@ def _enforce_slide_limits(slides: list[dict], template_style: str = "text_only")
                 result.append({**slide, "heading": enforced_h, "body": ""})
             elif slide_type == "cta":
                 max_h = limits["cta_heading"]
-                max_b = limits["cta_body"]
                 enforced_h = enforce_word_limit(heading, max_h)
-                enforced_b = enforce_body_limit(body, max_b)
-                result.append({**slide, "heading": enforced_h, "body": enforced_b})
+                result.append({**slide, "heading": enforced_h, "body": ""})
             else:  # content
                 max_h = limits["content_heading"]
                 max_b = limits["content_body"]
@@ -1314,7 +1208,7 @@ def _parse_json_slides(
         else:
             # heading styles: separate heading and body fields
             heading_val = _strip_citations((s.get("heading") or "").strip())
-            body_val    = _strip_markdown(_strip_citations((s.get("text") or "").strip()))
+            body_val    = _strip_citations((s.get("text") or "").strip())
 
             if not heading_val:
                 raise ValueError(f"Slide {i} has empty 'heading'")
@@ -1783,13 +1677,8 @@ def generate_slides(
                     "Retrying for more informative content."
                 )
             slides = _validate_completeness(slides, template_style)  # auto-corrects headings; raises if body is broken
-            if not _has_cta_handle(slides):
-                raise ValueError(
-                    "CTA slide is missing @claudeinsights. "
-                    "The final slide MUST include '@claudeinsights'."
-                )
             logger.info(
-                "Generated %d slides (validated: completeness, CTA handle, prompt example, depth)",
+                "Generated %d slides (validated: completeness, prompt example, depth)",
                 len(slides),
             )
             # Auto-compress any remaining oversized headings before review

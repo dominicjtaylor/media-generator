@@ -156,7 +156,7 @@ def inject_slide(
             # converting to <strong>, which would trigger a mid-string font
             # fallback to Inter via the universal * rule.
             html = html.replace("{{HEADING}}", _strip_bold(heading))
-            html = html.replace("{{TEXT}}",    _md_bold_to_html(body))
+            html = html.replace("{{TEXT}}",    _md_bold_to_html(body.replace('\n', '<br>')))
 
     if number is not None:
         html = html.replace("{{NUMBER}}", number)

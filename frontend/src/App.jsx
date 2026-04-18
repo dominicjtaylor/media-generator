@@ -161,6 +161,7 @@ export default function App() {
         throw new Error(body.detail || `Server error (${res.status})`)
       }
       let gotComplete = false
+      let gotError = false
       await readSse(res, (event) => {
         if (event.step === 'complete') {
           gotComplete = true
@@ -169,12 +170,13 @@ export default function App() {
           setCarouselStyle(event.style || 'text_only')
           runQc(event.slides || [])
         } else if (event.step === 'error') {
+          gotError = true
           goError(event.message || 'Slide generation failed.')
         } else {
           setStepMsg(event.message || '')
         }
       })
-      if (!gotComplete) goError('Slide generation did not complete.')
+      if (!gotComplete && !gotError) goError('Slide generation did not complete.')
     } catch (err) {
       goError(err.message || 'Slide generation failed.')
     }
@@ -241,6 +243,7 @@ export default function App() {
         throw new Error(body.detail || `Render failed (${res.status})`)
       }
       let gotComplete = false
+      let gotError = false
       await readSse(res, (event) => {
         if (event.step === 'complete') {
           gotComplete = true
@@ -248,12 +251,13 @@ export default function App() {
           setStatus('done')
           showToast('Carousel rendered!')
         } else if (event.step === 'error') {
+          gotError = true
           goError(event.message || 'Rendering failed.')
         } else {
           setStepMsg(event.message || '')
         }
       })
-      if (!gotComplete && status !== 'error') goError('Render did not complete.')
+      if (!gotComplete && !gotError) goError('Render did not complete.')
     } catch (err) {
       goError(err.message || 'Rendering failed.')
     }

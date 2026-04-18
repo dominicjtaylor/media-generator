@@ -323,6 +323,14 @@ def hooks_route(req: HookRequest):
 
 def _slides_stream(topic: str, hook: str, num_slides: int, image_filename: Optional[str] = None) -> Generator[str, None, None]:
     """SSE stream: generate slides using the selected hook."""
+    # Validate selected image exists before spending time on generation
+    if image_filename:
+        _img_path = _LOCAL_IMAGE_DIR / image_filename
+        if not _img_path.exists():
+            logger.error("Selected image not found on disk: %s", _img_path)
+            yield _sse({"step": "error", "message": f"Image not found: {image_filename}. Please go back and select a different image."})
+            return
+
     # Use image template when the user has picked an image
     style = "headings_text_image" if image_filename else select_template_style()
     yield _sse({"step": "generating", "message": "Generating slides..."})
@@ -540,7 +548,7 @@ def generate(req: GenerateRequest):
 # Local image library  (/api/images)
 # ---------------------------------------------------------------------------
 
-_LOCAL_IMAGE_DIR = Path("assets/lummi_images")
+_LOCAL_IMAGE_DIR = Path(__file__).parent / "assets" / "lummi_images"
 _IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
 

@@ -198,11 +198,13 @@ def render_slides(
         src_image = Path(image_data["local_path"])
         if src_image.exists():
             shutil.copy2(src_image, out_dir / "image.png")
-            logger.info("Copied Lummi image → %s/image.png", out_dir)
+            logger.info("Copied image %s → %s/image.png", src_image.name, out_dir)
         else:
-            logger.warning(
-                "image_data.local_path not found: %s — first slide image will be broken",
+            logger.error(
+                "Image file not found at resolved path: %s (absolute: %s) — "
+                "slide 1 image will be blank",
                 src_image,
+                src_image.resolve(),
             )
 
     # Write HTML files

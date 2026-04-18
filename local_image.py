@@ -25,7 +25,7 @@ from bs4 import BeautifulSoup
 
 logger = logging.getLogger("carousel.local_image")
 
-LOCAL_IMAGE_DIR: Path = Path("assets/lummi_images")
+LOCAL_IMAGE_DIR: Path = Path(__file__).parent / "assets" / "lummi_images"
 
 _IMAGE_EXTENSIONS: frozenset[str] = frozenset({".jpg", ".jpeg", ".png", ".webp"})
 

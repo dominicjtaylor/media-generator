@@ -4,7 +4,7 @@ const SLIDES = [4, 5, 7, 10]
 
 export default function Form({ onGenerate, loading, onReset }) {
   const [topic,    setTopic]    = useState('')
-  const [slides,   setSlides]   = useState(5)
+  const [slides,   setSlides]   = useState(7)
   const [expanded, setExpanded] = useState(false)
   const inputRef = useRef(null)
 

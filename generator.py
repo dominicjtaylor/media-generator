@@ -25,10 +25,15 @@ from typing import Optional
 logger = logging.getLogger("carousel.generator")
 
 _CITE_RE = re.compile(r'<cite[^>]*>(.*?)</cite>', re.DOTALL | re.IGNORECASE)
+_MD_RE   = re.compile(r'\*{1,2}|_{1,2}|~~')
 
 def _strip_citations(text: str) -> str:
     """Remove <cite …>…</cite> tags injected by web search, keeping inner text."""
     return _CITE_RE.sub(r'\1', text)
+
+def _strip_markdown(text: str) -> str:
+    """Remove markdown formatting markers (**, *, _, ~~) from plain-text body fields."""
+    return _MD_RE.sub('', text)
 
 # ---------------------------------------------------------------------------
 # Template styles and word limits
@@ -89,16 +94,16 @@ WORD_LIMITS: dict[str, dict[str, int]] = {
     "headings_and_text": {
         "hook_heading":    8,
         "content_heading": 8,
-        "content_body":    20,
+        "content_body":    35,
         "cta_heading":     8,
-        "cta_body":        12,
+        "cta_body":        35,
     },
     "headings_text_image": {
         "hook_heading":    8,
         "content_heading": 8,
-        "content_body":    20,
+        "content_body":    35,
         "cta_heading":     8,
-        "cta_body":        12,
+        "cta_body":        35,
     },
 }
 
@@ -240,9 +245,9 @@ WORD LIMITS (two-field format — enforce strictly):
 
 - Hook heading (Slide 1): max 8 words
 - Content heading:         max 8 words  \u2190 the bold title shown large
-- Content body (text):     max 20 words \u2190 the supporting explanation shown smaller
+- Content body (text):     max 35 words \u2190 the supporting explanation shown smaller
 - CTA heading:             max 8 words
-- CTA body (text):         max 12 words
+- CTA body (text):         max 35 words
 {image_hook_note}
 OUTPUT FORMAT (STRICT JSON — two fields per slide):
 
@@ -473,6 +478,9 @@ HEADINGS ("heading" field):
 BODY TEXT ("text" field, or the full text in text_only):
 - MUST be a complete, self-contained unit of meaning
 - Must make sense when viewed in isolation — NOT as a continuation of the previous slide
+- Every sentence must be complete. Never end a body text mid-sentence.
+- Each slide body is two to three complete sentences with a full stop at the end of each one.
+- Do not write open-ended fragments.
 - NEVER end with words that require a follow-up on the next slide:
   ✗ "Because"  ✗ "Instead of:"  ✗ "Instead"  ✗ "→ Try"  ✗ "Then"  ✗ "And"
 - Do NOT start a slide body with "Because..." if the premise lives in the previous slide
@@ -554,8 +562,41 @@ _INCOMPLETE_TERMINALS: frozenset[str] = frozenset({
 # Word-limit enforcement (applied in code — never rely on LLM to obey)
 # ---------------------------------------------------------------------------
 
+_SENTENCE_END_RE = re.compile(r'(?<=[.!?])\s+')
+
+
+def enforce_body_limit(text: str, max_words: int) -> str:
+    """Truncate body text to the last complete sentence that fits within max_words.
+
+    A complete sentence ends with . ! or ?  If the entire text is one long
+    sentence exceeding max_words, truncate at max_words and add an ellipsis.
+    Never cuts mid-sentence.
+    """
+    words = text.split()
+    if len(words) <= max_words:
+        return text
+
+    # Split into sentences and greedily pack complete sentences within the limit
+    sentences = _SENTENCE_END_RE.split(text.strip())
+    result_sentences: list[str] = []
+    word_count = 0
+    for sent in sentences:
+        sent_words = len(sent.split())
+        if word_count + sent_words <= max_words:
+            result_sentences.append(sent)
+            word_count += sent_words
+        else:
+            break
+
+    if result_sentences:
+        return " ".join(result_sentences)
+
+    # Single sentence longer than max_words — truncate with ellipsis
+    return " ".join(words[:max_words]) + "…"
+
+
 def enforce_word_limit(text: str, max_words: int) -> str:
-    """Truncate *text* to at most *max_words* words, ending at a natural boundary.
+    """Truncate heading text to at most *max_words* words, ending at a natural boundary.
 
     After a hard word-count cut the function walks backwards to find the last
     sentence-final punctuation (.!?"), and if not found, the last clause
@@ -640,13 +681,13 @@ def _enforce_slide_limits(slides: list[dict], template_style: str = "text_only")
                 max_h = limits["cta_heading"]
                 max_b = limits["cta_body"]
                 enforced_h = enforce_word_limit(heading, max_h)
-                enforced_b = enforce_word_limit(body, max_b)
+                enforced_b = enforce_body_limit(body, max_b)
                 result.append({**slide, "heading": enforced_h, "body": enforced_b})
             else:  # content
                 max_h = limits["content_heading"]
                 max_b = limits["content_body"]
                 enforced_h = enforce_word_limit(heading, max_h)
-                enforced_b = enforce_word_limit(body, max_b)
+                enforced_b = enforce_body_limit(body, max_b)
                 if enforced_h != heading:
                     logger.info("Truncated content heading %d→%d words", len(heading.split()), max_h)
                 if enforced_b != body:
@@ -1257,7 +1298,7 @@ def _parse_json_slides(
         else:
             # heading styles: separate heading and body fields
             heading_val = _strip_citations((s.get("heading") or "").strip())
-            body_val    = _strip_citations((s.get("text") or "").strip())
+            body_val    = _strip_markdown(_strip_citations((s.get("text") or "").strip()))
 
             if not heading_val:
                 raise ValueError(f"Slide {i} has empty 'heading'")
@@ -1314,8 +1355,8 @@ Return ONLY a JSON array with two fields per slide — no extra text:
 ]"""
         word_limits = (
             "hook heading: max 8 words | "
-            "content heading: max 8 words | content body (text): max 20 words | "
-            "cta heading: max 8 words | cta body (text): max 12 words"
+            "content heading: max 8 words | content body (text): max 35 words | "
+            "cta heading: max 8 words | cta body (text): max 35 words"
         )
 
     return f"""\

@@ -59,9 +59,13 @@ _ARC = ["Problem", "Cost", "Shift", "System", "Proof", "Decision", "CTA"]
 # text copied from web pages.  Strip these before passing to any LLM call.
 _ZW_CHARS  = _re.compile(r'[\u200b\u200c\u200d\u200e\u200f\u00ad\ufeff]+')
 _CITE_RE   = _re.compile(r'<cite[^>]*>(.*?)</cite>', _re.DOTALL | _re.IGNORECASE)
+_MD_RE     = _re.compile(r'\*{1,2}|_{1,2}|~~')
 
 def _strip_citations(text: str) -> str:
     return _CITE_RE.sub(r'\1', text)
+
+def _strip_markdown(text: str) -> str:
+    return _MD_RE.sub('', text)
 
 
 def _clean_topic(text: str) -> str:
@@ -309,7 +313,10 @@ repeat anything already covered:
 {other_slides}
 
 {issue_block}\
-Write a new version of slide {slide_num} only. One idea. Two to three sentences maximum. \
+Write complete sentences only. Every sentence must end with a full stop. No fragments. \
+No sentences that trail off.
+
+Write a new version of slide {slide_num} only. One idea. Two to three complete sentences. \
 Return as JSON with keys "heading" and "body" — no type, no markdown, just the object:
 {{"heading": "...", "body": "..."}}"""
 
@@ -476,11 +483,12 @@ def qc_route(req: QcRequest):
         flags = _parse_json(raw)
         if not isinstance(flags, list):
             flags = []
-        # Strip web-search citation tags from any replacement text
+        # Strip web-search citation tags and markdown from any replacement text
         for f in flags:
-            for key in ("replacement_heading", "replacement_body"):
-                if isinstance(f.get(key), str):
-                    f[key] = _strip_citations(f[key])
+            if isinstance(f.get("replacement_heading"), str):
+                f["replacement_heading"] = _strip_citations(f["replacement_heading"])
+            if isinstance(f.get("replacement_body"), str):
+                f["replacement_body"] = _strip_markdown(_strip_citations(f["replacement_body"]))
         # Discard any flag that quotes text not present in the actual slide
         before = len(flags)
         flags  = [f for f in flags if _qc_flag_is_grounded(f, req.slides)]
@@ -547,7 +555,7 @@ def regenerate_route(req: RegenerateRequest):
 
     return {"slide": {"type": new_slide.get("type", slide_type),
                       "heading": _strip_citations(new_slide.get("heading", "")),
-                      "description": _strip_citations(new_slide.get("body", new_slide.get("description", "")))}}
+                      "description": _strip_markdown(_strip_citations(new_slide.get("body", new_slide.get("description", ""))))}}
 
 
 def _render_stream(
@@ -559,7 +567,7 @@ def _render_stream(
     internal_slides = [
         {"type": s.get("type", "content"),
          "heading": _strip_citations(s.get("heading", "")),
-         "body":    _strip_citations(s.get("description", ""))}
+         "body":    _strip_markdown(_strip_citations(s.get("description", "")))}
         for s in slides
     ]
 

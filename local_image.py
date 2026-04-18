@@ -281,12 +281,12 @@ def fetch_lummi_credit(filename: str) -> dict:
 # Unified interface — swap this with fetch_lummi_image() when API is ready
 # ---------------------------------------------------------------------------
 
-def get_image_for_heading_template(topic: str) -> dict:
+def get_image_for_heading_template(topic: str, image_filename: Optional[str] = None) -> dict:
     """Select a local image and fetch its Lummi credit attribution.
 
-    This is the single public interface for local image handling.
-    Returns a dict that satisfies the renderer's image_data contract
-    so it is a drop-in replacement for fetch_lummi_image().
+    If image_filename is provided the fuzzy-scoring logic is skipped entirely
+    and that file is used directly — this is the path taken when the user has
+    made an explicit selection in the image picker.
 
     Returns:
         {
@@ -298,7 +298,19 @@ def get_image_for_heading_template(topic: str) -> dict:
             "focal_y":      float,  # vertical focal point   (0–1), default 0.5
         }
     """
+    if image_filename:
+        logger.info("Using user-selected image: %s", image_filename)
+        return {
+            "local_path":  str((LOCAL_IMAGE_DIR / image_filename).resolve()),
+            "author_name": "",
+            "author_url":  "",
+            "image_page":  "",
+            "focal_x":     0.5,
+            "focal_y":     0.5,
+        }
+
     image_info = select_relevant_image(topic)
+    logger.info("No user selection — auto-selected image: %s", image_info["filename"])
     credit = fetch_lummi_credit(image_info["filename"])
 
     return {

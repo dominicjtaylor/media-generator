@@ -340,21 +340,12 @@ def _slides_stream(topic: str, hook: str, num_slides: int, image_filename: Optio
     if style == "headings_text_image":
         yield _sse({"step": "fetching_image", "message": "Fetching image..."})
         try:
-            if image_filename:
-                img_path = Path("assets/lummi_images") / image_filename
-                image_data = {
-                    "local_path": str(img_path.resolve()),
-                    "author_name": "",
-                    "author_url": "",
-                    "focal_x": 0.5,
-                    "focal_y": 0.5,
-                }
-            elif os.getenv("LUMMI_API_KEY"):
+            if os.getenv("LUMMI_API_KEY"):
                 from image_fetcher import fetch_lummi_image
                 image_data = fetch_lummi_image(topic)
             else:
                 from local_image import get_image_for_heading_template
-                image_data = get_image_for_heading_template(topic)
+                image_data = get_image_for_heading_template(topic, image_filename)
             if image_data and image_data.get("author_name"):
                 author_url = image_data.get("author_url", "")
                 credit = image_data["author_name"]
@@ -486,21 +477,12 @@ def _render_stream(
     image_data = None
     if style == "headings_text_image":
         try:
-            if image_filename:
-                img_path = Path("assets/lummi_images") / image_filename
-                image_data = {
-                    "local_path": str(img_path.resolve()),
-                    "author_name": "",
-                    "author_url": "",
-                    "focal_x": 0.5,
-                    "focal_y": 0.5,
-                }
-            elif os.getenv("LUMMI_API_KEY"):
+            if os.getenv("LUMMI_API_KEY"):
                 from image_fetcher import fetch_lummi_image
                 image_data = fetch_lummi_image(topic)
             else:
                 from local_image import get_image_for_heading_template
-                image_data = get_image_for_heading_template(topic)
+                image_data = get_image_for_heading_template(topic, image_filename)
         except Exception as exc:
             logger.warning("Image fetch failed for render (%s) — using text_only", exc)
             style = "text_only"

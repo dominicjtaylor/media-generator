@@ -273,23 +273,23 @@ replacement_heading, replacement_body. Return an empty array if no issues found.
 Carousel: {slides_json}"""
 
 _REGEN_PROMPT = """\
-Rewrite slide {slide_num} of {total} for an Instagram carousel about "{topic}".
+You are rewriting slide {slide_num} of {total} in an Instagram carousel about "{topic}".
 
-Opening hook of this carousel: "{hook}"
-Arc position: {arc} — write content fitting this narrative stage.
+The hook on slide 1 is: "{hook}"
 
-Current slide (to replace):
-  Heading: {heading}
-  Body: {body}
+This slide sits at the {arc} stage of the arc:
+Problem → Cost → Shift → System → Proof → Decision → CTA
+
+Here are all the other slides in the carousel for context — do NOT reproduce any of their \
+ideas. Your rewrite must introduce a distinct idea that fits the {arc} stage and does not \
+repeat anything already covered:
+
+{other_slides}
 
 {issue_block}\
-Requirements:
-- Return JSON: {{"type": "{slide_type}", "heading": "...", "body": "..."}}
-- Heading: 3-7 words, punchy
-- Body: 20-35 words, specific and actionable
-- Content must flow naturally from the hook and arc position
-- Must be clearly different from the original
-- No markdown, just the JSON object"""
+Write a new version of slide {slide_num} only. One idea. Two to three sentences maximum. \
+Return as JSON with keys "heading" and "body" — no type, no markdown, just the object:
+{{"heading": "...", "body": "..."}}"""
 
 
 @app.get("/healthz", tags=["meta"])
@@ -440,8 +440,24 @@ def regenerate_route(req: RegenerateRequest):
     total      = len(req.slides)
     arc        = _arc_position(idx + 1, total)
     slide_type = slide.get("type", "content")
+
+    # Build context list of every OTHER slide with its arc position so the
+    # LLM knows exactly what has already been said and won't repeat ideas.
+    other_lines: list[str] = []
+    for i, s in enumerate(req.slides):
+        if i == idx:
+            continue
+        s_arc    = _arc_position(i + 1, total)
+        heading  = s.get("heading", "")
+        body     = s.get("description", s.get("body", ""))
+        entry    = f"Slide {i + 1} ({s_arc}): {heading}"
+        if body:
+            entry += f" — {body}"
+        other_lines.append(entry)
+    other_slides = "\n".join(other_lines)
+
     issue_block = (
-        f"Issue flagged: {req.issue}\nSuggestion: {req.suggestion}\n\n"
+        f"Issue with the current slide: {req.issue}\nSuggestion: {req.suggestion}\n\n"
         if req.issue else ""
     )
 
@@ -451,14 +467,12 @@ def regenerate_route(req: RegenerateRequest):
         topic=topic,
         hook=req.hook or topic,
         arc=arc,
-        heading=slide.get("heading", ""),
-        body=slide.get("description", ""),
+        other_slides=other_slides,
         issue_block=issue_block,
-        slide_type=slide_type,
     )
     try:
-        raw        = _claude(prompt, max_tokens=256)
-        new_slide  = _parse_json(raw)
+        raw       = _claude(prompt, max_tokens=512)
+        new_slide = _parse_json(raw)
         if not isinstance(new_slide, dict):
             raise ValueError("Expected a JSON object")
         new_slide.setdefault("type", slide_type)

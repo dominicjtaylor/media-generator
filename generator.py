@@ -956,27 +956,62 @@ def _has_cta_handle(slides: list[dict]) -> bool:
 # Depth validation — at least one example and one insight per carousel
 # ---------------------------------------------------------------------------
 
-# Markers for a concrete prompt example or use-case slide (no contrast required)
-_EXAMPLE_MARKERS = ('"', "\u201c", "\u2018", "e.g.", "for example", "act as ", "ask claude")
+# Semantic signals that a slide contains a concrete example, action, or comparison.
+# Deliberately broad — any specific real-world framing counts.
+_EXAMPLE_SIGNALS: tuple[str, ...] = (
+    '"', '\u201c', '\u2018',                               # quoted content / prompts
+    "e.g.", "for example", "such as", "example:",          # explicit example framing
+    "instead of", "rather than", " vs ", "vs.",            # comparison / contrast
+    " → ", "->",                                           # before/after arrow
+    "ask claude", "act as ", "tell claude",                # direct Claude instructions
+    "give claude", "send claude", "type ", "paste ",       # reader action verbs
+    "before:", "after:",                                   # before/after labels
+    "step 1", "step 2", "step 3",                         # numbered steps = concrete
+)
 
-# Markers for an insight/explanation slide
-_INSIGHT_MARKERS = ("because", "—", " — ", "=", "≠", "means ", "so ", "which ")
+# Semantic signals that a slide contains an explanatory or causal statement.
+# Any phrasing that connects an observation to a consequence or reason counts.
+_INSIGHT_SIGNALS: tuple[str, ...] = (
+    "because", "—", " — ",
+    "which means", "that means", "this means", "means ",
+    "leads to", "results in", "causes ", "makes ",
+    "allows ", "enables ", "helps ", "lets you",
+    "the reason", "this is why", "that's why",
+    "so that", "in order to",
+    "so ", "which ",
+    "if you", "when you",
+)
 
 
 def _has_depth(slides: list[dict]) -> bool:
-    """Return True if the carousel contains at least one example slide AND
-    one insight/explanation slide among the content slides.
-    Checks both heading and body fields to support two-field heading styles."""
+    """Return True if the carousel has at least one concrete example slide and
+    one explanatory/causal slide among the content slides.
+
+    Checks are semantic — any phrasing that conveys a real example or a
+    cause-and-effect relationship passes, regardless of exact syntax.
+    A specific number anywhere in the slide text also satisfies the example
+    requirement (numbers signal concrete, non-vague content).
+    """
     has_example = False
     has_insight = False
     for slide in slides:
         if slide["type"] != "content":
             continue
-        text_lower = (slide.get("heading", "") + " " + slide.get("body", "")).lower()
-        if any(m in text_lower for m in _EXAMPLE_MARKERS):
+        text       = slide.get("heading", "") + " " + slide.get("body", "")
+        text_lower = text.lower()
+
+        if not has_example and (
+            any(m in text_lower for m in _EXAMPLE_SIGNALS)
+            or re.search(r'\b\d+\b', text)   # any specific number = concrete
+        ):
             has_example = True
-        if any(m in text_lower for m in _INSIGHT_MARKERS):
+
+        if not has_insight and any(m in text_lower for m in _INSIGHT_SIGNALS):
             has_insight = True
+
+        if has_example and has_insight:
+            break
+
     return has_example and has_insight
 
 # ---------------------------------------------------------------------------

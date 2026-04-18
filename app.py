@@ -55,6 +55,16 @@ _ARC = ["Problem", "Cost", "Shift", "System", "Proof", "Decision", "CTA"]
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+# Zero-width and invisible Unicode characters that browsers may append to
+# text copied from web pages.  Strip these before passing to any LLM call.
+_ZW_CHARS = _re.compile(r'[\u200b\u200c\u200d\u200e\u200f\u00ad\ufeff]+')
+
+
+def _clean_topic(text: str) -> str:
+    """Strip whitespace and zero-width Unicode characters from topic input."""
+    return _ZW_CHARS.sub('', text).strip()
+
+
 def _claude(prompt: str, max_tokens: int = 1024) -> str:
     """Single-turn Claude call, returns response text."""
     client = _anthropic.Anthropic()
@@ -308,7 +318,7 @@ def healthz():
 @app.post("/hooks", tags=["carousel"])
 def hooks_route(req: HookRequest):
     """Generate 4 hook options for a given topic."""
-    topic = req.topic.strip()
+    topic = _clean_topic(req.topic)
     if not topic:
         raise HTTPException(status_code=422, detail="topic must not be empty")
 
@@ -396,7 +406,7 @@ def _slides_stream(topic: str, hook: str, num_slides: int, image_filename: Optio
 @app.post("/slides", tags=["carousel"])
 def slides_route(req: SlidesRequest):
     """Generate carousel slides using the user-selected hook (SSE stream)."""
-    topic = req.topic.strip()
+    topic = _clean_topic(req.topic)
     hook  = req.hook.strip()
     if not topic:
         raise HTTPException(status_code=422, detail="topic must not be empty")
@@ -448,7 +458,7 @@ def _qc_flag_is_grounded(flag: dict, slides: list[dict]) -> bool:
 @app.post("/qc", tags=["carousel"])
 def qc_route(req: QcRequest):
     """QC-check slides and return a list of flags."""
-    topic = req.topic.strip()
+    topic = _clean_topic(req.topic)
     if not topic:
         raise HTTPException(status_code=422, detail="topic must not be empty")
     if not req.slides:
@@ -477,7 +487,7 @@ def qc_route(req: QcRequest):
 @app.post("/regenerate", tags=["carousel"])
 def regenerate_route(req: RegenerateRequest):
     """Regenerate a single slide at the given index."""
-    topic = req.topic.strip()
+    topic = _clean_topic(req.topic)
     idx   = req.slide_index
     if not (0 <= idx < len(req.slides)):
         raise HTTPException(status_code=422, detail="slide_index out of range")
@@ -575,7 +585,7 @@ def _render_stream(
 @app.post("/render", tags=["carousel"])
 def render_route(req: RenderRequest):
     """Render approved slides to PNG (SSE stream)."""
-    topic = req.topic.strip()
+    topic = _clean_topic(req.topic)
     if not topic:
         raise HTTPException(status_code=422, detail="topic must not be empty")
     if not req.slides:
@@ -592,7 +602,7 @@ def render_route(req: RenderRequest):
 def generate(req: GenerateRequest):
     print("=== NEW BACKEND RUNNING ===")
     print(f"Received topic={req.topic!r} num_slides={req.num_slides}")
-    topic = req.topic.strip()
+    topic = _clean_topic(req.topic)
     if not topic:
         raise HTTPException(status_code=422, detail="topic must not be empty")
     req.validate_num_slides()

@@ -213,7 +213,7 @@ OUTPUT FORMAT (STRICT JSON):
     {{"type": "content", "text": "Specific prompts work better — because Claude knows exactly what to do"}},
     {{"type": "content", "text": "Structured prompts cut editing time — Claude returns answers **ready** to use"}},
     {{"type": "content", "text": "Add your role upfront — 'Act as a teacher' changes every answer **instantly**"}},
-    {{"type": "cta",     "text": "Follow @claudeinsights for more Claude tips"}}
+    {{"type": "cta",     "text": "We show you how to write better prompts every day."}}
   ]
 }}
 
@@ -250,7 +250,7 @@ Each slide has TWO fields:
     {{"type": "content", "heading": "Specific prompts work better",                    "text": "Because Claude needs clear instructions to respond accurately and completely"}},
     {{"type": "content", "heading": "Match the prompt to the task",                   "text": "Ask Claude to 'explain X in 3 steps with examples' — specificity shapes the output **directly**"}},
     {{"type": "content", "heading": "Add a role to every prompt",                      "text": "'Act as a teacher' changes every answer \u2014 Claude adjusts tone and depth **instantly**"}},
-    {{"type": "cta",     "heading": "Follow @claudeinsights now",                     "text": "Get more Claude tips every week"}}
+    {{"type": "cta",     "heading": "We show you how to write better prompts every day.", "text": ""}}
   ]
 }}
 
@@ -472,13 +472,18 @@ BODY TEXT ("text" field, or the full text in text_only):
 
 CTA RULE (MANDATORY):
 
-The final slide MUST include "@claudeinsights" and a clear action verb.
+IMPORTANT: The final slide heading MUST start with "We show you" and end with "every day." — this is non-negotiable. Any other format will be rejected.
 
-✓ VALID:   "Follow @claudeinsights for more Claude tips"
-           "**Save** this — more tips at @claudeinsights"
-           "Build smarter — follow @claudeinsights **now**"
+Write the final slide heading in this exact format:
+"We show you [specific thing directly related to the topic] every day."
 
-✗ INVALID (missing handle): "Try this today" / "Save this and start now"
+The [specific thing] must name the exact technique, tool, or outcome from THIS carousel.
+
+✓ GOOD: "We show you how to run your desktop from your phone every day."
+✓ GOOD: "We show you how to build apps with Claude Code every day."
+✓ GOOD: "We show you how to write better prompts every day."
+✗ BAD:  "We show you daily Claude workflows every day." (too generic)
+✗ BAD:  "Follow @claudeinsights for more Claude tips" (wrong format)
 
 ---
 
@@ -510,7 +515,7 @@ Common errors:
 - "No actionable prompt example found" → add a slide with a concrete Claude prompt example (contrast format A/B, or a quoted prompt of 4+ words shown in context)
 - "Slides lack depth"                  → add a because/insight slide AND a slide with a concrete prompt example
 - "Truncated slide content"            → make the slide self-contained: complete the contrast on the same slide, or remove the dangling ending word
-- "CTA slide is missing @claudeinsights" → add "@claudeinsights" to the final slide
+- "CTA heading does not follow 'We show you' format" → rewrite final slide heading as "We show you [specific thing] every day."
 - "Invalid JSON"                       → fix the JSON formatting
 Do NOT repeat the same mistake.
 
@@ -1603,6 +1608,8 @@ def generate_slides(
             f"Unknown LLM_PROVIDER {provider!r}. Choose 'anthropic' or 'openai'."
         )
 
+    logger.info("Using hook: %s", hook or "(none)")
+
     backend      = backends[provider]
     last_error: Optional[Exception] = None
     error_context: str              = ""
@@ -1676,13 +1683,8 @@ def generate_slides(
                     "Retrying for more informative content."
                 )
             slides = _validate_completeness(slides, template_style)  # auto-corrects headings; raises if body is broken
-            if not _has_cta_handle(slides):
-                raise ValueError(
-                    "CTA slide is missing @claudeinsights. "
-                    "The final slide MUST include '@claudeinsights'."
-                )
             logger.info(
-                "Generated %d slides (validated: completeness, CTA handle, prompt example, depth)",
+                "Generated %d slides (validated: completeness, prompt example, depth)",
                 len(slides),
             )
             # Auto-compress any remaining oversized headings before review
@@ -1696,6 +1698,19 @@ def generate_slides(
                 time.sleep(2)
                 slides = review_and_improve(slides, template_style)
                 slides = _clean_heading_punctuation(slides)
+            # Restore original hook verbatim (survives review_and_improve + _compress_heading)
+            if hook:
+                slides[0] = {**slides[0], "heading": hook}
+            # Strip bold markers from hook and CTA headings — Anton/display font makes ** noise
+            slides[0]  = {**slides[0],  "heading": _strip_markdown(slides[0]["heading"])}
+            slides[-1] = {**slides[-1], "heading": _strip_markdown(slides[-1]["heading"])}
+            # Enforce "We show you … every day." format on the CTA slide
+            if not slides[-1]["heading"].strip().lower().startswith("we show you"):
+                logger.warning(
+                    "CTA heading does not follow 'We show you' format: %r — correcting",
+                    slides[-1]["heading"],
+                )
+                slides[-1] = {**slides[-1], "heading": f"We show you {topic} every day."}
             caption = generate_caption(slides)
             if os.environ.get("DEBUG", "false").lower() == "true":
                 caption += f"\n\n[DEBUG] template={template_style} | image_enabled={_IMAGE_ENABLED}"

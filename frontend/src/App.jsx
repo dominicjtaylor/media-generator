@@ -165,10 +165,18 @@ export default function App() {
       await readSse(res, (event) => {
         if (event.step === 'complete') {
           gotComplete = true
-          setSlides(event.slides || [])
+          let receivedSlides = event.slides || []
+          // Enforce "We show you … every day." on final slide (belt-and-suspenders)
+          if (receivedSlides.length > 0) {
+            const last = receivedSlides[receivedSlides.length - 1]
+            if (last && !last.heading?.trim().toLowerCase().startsWith('we show you')) {
+              receivedSlides = [...receivedSlides.slice(0, -1), { ...last, heading: `We show you ${topic} every day.` }]
+            }
+          }
+          setSlides(receivedSlides)
           setCaption(event.caption || '')
           setCarouselStyle(event.style || 'text_only')
-          runQc(event.slides || [])
+          runQc(receivedSlides)
         } else if (event.step === 'error') {
           gotError = true
           goError(event.message || 'Slide generation failed.')

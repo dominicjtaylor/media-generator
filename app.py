@@ -267,10 +267,15 @@ Read the following carousel slides, starting from slide 2. Flag any slides that 
 repeat the same idea, feel too vague, or don't advance the argument. \
 Do not evaluate slide 1. Suggest a replacement for each flagged slide.
 
+IMPORTANT: Only flag issues based on the exact text provided below. Do not reference \
+or quote any text that does not appear verbatim in the slide content given. If you \
+cannot point to specific words in the slide that demonstrate the problem, do not flag it.
+
 Return as a JSON array of objects with keys: slide_number, issue, \
 replacement_heading, replacement_body. Return an empty array if no issues found.
 
-Carousel: {slides_json}"""
+Carousel:
+{slides_json}"""
 
 _REGEN_PROMPT = """\
 Write like a smart 10 year old explaining something to a friend. \
@@ -407,6 +412,39 @@ def slides_route(req: SlidesRequest):
     )
 
 
+def _qc_flag_is_grounded(flag: dict, slides: list[dict]) -> bool:
+    """Return False if the flag quotes text that doesn't appear in the slide.
+
+    The QC LLM occasionally hallucinates issues that reference words or phrases
+    not present in the actual slide.  If the issue field contains a quoted string
+    (double quotes), we verify that string appears verbatim in the slide text.
+    Flags without any quoted text are accepted as-is.
+    """
+    slide_num = flag.get("slide_number")
+    if not isinstance(slide_num, int) or not (1 <= slide_num <= len(slides)):
+        return False
+
+    issue = flag.get("issue", "")
+    quoted = _re.findall(r'"([^"]{4,})"', issue)   # only check substantive quotes (4+ chars)
+    if not quoted:
+        return True
+
+    slide = slides[slide_num - 1]
+    slide_text = (
+        slide.get("heading", "") + " " + slide.get("description", slide.get("body", ""))
+    ).lower()
+
+    for q in quoted:
+        if q.lower() not in slide_text:
+            logger.info(
+                "QC flag for slide %d discarded — quoted text %r not found in slide",
+                slide_num, q,
+            )
+            return False
+
+    return True
+
+
 @app.post("/qc", tags=["carousel"])
 def qc_route(req: QcRequest):
     """QC-check slides and return a list of flags."""
@@ -424,6 +462,11 @@ def qc_route(req: QcRequest):
         flags = _parse_json(raw)
         if not isinstance(flags, list):
             flags = []
+        # Discard any flag that quotes text not present in the actual slide
+        before = len(flags)
+        flags  = [f for f in flags if _qc_flag_is_grounded(f, req.slides)]
+        if len(flags) < before:
+            logger.info("QC: discarded %d hallucinated flag(s)", before - len(flags))
     except Exception as exc:
         logger.warning("QC parse failed (%s) — returning no flags", exc)
         flags = []

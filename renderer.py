@@ -53,6 +53,16 @@ def _md_bold_to_html(text: str) -> str:
     return re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text)
 
 
+def _strip_bold(text: str) -> str:
+    """Remove **..** markers, returning plain text without HTML tags.
+
+    Used for heading elements rendered in Anton — the font is already
+    display-weight so bold markers add no visual value and, when converted
+    to <strong>, cause a mid-string font fallback to Inter via the * rule.
+    """
+    return re.sub(r'\*\*(.*?)\*\*', r'\1', text)
+
+
 # ---------------------------------------------------------------------------
 # Step 1: HTML injection
 # ---------------------------------------------------------------------------
@@ -138,8 +148,11 @@ def inject_slide(
             # First and last templates use a single {{TEXT}} block
             html = html.replace("{{TEXT}}", _md_bold_to_html(heading))
         else:
-            # Content template: two separate zones
-            html = html.replace("{{HEADING}}", _md_bold_to_html(heading))
+            # Content template: two separate zones.
+            # Heading uses Anton exclusively — strip bold markers rather than
+            # converting to <strong>, which would trigger a mid-string font
+            # fallback to Inter via the universal * rule.
+            html = html.replace("{{HEADING}}", _strip_bold(heading))
             html = html.replace("{{TEXT}}",    _md_bold_to_html(body))
 
     if number is not None:

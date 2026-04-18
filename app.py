@@ -273,6 +273,9 @@ replacement_heading, replacement_body. Return an empty array if no issues found.
 Carousel: {slides_json}"""
 
 _REGEN_PROMPT = """\
+Write like a smart 10 year old explaining something to a friend. \
+Short words. Short sentences. Specific details. No jargon.
+
 You are rewriting slide {slide_num} of {total} in an Instagram carousel about "{topic}".
 
 The hook on slide 1 is: "{hook}"

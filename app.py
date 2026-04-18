@@ -60,12 +60,16 @@ _ARC = ["Problem", "Cost", "Shift", "System", "Proof", "Decision", "CTA"]
 _ZW_CHARS  = _re.compile(r'[\u200b\u200c\u200d\u200e\u200f\u00ad\ufeff]+')
 _CITE_RE   = _re.compile(r'<cite[^>]*>(.*?)</cite>', _re.DOTALL | _re.IGNORECASE)
 _MD_RE     = _re.compile(r'\*{1,2}|_{1,2}|~~')
+_NL_RE     = _re.compile(r'[\n\r]+')
 
 def _strip_citations(text: str) -> str:
     return _CITE_RE.sub(r'\1', text)
 
 def _strip_markdown(text: str) -> str:
     return _MD_RE.sub('', text)
+
+def _strip_newlines(text: str) -> str:
+    return _NL_RE.sub(' ', text).strip()
 
 
 def _clean_topic(text: str) -> str:
@@ -555,7 +559,7 @@ def regenerate_route(req: RegenerateRequest):
 
     return {"slide": {"type": new_slide.get("type", slide_type),
                       "heading": _strip_citations(new_slide.get("heading", "")),
-                      "description": _strip_citations(new_slide.get("body", new_slide.get("description", "")))}}
+                      "description": _strip_newlines(_strip_citations(new_slide.get("body", new_slide.get("description", ""))))}}
 
 
 def _render_stream(
@@ -567,7 +571,7 @@ def _render_stream(
     internal_slides = [
         {"type": s.get("type", "content"),
          "heading": _strip_citations(s.get("heading", "")),
-         "body":    _strip_citations(s.get("description", ""))}
+         "body":    _strip_newlines(_strip_citations(s.get("description", "")))}
         for s in slides
     ]
 

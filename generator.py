@@ -26,6 +26,7 @@ logger = logging.getLogger("carousel.generator")
 
 _CITE_RE = re.compile(r'<cite[^>]*>(.*?)</cite>', re.DOTALL | re.IGNORECASE)
 _MD_RE   = re.compile(r'\*{1,2}|_{1,2}|~~')
+_NL_RE   = re.compile(r'[\n\r]+')
 
 def _strip_citations(text: str) -> str:
     """Remove <cite …>…</cite> tags injected by web search, keeping inner text."""
@@ -34,6 +35,10 @@ def _strip_citations(text: str) -> str:
 def _strip_markdown(text: str) -> str:
     """Remove markdown formatting markers (**, *, _, ~~) from plain-text body fields."""
     return _MD_RE.sub('', text)
+
+def _strip_newlines(text: str) -> str:
+    """Collapse newline/carriage-return chars to a single space so body flows as a paragraph."""
+    return _NL_RE.sub(' ', text).strip()
 
 # ---------------------------------------------------------------------------
 # Template styles and word limits
@@ -178,7 +183,7 @@ def _build_carousel_arc(num_slides: int) -> str:
     lines = ["Slide 1: Hook — creates tension or curiosity about the specific topic"]
     for i, label in enumerate(slots, start=2):
         lines.append(f"Slide {i}: {label}")
-    lines.append(f"Slide {num_slides}: CTA — short, high-impact heading specific to this carousel's topic; communicates ongoing daily value")
+    lines.append(f"Slide {num_slides}: CTA — heading must follow this exact format: 'We show you [specific thing directly from this carousel] every day.'")
     return "\n".join(lines)
 
 
@@ -218,7 +223,7 @@ OUTPUT FORMAT (STRICT JSON):
     {{"type": "content", "text": "Specific prompts work — Claude needs clear context to respond **accurately**"}},
     {{"type": "content", "text": "Structured prompts cut editing time — answers arrive **ready** to use"}},
     {{"type": "content", "text": "Add your role upfront — 'Act as a teacher' changes every answer **instantly**"}},
-    {{"type": "cta",     "text": "Daily Claude prompts, workflows, and builds."}}
+    {{"type": "cta",     "text": "We show you how to prompt Claude better every day."}}
   ]
 }}
 
@@ -251,7 +256,7 @@ OUTPUT FORMAT (STRICT JSON — two fields per slide):
     {{"type": "content", "heading": "Specific prompts work",                         "text": "Claude knows exactly what to do.\nSpecific = faster, **cleaner** output.\nAdd your role upfront."}},
     {{"type": "content", "heading": "Match the prompt to the task",                  "text": "Ask Claude: 'Explain X in 3 steps'.\nSpecificity **shapes** every answer.\nTry this for any complex topic."}},
     {{"type": "content", "heading": "Role prompts change everything",                "text": "'Act as a teacher. Walk me through X.'\nClaude adjusts tone and depth **instantly**.\nTwo words that improve every prompt."}},
-    {{"type": "cta",     "heading": "Daily Claude workflows, prompts, and builds.",  "text": ""}}
+    {{"type": "cta",     "heading": "We show you how to prompt Claude better every day.", "text": ""}}
   ]
 }}
 
@@ -406,14 +411,18 @@ write a strong observational statement — do not fabricate a source.
 
 CTA — Slide {num_slides}:
 
-- Heading only. No body text. ≤10 words.
-- High-impact. Specific to THIS carousel topic. Communicates ongoing value.
-- Do NOT use generic phrases ("more tips", "learn more", "follow us")
-- Do NOT include "@claudeinsights" or any handle in the generated text
+Write the final slide heading in this exact format:
+"We show you [specific thing directly related to the topic] every day."
 
-✓ GOOD: "Daily Claude prompts, workflows, and builds."
-✓ GOOD: "Every Claude Code shortcut, updated daily."
-✗ BAD:  "Follow for more Claude tips" (generic, weak)
+The [specific thing] must name the exact tool, technique, or outcome covered in THIS
+carousel — not a generic description of the account. One sentence. End with a full stop.
+Leave body empty — the CTA is handled separately in the template.
+
+✓ GOOD: "We show you how to run your desktop from your phone every day."
+✓ GOOD: "We show you how to build apps with Claude Code every day."
+✓ GOOD: "We show you how to write better prompts every day."
+✗ BAD:  "We show you daily Claude workflows every day." (generic, not specific to topic)
+✗ BAD:  "We show you Claude tips every day." (not tied to the actual carousel content)
 
 ---
 
@@ -1208,7 +1217,7 @@ def _parse_json_slides(
         else:
             # heading styles: separate heading and body fields
             heading_val = _strip_citations((s.get("heading") or "").strip())
-            body_val    = _strip_citations((s.get("text") or "").strip())
+            body_val    = _strip_newlines(_strip_citations((s.get("text") or "").strip()))
 
             if not heading_val:
                 raise ValueError(f"Slide {i} has empty 'heading'")

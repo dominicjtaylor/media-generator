@@ -29,7 +29,7 @@
   text-align:center;
 }
 
-/* ---------- BRAND (absolute so it doesn't participate in flex centering) ---------- */
+/* ---------- BRAND (absolute — excluded from flex centering) ---------- */
 
 .brand {
   position:absolute;
@@ -40,7 +40,7 @@
   opacity:.85;
 }
 
-/* ---------- CENTRED CONTENT ---------- */
+/* ---------- CENTRED HEADING ---------- */
 
 .headline {
   font-family:'Anton', sans-serif;
@@ -56,11 +56,27 @@
   font-family:'Anton', sans-serif;
 }
 
-.body-text {
-  margin-top:50px;
-  font-size:44px;
-  font-weight:300;
-  opacity:.85;
+/* ---------- HARDCODED BRAND CTA PILL ---------- */
+
+.brand-cta {
+  position:absolute;
+  bottom:160px;
+  left:50%;
+  transform:translateX(-50%);
+  display:inline-flex;
+  align-items:center;
+  gap:14px;
+  border:1px solid rgba(255,255,255,.4);
+  border-radius:999px;
+  padding:14px 28px;
+  font-size:30px;
+  white-space:nowrap;
+}
+
+.logo {
+  width:44px;
+  height:44px;
+  border-radius:50%;
 }
 
 /* ---------- HANDLE ---------- */
@@ -152,8 +168,9 @@
     {{TEXT}}
   </div>
 
-  <div class="body-text">
-    {{BODY}}
+  <div class="brand-cta">
+    <img src="../../logo.png" class="logo">
+    Claude Insights
   </div>
 
   <div class="handle">@claudeinsights</div>

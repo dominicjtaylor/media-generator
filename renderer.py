@@ -149,7 +149,6 @@ def inject_slide(
             html = html.replace("{{TEXT}}", _md_bold_to_html(heading))
         elif index == last_index:
             html = html.replace("{{TEXT}}", _md_bold_to_html(heading))
-            html = html.replace("{{BODY}}", _md_bold_to_html(body))
         else:
             # Content template: two separate zones.
             # Heading uses Anton exclusively — strip bold markers rather than

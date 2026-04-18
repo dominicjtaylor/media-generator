@@ -564,24 +564,58 @@ def generate(req: GenerateRequest):
 
 _LOCAL_IMAGE_DIR = Path(__file__).parent / "assets" / "lummi_images"
 _IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+_THUMBS_DIR = Path("/tmp/thumbnails")
+_THUMBS_DIR.mkdir(parents=True, exist_ok=True)
+
+_THUMB_MAX_W = 300
+_THUMB_MAX_H = 200
+_THUMB_QUALITY = 60
+
+
+def _make_thumbnail(src: Path) -> Path:
+    """Return path to a cached JPEG thumbnail for *src*, generating it if needed."""
+    from PIL import Image as _PilImage
+
+    # Thumbnails are always stored as JPEG; use stem so PNG → .jpg works too.
+    thumb_path = _THUMBS_DIR / (src.stem + ".jpg")
+    if thumb_path.exists():
+        return thumb_path
+
+    try:
+        with _PilImage.open(src) as img:
+            img = img.convert("RGB")
+            img.thumbnail((_THUMB_MAX_W, _THUMB_MAX_H), _PilImage.LANCZOS)
+            img.save(thumb_path, "JPEG", quality=_THUMB_QUALITY, optimize=True)
+        logger.debug("Generated thumbnail: %s → %s", src.name, thumb_path.name)
+    except Exception as exc:
+        logger.warning("Thumbnail generation failed for %s: %s", src.name, exc)
+        return src  # fall back to original
+
+    return thumb_path
 
 
 @app.get("/api/images", tags=["assets"])
 def list_images():
-    """Return the list of available local images."""
+    """Return the list of available local images with pre-generated thumbnails."""
     if not _LOCAL_IMAGE_DIR.exists():
         return {"images": []}
-    images = [
-        {"filename": p.name, "url": f"/api/images/{quote(p.name)}"}
-        for p in sorted(_LOCAL_IMAGE_DIR.iterdir())
-        if p.is_file() and p.suffix.lower() in _IMAGE_EXTENSIONS
-    ]
+    images = []
+    for p in sorted(_LOCAL_IMAGE_DIR.iterdir()):
+        if not (p.is_file() and p.suffix.lower() in _IMAGE_EXTENSIONS):
+            continue
+        thumb = _make_thumbnail(p)
+        thumb_url = f"/thumbnails/{quote(thumb.name)}"
+        images.append({
+            "filename":      p.name,
+            "url":           f"/api/images/{quote(p.name)}",
+            "thumbnail_url": thumb_url,
+        })
     return {"images": images}
 
 
 @app.get("/api/images/{filename:path}", tags=["assets"])
 def serve_image(filename: str):
-    """Serve a single image from the local image library."""
+    """Serve a single full-resolution image from the local image library."""
     img_path = _LOCAL_IMAGE_DIR / filename
     if not img_path.exists() or not img_path.is_file():
         raise HTTPException(status_code=404, detail="Image not found")
@@ -592,7 +626,8 @@ def serve_image(filename: str):
 # Rendered PNGs  (/renders/<run_id>/slide-n.png)
 # ---------------------------------------------------------------------------
 
-app.mount("/renders", StaticFiles(directory=str(RENDERS_DIR)), name="renders")
+app.mount("/renders",    StaticFiles(directory=str(RENDERS_DIR)), name="renders")
+app.mount("/thumbnails", StaticFiles(directory=str(_THUMBS_DIR)), name="thumbnails")
 
 
 # ---------------------------------------------------------------------------

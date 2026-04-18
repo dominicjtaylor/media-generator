@@ -14,3 +14,4 @@ uvicorn[standard]>=0.30.0
 aiofiles>=23.2.1          # required by FastAPI StaticFiles
 beautifulsoup4
 requests
+Pillow>=10.0.0

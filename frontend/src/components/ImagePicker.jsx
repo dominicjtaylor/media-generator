@@ -43,7 +43,7 @@ export default function ImagePicker({ onSelect, onBack }) {
               `}
             >
               <img
-                src={img.url}
+                src={img.thumbnail_url || img.url}
                 alt={img.filename.replace(/\.[^.]+$/, '')}
                 className="w-full h-full object-cover"
                 loading="lazy"

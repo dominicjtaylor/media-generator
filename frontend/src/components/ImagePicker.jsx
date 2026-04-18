@@ -28,14 +28,14 @@ export default function ImagePicker({ onSelect, onBack }) {
       ) : images.length === 0 ? (
         <div className="text-sm text-gray-400 dark:text-gray-500">No images available.</div>
       ) : (
-        <div className="grid grid-cols-3 gap-2 max-h-72 overflow-y-auto pr-1">
+        <div className="grid grid-cols-3 gap-3">
           {images.map((img) => (
             <button
               key={img.filename}
               type="button"
               onClick={() => setSelected(img)}
               className={`
-                relative aspect-square rounded-xl overflow-hidden border-2 transition-all duration-150
+                relative h-36 rounded-xl overflow-hidden border-2 transition-all duration-150
                 ${selected?.filename === img.filename
                   ? 'border-accent ring-2 ring-accent/20'
                   : 'border-transparent hover:border-gray-300 dark:hover:border-gray-600'

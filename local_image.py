@@ -25,7 +25,7 @@ from bs4 import BeautifulSoup
 
 logger = logging.getLogger("carousel.local_image")
 
-LOCAL_IMAGE_DIR: Path = Path("assets/lummi_images")
+LOCAL_IMAGE_DIR: Path = Path(__file__).parent / "assets" / "lummi_images"
 
 _IMAGE_EXTENSIONS: frozenset[str] = frozenset({".jpg", ".jpeg", ".png", ".webp"})
 
@@ -300,8 +300,16 @@ def get_image_for_heading_template(topic: str, image_filename: Optional[str] = N
     """
     if image_filename:
         logger.info("Using user-selected image: %s", image_filename)
+        img_path = (LOCAL_IMAGE_DIR / image_filename).resolve()
+        if not img_path.exists():
+            logger.error(
+                "Selected image not found on disk — path=%s  "
+                "(LOCAL_IMAGE_DIR=%s, filename=%r)",
+                img_path, LOCAL_IMAGE_DIR, image_filename,
+            )
+            raise FileNotFoundError(f"Selected image not found: {img_path}")
         return {
-            "local_path":  str((LOCAL_IMAGE_DIR / image_filename).resolve()),
+            "local_path":  str(img_path),
             "author_name": "",
             "author_url":  "",
             "image_page":  "",

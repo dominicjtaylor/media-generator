@@ -39,6 +39,11 @@ async function readSse(res, onEvent) {
       try { onEvent(JSON.parse(line.slice(6))) } catch { /* ignore malformed */ }
     }
   }
+  // Flush any data that arrived without a trailing newline before stream closed
+  for (const line of buffer.split('\n')) {
+    if (!line.startsWith('data: ')) continue
+    try { onEvent(JSON.parse(line.slice(6))) } catch { /* ignore malformed */ }
+  }
 }
 
 export default function App() {

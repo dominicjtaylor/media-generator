@@ -95,14 +95,14 @@ WORD_LIMITS: dict[str, dict[str, int]] = {
         "hook_heading":    8,
         "content_heading": 8,
         "content_body":    35,
-        "cta_heading":     8,
+        "cta_heading":     10,
         "cta_body":        35,
     },
     "headings_text_image": {
         "hook_heading":    8,
         "content_heading": 8,
         "content_body":    35,
-        "cta_heading":     8,
+        "cta_heading":     10,
         "cta_body":        35,
     },
 }
@@ -178,7 +178,7 @@ def _build_carousel_arc(num_slides: int) -> str:
     lines = ["Slide 1: Hook — creates tension or curiosity about the specific topic"]
     for i, label in enumerate(slots, start=2):
         lines.append(f"Slide {i}: {label}")
-    lines.append(f"Slide {num_slides}: CTA — direct call to action")
+    lines.append(f"Slide {num_slides}: CTA — 'We show you [specific thing from this carousel topic] every day.' + 'Follow @claudeinsights'")
     return "\n".join(lines)
 
 
@@ -224,7 +224,7 @@ OUTPUT FORMAT (STRICT JSON):
     {{"type": "content", "text": "Specific prompts work better — because Claude knows exactly what to do"}},
     {{"type": "content", "text": "Structured prompts cut editing time — Claude returns answers **ready** to use"}},
     {{"type": "content", "text": "Add your role upfront — 'Act as a teacher' changes every answer **instantly**"}},
-    {{"type": "cta",     "text": "Follow @claudeinsights for more Claude tips"}}
+    {{"type": "cta",     "text": "We show you how to prompt Claude better every day. Follow @claudeinsights."}}
   ]
 }}
 
@@ -246,7 +246,7 @@ WORD LIMITS (two-field format — enforce strictly):
 - Hook heading (Slide 1): max 8 words
 - Content heading:         max 8 words  \u2190 the bold title shown large
 - Content body (text):     max 35 words \u2190 the supporting explanation shown smaller
-- CTA heading:             max 8 words
+- CTA heading:             max 10 words
 - CTA body (text):         max 35 words
 {image_hook_note}
 OUTPUT FORMAT (STRICT JSON — two fields per slide):
@@ -261,7 +261,7 @@ Each slide has TWO fields:
     {{"type": "content", "heading": "Specific prompts work better",                    "text": "Because Claude needs clear instructions to respond accurately and completely"}},
     {{"type": "content", "heading": "Match the prompt to the task",                   "text": "Ask Claude to 'explain X in 3 steps with examples' — specificity shapes the output **directly**"}},
     {{"type": "content", "heading": "Add a role to every prompt",                      "text": "'Act as a teacher' changes every answer \u2014 Claude adjusts tone and depth **instantly**"}},
-    {{"type": "cta",     "heading": "Follow @claudeinsights now",                     "text": "Get more Claude tips every week"}}
+    {{"type": "cta",     "heading": "We show you how to build with Claude every day.", "text": "Follow @claudeinsights"}}
   ]
 }}
 
@@ -495,13 +495,18 @@ BODY TEXT ("text" field, or the full text in text_only):
 
 CTA RULE (MANDATORY):
 
-The final slide MUST include "@claudeinsights" and a clear action verb.
+For the final CTA slide, write a one-line statement in this format:
+"We show you [specific thing related to the carousel topic] every day."
+The [specific thing] must be directly tied to the topic of this carousel — it should feel
+like a natural continuation of what was just taught. Do NOT use generic phrases like
+"Claude tips" or "AI tools". Make it specific to this exact carousel.
 
-✓ VALID:   "Follow @claudeinsights for more Claude tips"
-           "**Save** this — more tips at @claudeinsights"
-           "Build smarter — follow @claudeinsights **now**"
+For heading styles: heading = "We show you [X] every day." | text = "Follow @claudeinsights"
+For text_only:      text = "We show you [X] every day. Follow @claudeinsights."
 
-✗ INVALID (missing handle): "Try this today" / "Save this and start now"
+✓ GOOD: "We show you how to build with Claude Code every day."
+✓ GOOD: "We show you how to write better prompts every day."
+✗ BAD:  "We show you Claude tips every day." (too generic)
 
 ---
 
@@ -564,6 +569,12 @@ _INCOMPLETE_TERMINALS: frozenset[str] = frozenset({
 
 _SENTENCE_END_RE = re.compile(r'(?<=[.!?])\s+')
 
+# Words that make a heading read as cut off when they land at the end.
+_BAD_HEADING_TERMINALS = frozenset({
+    "of", "from", "the", "a", "an", "and", "or", "but", "in", "on",
+    "at", "to", "for", "with", "by", "into", "that", "which", "as",
+})
+
 
 def enforce_body_limit(text: str, max_words: int) -> str:
     """Truncate body text to the last complete sentence that fits within max_words.
@@ -614,7 +625,12 @@ def enforce_word_limit(text: str, max_words: int) -> str:
     if len(words) <= max_words:
         return text
 
-    truncated = " ".join(words[:max_words])
+    # Walk back from max_words to avoid ending on a preposition, article, or conjunction
+    cut = max_words
+    while cut > 1 and words[cut - 1].lower().rstrip('.,!?:;"\'') in _BAD_HEADING_TERMINALS:
+        cut -= 1
+
+    truncated = " ".join(words[:cut])
 
     # Fix unclosed **marker (odd count = dangling open tag)
     if truncated.count("**") % 2 != 0:
@@ -1356,7 +1372,7 @@ Return ONLY a JSON array with two fields per slide — no extra text:
         word_limits = (
             "hook heading: max 8 words | "
             "content heading: max 8 words | content body (text): max 35 words | "
-            "cta heading: max 8 words | cta body (text): max 35 words"
+            "cta heading: max 10 words | cta body (text): max 35 words"
         )
 
     return f"""\

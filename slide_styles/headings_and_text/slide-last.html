@@ -20,50 +20,50 @@
   height:1350px;
   background:linear-gradient(135deg,#111,#0a0a0a);
   color:#fff;
-  padding:100px 90px;
   position:relative;
   overflow:hidden;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  align-items:center;
+  text-align:center;
 }
 
-/* ---------- TEXT ---------- */
+/* ---------- BRAND (absolute so it doesn't participate in flex centering) ---------- */
 
 .brand {
+  position:absolute;
+  top:100px;
+  left:90px;
   font-size:34px;
   color:#cfcfcf;
   opacity:.85;
 }
 
+/* ---------- CENTRED CONTENT ---------- */
+
 .headline {
   font-family:'Anton', sans-serif;
-  margin-top:220px;
   font-size:105px;
   font-weight:400;
   line-height:1.05;
-  max-width:820px;
+  max-width:900px;
+  text-transform:uppercase;
 }
 
-.headline strong {
-  font-weight:700;
+.headline,
+.headline * {
+  font-family:'Anton', sans-serif;
 }
 
-.cta {
-  margin-top:70px;
-  display:inline-flex;
-  align-items:center;
-  gap:12px;
-  border:1px solid rgba(255,255,255,.4);
-  border-radius:999px;
-  padding:12px 24px;
-  font-size:30px;
+.body-text {
+  margin-top:50px;
+  font-size:44px;
+  font-weight:300;
+  opacity:.85;
 }
 
-.logo {
-  width:40px;
-  height:40px;
-  border-radius:50%;
-}
-
-/* ---------- HANDLE (FIX ADDED) ---------- */
+/* ---------- HANDLE ---------- */
 
 .handle {
   position:absolute;
@@ -125,7 +125,6 @@
   opacity: 0.7;
 }
 
-/* first arrow */
 .top-arrow::before,
 .top-arrow::after {
   content: "";
@@ -133,23 +132,13 @@
   left: 0;
   width: 30px;
   height: 30px;
-
   border-top: 3px solid var(--accent);
   border-right: 3px solid var(--accent);
-
   transform: rotate(-45deg);
 }
 
-/* top arrow */
-.top-arrow::before {
-  top: 0;
-}
-
-/* bottom arrow */
-.top-arrow::after {
-  top: 20px;
-  opacity: 0.6;
-}
+.top-arrow::before { top: 0; }
+.top-arrow::after  { top: 20px; opacity: 0.6; }
 
 </style>
 </head>
@@ -163,18 +152,14 @@
     {{TEXT}}
   </div>
 
-  <div class="cta">
-    <img src="../../logo.png" class="logo">
-    Follow for daily Claude workflows
+  <div class="body-text">
+    {{BODY}}
   </div>
 
-  <!-- HANDLE (now included) -->
   <div class="handle">@claudeinsights</div>
 
-  <!-- Bar -->
   <div class="bar"></div>
 
-  <!-- Circle -->
   <div class="circle">
     <div class="bookmark"></div>
   </div>

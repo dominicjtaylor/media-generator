@@ -142,11 +142,14 @@ def inject_slide(
 
     else:
         # Heading styles:
-        # - slide-first.html and slide-last.html only have {{TEXT}} → inject heading there
+        # - slide-first.html only has {{TEXT}} → inject heading there
+        # - slide-last.html has {{TEXT}} (heading) + {{BODY}} (body) → inject separately
         # - slide-content.html has {{HEADING}} + {{TEXT}} → inject separately
-        if index == 0 or index == last_index:
-            # First and last templates use a single {{TEXT}} block
+        if index == 0:
             html = html.replace("{{TEXT}}", _md_bold_to_html(heading))
+        elif index == last_index:
+            html = html.replace("{{TEXT}}", _md_bold_to_html(heading))
+            html = html.replace("{{BODY}}", _md_bold_to_html(body))
         else:
             # Content template: two separate zones.
             # Heading uses Anton exclusively — strip bold markers rather than

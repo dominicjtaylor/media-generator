@@ -138,9 +138,16 @@ def inject_slide(
             # First and last templates use a single {{TEXT}} block
             html = html.replace("{{TEXT}}", _md_bold_to_html(heading))
         else:
-            # Content template: two separate zones
-            html = html.replace("{{HEADING}}", _md_bold_to_html(heading))
-            html = html.replace("{{TEXT}}",    _md_bold_to_html(body))
+            # Content template: two separate zones.
+            # Heading uses Anton exclusively — strip bold markers rather than
+            # converting to <strong>, which would trigger a mid-string font
+            # fallback to Inter via the universal * rule.
+            html = html.replace("{{HEADING}}", _strip_bold(heading))
+            html = html.replace("{{TEXT}}",    _md_bold_to_html(body.replace('\n', '<br>')))
+            tag = (slide.get("tag") or "").strip().upper()
+            html = html.replace("{{TAG}}", tag)
+            slide_counter = f"{str(index + 1).zfill(2)} / {str(total).zfill(2)}"
+            html = html.replace("{{SLIDE_COUNTER}}", slide_counter)
 
     if number is not None:
         html = html.replace("{{NUMBER}}", number)

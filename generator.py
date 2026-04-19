@@ -238,19 +238,19 @@ WORD LIMITS (two-field format — enforce strictly):
 - CTA heading:             max 8 words
 - CTA body (text):         max 12 words
 {image_hook_note}
-OUTPUT FORMAT (STRICT JSON — two fields per slide):
+OUTPUT FORMAT (STRICT JSON — three fields per content slide, two for hook/cta):
 
-Each slide has TWO fields:
-  "heading" \u2014 short, punchy title phrase (see word limits above)
-  "text"    \u2014 supporting body sentence (empty string "" for hook slides)
+  "heading" \u2014 short, punchy title phrase
+  "tag"     \u2014 one word from: TIP FACT INSIGHT EXAMPLE WORKFLOW STAT TOOL MISTAKE (content slides only)
+  "text"    \u2014 body lines separated by \\n (empty "" for hook and CTA)
 
 {{
   "slides": [
-    {{"type": "hook",    "heading": "Stop prompting Claude the **wrong** way",        "text": ""}},
-    {{"type": "content", "heading": "Specific prompts work better",                    "text": "Because Claude needs clear instructions to respond accurately and completely"}},
-    {{"type": "content", "heading": "Match the prompt to the task",                   "text": "Ask Claude to 'explain X in 3 steps with examples' — specificity shapes the output **directly**"}},
-    {{"type": "content", "heading": "Add a role to every prompt",                      "text": "'Act as a teacher' changes every answer \u2014 Claude adjusts tone and depth **instantly**"}},
-    {{"type": "cta",     "heading": "We show you how to write better prompts every day.", "text": ""}}
+    {{"type": "hook",    "heading": "Stop prompting Claude the **wrong** way",                                  "text": ""}},
+    {{"type": "content", "heading": "Specific prompts work better",          "tag": "TIP",     "text": "Because Claude needs clear instructions to respond accurately and completely"}},
+    {{"type": "content", "heading": "Match the prompt to the task",          "tag": "EXAMPLE", "text": "Ask Claude to 'explain X in 3 steps with examples' — specificity shapes the output **directly**"}},
+    {{"type": "content", "heading": "Add a role to every prompt",            "tag": "FACT",    "text": "'Act as a teacher' changes every answer \u2014 Claude adjusts tone and depth **instantly**"}},
+    {{"type": "cta",     "heading": "We show you how to write better prompts every day.",                       "text": ""}}
   ]
 }}
 
@@ -340,35 +340,16 @@ GOOD: "Better prompts, better results"
 
 ---
 
-CONTENT VARIETY (REQUIRED):
-
-DEFAULT: Do NOT use the "Instead of X → Try Y" pattern by default.
-Prefer direct explanations, insights, tips, and concrete examples.
-Only use contrast when the slide is specifically about correcting a common mistake.
-
-Content slides should include a mix of these styles:
-
-  EXPLANATION  — state WHY something works, using "because" or a strong em-dash
-    e.g. "Specific prompts work better — because Claude knows exactly what to do"
-
-  TIP          — direct actionable advice starting with a verb (Add / Use / Ask)
-    e.g. "Add your role upfront — 'Act as a teacher' changes every answer **instantly**"
-
-  EXAMPLE      — a concrete prompt or use case shown in action
-    e.g. "Ask Claude: 'Explain X in 3 steps with examples' — specificity shapes the output"
-
-  OUTCOME      — the concrete result the reader gains, quantified or made tangible
-    e.g. "Structured prompts cut editing time — answers arrive **ready** to use"
-
-  INSIGHT      — a strong, standalone statement; no contrast needed
-    e.g. "Modes define scope — scope defines output quality"
-
-  CONTRAST     — use ONLY when the slide is about correcting a specific mistake
-    e.g. 'Instead of "Summarise this" → Try "Summarise this in 5 bullet points"'
-    Do NOT use this style unless fixing a mistake is the point of the slide.
-
-Vary sentence openings — avoid starting every slide with "Claude".
-Avoid repeating the same sentence structure more than once.
+CONTENT SLIDES (Slides 2–{num_slides - 1}):
+- One idea per slide.
+- Body: exactly two complete sentences, each ≤12 words, total ≤20 words.
+- Bold the single most impactful word: prefer numbers, concrete results, or contrast words. Skip if no word clearly earns it.
+- Each slide must include at least one of:
+  A) Insight: "[observation] because [reason]"
+  B) Example: real prompt, action, or before/after
+  C) Outcome: specific concrete result
+- Vary structure across slides.
+- Tag: pick exactly one word for this slide from: TIP, FACT, INSIGHT, EXAMPLE, WORKFLOW, STAT, TOOL, MISTAKE
 
 ---
 
@@ -1229,10 +1210,12 @@ def _parse_json_slides(
                         i, slide_type,
                     )
 
+            tag_val = (s.get("tag") or "").strip().upper()
             result.append({
                 "type":    slide_type,
                 "heading": heading_val,
                 "body":    body_val,
+                "tag":     tag_val,
             })
 
     # Validate structure: first=hook, last=cta

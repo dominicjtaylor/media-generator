@@ -24,7 +24,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from utils import setup_logging
-from generator import generate_slides, select_template_style, TEMPLATE_STYLES
+from generator import generate_slides, TEMPLATE_STYLES
 
 
 # ---------------------------------------------------------------------------
@@ -117,22 +117,36 @@ def process_topic(
     logger.info("TOPIC: %s", topic)
     logger.info("=" * 60)
 
-    # Step 0: Select template style (--template flag overrides random selection)
-    if template and template in TEMPLATE_STYLES:
-        style = template
-        logger.info("Template style (override): %s", style)
-    else:
-        style = select_template_style()
-        logger.info("Template style (random): %s", style)
+    if template is None:
+        template = "dark_core"
+
+    if template not in TEMPLATE_STYLES:
+        raise ValueError(
+            f"Template must be one of: {TEMPLATE_STYLES}"
+        )
+
+    style = template
+    logger.info("Template style: %s", style)
 
     # Step 1: Generate slides via LLM
     logger.info("Generating slides via LLM… (style=%s)", style)
-    slides, caption = generate_slides(topic, max_retries=retries, template_style=style)
+    if style == "dark_core":
+        slides, caption = generate_slides(
+            topic,
+            max_retries=retries,
+            template_style=style
+        )
+
+    elif style == "light_image":
+        raise NotImplementedError(
+            "light_image pipeline requires images and hook input"
+        )
     logger.info("Generated %d slides", len(slides))
 
     # Step 2: Fetch image for the image template
     image_data = None
-    if style == "headings_text_image":
+
+    if style == "dark_core":
         try:
             if os.getenv("LUMMI_API_KEY"):
                 from image_fetcher import fetch_lummi_image
@@ -148,20 +162,16 @@ def process_topic(
                 image_data["local_path"], image_data["author_name"],
                 image_data.get("focal_x", 0.5), image_data.get("focal_y", 0.5),
             )
+
             if image_data.get("author_name"):
                 author_url = image_data.get("author_url", "")
                 credit = image_data["author_name"]
                 if author_url:
                     credit += f" ({author_url})"
                 caption += f"\n\nImage credit: {credit}"
+
         except Exception as exc:
-            logger.warning(
-                "Image fetch failed (%s) — falling back to text_only style", exc
-            )
-            style      = "text_only"
-            image_data = None
-            # Re-generate with the fallback style (different prompts and word limits)
-            slides, caption = generate_slides(topic, max_retries=retries, template_style=style)
+            logger.warning("Image fetch failed (%s)", exc)
 
     # Step 3: Render slides to PNG
     from renderer import render_slides

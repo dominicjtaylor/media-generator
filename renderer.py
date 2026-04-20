@@ -95,12 +95,7 @@ def inject_slide(
         content_index = index - 1
         number        = _CONTENT_NUMS[content_index]
 
-    if template_style == "dark_core":
-        template_dir = _STYLES_DIR / "headings_text_image" / "dark"
-    elif template_style == "light_image":
-        template_dir = _STYLES_DIR / "headings_text_image" / "light"
-    else:
-        template_dir = _STYLES_DIR / template_style
+    template_dir = _STYLES_DIR / template_style
     template_path = template_dir / template_name
     if not template_path.exists():
         raise FileNotFoundError(

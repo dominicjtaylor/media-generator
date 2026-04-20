@@ -38,19 +38,22 @@ _STYLES_DIR = _ROOT / "slide_styles"         # template styles live here
 # Supports up to 8 content slides (10 total - hook - cta = 8)
 _CONTENT_NUMS = ["01", "02", "03", "04", "05", "06", "07", "08"]
 
+# Styles that require photo images
+_IMAGE_STYLES = frozenset({"dark_core", "light_image"})
+
 
 # ---------------------------------------------------------------------------
-# Markdown bold → HTML
+# Markdown bold helpers
 # ---------------------------------------------------------------------------
 
 def _md_bold_to_html(text: str) -> str:
-    """Convert **word** markers to <strong>word</strong>.
-
-    Leaves text without markers at normal weight (font-weight: 300 in templates).
-    If no markers are present the text is returned unchanged — nothing is
-    auto-bolded.
-    """
+    """Convert **word** markers to <strong>word</strong>."""
     return re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text)
+
+
+def _strip_bold(text: str) -> str:
+    """Remove **...** bold markers, keeping the inner text."""
+    return re.sub(r'\*\*(.*?)\*\*', r'\1', text)
 
 
 # ---------------------------------------------------------------------------
@@ -61,20 +64,20 @@ def inject_slide(
     index: int,
     slide: dict,
     total: int,
-    template_style: str = "text_only",
+    template_style: str = "dark_core",
     image_data: Optional[dict] = None,
+    slide_image_filename: Optional[str] = None,
 ) -> str:
     """Inject slide data into the appropriate HTML template.
 
     Parameters
     ----------
-    index          : int           0-based position in the slide list.
-    slide          : dict          Must contain "heading"; "body" is used for heading styles.
-    total          : int           Total number of slides (determines which index is the last).
-    template_style : str           One of "text_only", "headings_and_text", "headings_text_image".
-    image_data     : dict | None   Lummi image metadata.  When provided for the first slide of
-                                   headings_text_image, focal_x/focal_y are applied to the image
-                                   via inline CSS object-position.
+    index                : int           0-based position in the slide list.
+    slide                : dict          Must contain "heading"; "body" for content slides.
+    total                : int           Total number of slides.
+    template_style       : str           "dark_core" or "light_image".
+    image_data           : dict | None   For dark_core hook slide: focal_x/focal_y for object-position.
+    slide_image_filename : str | None    For light_image content slides: per-slide image filename.
     """
     heading = (slide.get("heading") or "").strip()
     body    = (slide.get("body")    or "").strip()
@@ -89,10 +92,15 @@ def inject_slide(
         number        = None
     else:
         template_name = "slide-content.html"
-        content_index = index - 1          # 0-based among content slides
+        content_index = index - 1
         number        = _CONTENT_NUMS[content_index]
 
-    template_dir  = _STYLES_DIR / template_style
+    if template_style == "dark_core":
+        template_dir = _STYLES_DIR / "headings_text_image" / "dark"
+    elif template_style == "light_image":
+        template_dir = _STYLES_DIR / "headings_text_image" / "light"
+    else:
+        template_dir = _STYLES_DIR / template_style
     template_path = template_dir / template_name
     if not template_path.exists():
         raise FileNotFoundError(
@@ -102,19 +110,25 @@ def inject_slide(
 
     html = template_path.read_text(encoding="utf-8")
 
-    # Fix logo paths that use relative "../../logo.png" (designed for direct file
-    # browsing in slide_styles/).  The HTML is written to a temp dir so we swap
-    # them for the absolute path to the project-root logo.png.
-    logo_abs = str(_ROOT / "logo.png")
-    html = html.replace('src="../../logo.png"', f'src="{logo_abs}"')
-    html = html.replace("src='../../logo.png'", f"src='{logo_abs}'")
+    # Fix logo paths — templates use relative paths; rewrite to absolute for Playwright.
+    logo_abs       = str(_ROOT / "logo.png")
+    logo_light_abs = str(_ROOT / "logo_light.png")
+    for old, new in [
+        ('src="../../../logo.png"',       f'src="{logo_abs}"'),
+        ("src='../../../logo.png'",       f"src='{logo_abs}'"),
+        ('src="../../../logo_light.png"', f'src="{logo_light_abs}"'),
+        ("src='../../../logo_light.png'", f"src='{logo_light_abs}'"),
+        ('src="../../logo.png"',          f'src="{logo_abs}"'),
+        ("src='../../logo.png'",          f"src='{logo_abs}'"),
+        ('src="../../logo_light.png"',    f'src="{logo_light_abs}"'),
+        ("src='../../logo_light.png'",    f"src='{logo_light_abs}'"),
+    ]:
+        html = html.replace(old, new)
 
-    # Apply focal-point object-position to the first slide of the image template.
-    # Always inject as an inline style on the <img> tag — deterministic and immune
-    # to CSS specificity or whitespace variations in the template.
-    if template_style == "headings_text_image" and index == 0:
-        focal_x = float((image_data or {}).get("focal_x") or 0.5)
-        focal_y = float((image_data or {}).get("focal_y") or 0.5)
+    # dark_core hook slide: apply focal-point object-position on the featured image.
+    if template_style == "dark_core" and index == 0 and image_data:
+        focal_x = float(image_data.get("focal_x") or 0.5)
+        focal_y = float(image_data.get("focal_y") or 0.5)
         obj_pos = f"{focal_x * 100:.1f}% {focal_y * 100:.1f}%"
         html = html.replace(
             '<img src="image.png" alt="visual">',
@@ -122,32 +136,25 @@ def inject_slide(
         )
         logger.debug("Applied focal-point object-position: %s", obj_pos)
 
-    if template_style == "text_only":
-        # Single {{TEXT}} field: concatenate heading + body (legacy behaviour)
-        if body:
-            text = f"{_md_bold_to_html(heading)}<br>{_md_bold_to_html(body)}"
-        else:
-            text = _md_bold_to_html(heading)
-        html = html.replace("{{TEXT}}", text)
+    # light_image content slides: substitute per-slide image filename.
+    if template_style == "light_image" and 0 < index < last_index and slide_image_filename:
+        html = html.replace(
+            '<img src="image.png" alt="visual">',
+            f'<img src="{slide_image_filename}" alt="visual">',
+        )
 
+    # First and last slides: single {{TEXT}} placeholder.
+    if index == 0 or index == last_index:
+        html = html.replace("{{TEXT}}", _md_bold_to_html(heading))
     else:
-        # Heading styles:
-        # - slide-first.html and slide-last.html only have {{TEXT}} → inject heading there
-        # - slide-content.html has {{HEADING}} + {{TEXT}} → inject separately
-        if index == 0 or index == last_index:
-            # First and last templates use a single {{TEXT}} block
-            html = html.replace("{{TEXT}}", _md_bold_to_html(heading))
-        else:
-            # Content template: two separate zones.
-            # Heading uses Anton exclusively — strip bold markers rather than
-            # converting to <strong>, which would trigger a mid-string font
-            # fallback to Inter via the universal * rule.
-            html = html.replace("{{HEADING}}", _strip_bold(heading))
-            html = html.replace("{{TEXT}}",    _md_bold_to_html(body.replace('\n', '<br>')))
-            tag = (slide.get("tag") or "").strip().upper()
-            html = html.replace("{{TAG}}", tag)
-            slide_counter = f"{str(index + 1).zfill(2)} / {str(total).zfill(2)}"
-            html = html.replace("{{SLIDE_COUNTER}}", slide_counter)
+        # Content slides: separate {{HEADING}} + {{TEXT}} zones.
+        # Anton font is used for headings — strip bold markers to avoid font fallback.
+        html = html.replace("{{HEADING}}", _strip_bold(heading))
+        html = html.replace("{{TEXT}}",    _md_bold_to_html(body.replace('\n', '<br>')))
+        tag = (slide.get("tag") or "").strip().upper()
+        html = html.replace("{{TAG}}", tag)
+        slide_counter = f"{str(index + 1).zfill(2)} / {str(total).zfill(2)}"
+        html = html.replace("{{SLIDE_COUNTER}}", slide_counter)
 
     if number is not None:
         html = html.replace("{{NUMBER}}", number)
@@ -162,19 +169,20 @@ def inject_slide(
 def render_slides(
     slides: list[dict],
     renders_base: str = "/tmp/renders",
-    template_style: str = "text_only",
+    template_style: str = "dark_core",
     image_data: Optional[dict] = None,
+    content_image_paths: Optional[list[str]] = None,
 ) -> tuple[list[str], str]:
     """
     Render slides to PNG files using Playwright (Chromium headless).
 
     Parameters
     ----------
-    slides         : list[dict]   Slide dicts from generator.generate_slides().
-    renders_base   : str          Base directory for render output.
-    template_style : str          One of "text_only", "headings_and_text", "headings_text_image".
-    image_data     : dict | None  Lummi image metadata (only used for headings_text_image).
-                                  Must contain "local_path" pointing to downloaded image.
+    slides               : list[dict]        Slide dicts from generate_slides() or generate_light_slides().
+    renders_base         : str               Base directory for render output.
+    template_style       : str               "dark_core" or "light_image".
+    image_data           : dict | None       For dark_core: Lummi/local image metadata with "local_path".
+    content_image_paths  : list[str] | None  For light_image: one image path per content slide (index 1..n-2).
 
     Returns
     -------
@@ -192,32 +200,52 @@ def render_slides(
     out_dir.mkdir(parents=True, exist_ok=True)
     logger.info("Render run %s (style=%s) -> %s", run_id, template_style, out_dir)
 
-    # Copy logo.png so relative src="logo.png" in text_only templates resolves correctly
-    logo_src = _ROOT / "logo.png"
-    if logo_src.exists():
-        shutil.copy2(logo_src, out_dir / "logo.png")
-    else:
-        logger.warning("logo.png not found at %s -- brand logo will be missing", logo_src)
+    # Copy logo files so absolute src paths in templates resolve correctly
+    for logo_name in ("logo.png", "logo_light.png"):
+        logo_src = _ROOT / logo_name
+        if logo_src.exists():
+            shutil.copy2(logo_src, out_dir / logo_name)
+        else:
+            logger.warning("%s not found at %s", logo_name, logo_src)
 
-    # For the image template, copy the downloaded photo so slide-first.html can
-    # resolve <img src="image.png"> from the render directory.
-    if template_style == "headings_text_image" and image_data:
+    # dark_core: copy the featured photo as image.png for the hook slide.
+    if template_style == "dark_core" and image_data:
         src_image = Path(image_data["local_path"])
         if src_image.exists():
             shutil.copy2(src_image, out_dir / "image.png")
             logger.info("Copied image %s → %s/image.png", src_image.name, out_dir)
         else:
             logger.error(
-                "Image file not found at resolved path: %s (absolute: %s) — "
-                "slide 1 image will be blank",
+                "Image file not found: %s — slide 1 image will be blank",
                 src_image,
-                src_image.resolve(),
             )
+
+    # light_image: copy per-slide content images; build a per-slide filename map.
+    slide_image_filenames: list[Optional[str]] = [None] * n
+    if template_style == "light_image" and content_image_paths:
+        for ci, img_path_str in enumerate(content_image_paths):
+            slide_idx = ci + 1  # content slides start at index 1
+            if slide_idx >= n - 1:
+                break
+            src = Path(img_path_str)
+            ext = src.suffix.lower() or ".jpg"
+            dest_name = f"content-image-{ci}{ext}"
+            if src.exists():
+                shutil.copy2(src, out_dir / dest_name)
+                slide_image_filenames[slide_idx] = dest_name
+                logger.info("Copied content image %s → %s", src.name, dest_name)
+            else:
+                logger.error("Content image not found: %s", src)
 
     # Write HTML files
     html_paths: list[Path] = []
     for i, slide in enumerate(slides):
-        html      = inject_slide(i, slide, total=n, template_style=template_style, image_data=image_data)
+        html      = inject_slide(
+            i, slide, total=n,
+            template_style=template_style,
+            image_data=image_data,
+            slide_image_filename=slide_image_filenames[i],
+        )
         html_path = out_dir / f"slide-{i + 1}.html"
         html_path.write_text(html, encoding="utf-8")
         html_paths.append(html_path)

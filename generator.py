@@ -25,69 +25,40 @@ from typing import Optional
 logger = logging.getLogger("carousel.generator")
 
 # ---------------------------------------------------------------------------
+# Small string utilities (must be defined before any function that calls them)
+# ---------------------------------------------------------------------------
+
+_MD_RE = re.compile(r'\*{1,2}|_{1,2}|~~')
+
+def _strip_markdown(text: str) -> str:
+    """Remove markdown formatting markers (**, *, _, ~~) from plain-text fields."""
+    return _MD_RE.sub('', text)
+
+# ---------------------------------------------------------------------------
 # Template styles and word limits
 # ---------------------------------------------------------------------------
 
-TEMPLATE_STYLES: list[str] = ["text_only", "headings_and_text", "headings_text_image"]
+TEMPLATE_STYLES: list[str] = [
+    "dark_core",
+    "light_image",
+]
 
-# Text-only pool used when no Lummi API key is present — prevents any
-# image-fetch attempt or image-related fallback from being triggered.
-_TEXT_ONLY_STYLES: list[str] = ["text_only", "headings_and_text"]
-
-# Detected once at import time; restart the server after adding/removing the key.
-# _IMAGE_ENABLED is True when EITHER the Lummi API key is present OR a populated
-# local fallback directory exists (assets/lummi_images/ with at least one image).
-_LOCAL_IMAGE_DIR: Path = Path("assets/lummi_images")
-_LOCAL_IMAGE_ENABLED: bool = _LOCAL_IMAGE_DIR.is_dir() and any(
-    p.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}
-    for p in _LOCAL_IMAGE_DIR.iterdir()
-)
-_IMAGE_ENABLED: bool = bool(os.getenv("LUMMI_API_KEY")) or _LOCAL_IMAGE_ENABLED
+# Styles that require photo images
+_IMAGE_STYLES: frozenset[str] = frozenset({"dark_core", "light_image"})
 
 QUALITY_THRESHOLD = 0.6
 
-def select_template_style() -> str:
-    """Return a template style name based on current API/image availability.
 
-    When images are enabled, headings_text_image is strongly favoured
-    (~90% probability) while other templates remain occasionally possible.
-    When images are unavailable, a uniform random choice is made from the
-    text-only pool.
-    """
-    pool = TEMPLATE_STYLES if _IMAGE_ENABLED else _TEXT_ONLY_STYLES
-
-    if _IMAGE_ENABLED and "headings_text_image" in pool:
-        dominant_weight = 0.9
-        other_weight    = (1.0 - dominant_weight) / max(len(pool) - 1, 1)
-        weights = [
-            dominant_weight if t == "headings_text_image" else other_weight
-            for t in pool
-        ]
-        chosen = random.choices(pool, weights=weights, k=1)[0]
-        logger.debug("Template weights: %s", dict(zip(pool, weights)))
-    else:
-        chosen = random.choice(pool)
-
-    logger.info("Template style selected: %r  (image_enabled=%s)", chosen, _IMAGE_ENABLED)
-    return chosen
-
-
-# Per-style word limits.  For heading styles the limits are split across the
-# heading ({{HEADING}}) and body ({{TEXT}}) fields rendered separately.
+# Per-style word limits (heading + body fields rendered separately)
 WORD_LIMITS: dict[str, dict[str, int]] = {
-    "text_only": {
-        "hook":    8,
-        "content": 15,
-        "cta":     12,
-    },
-    "headings_and_text": {
+    "dark_core": {
         "hook_heading":    8,
         "content_heading": 8,
         "content_body":    20,
         "cta_heading":     8,
         "cta_body":        12,
     },
-    "headings_text_image": {
+    "light_image": {
         "hook_heading":    8,
         "content_heading": 8,
         "content_body":    20,
@@ -172,94 +143,25 @@ def _build_carousel_arc(num_slides: int) -> str:
 
 
 def _word_limits_section(template_style: str) -> str:
-    """Return the WORD LIMITS block for the system prompt body.
-
-    For heading styles the full word limits are in _output_format_section;
-    this returns a short placeholder to avoid duplication.
-    """
-    if template_style == "text_only":
-        return """\
-WORD LIMITS:
-
-- Hook: max 8 words
-- Content slides: max 15 words
-- CTA: max 12 words
-
----"""
-    # Heading styles: word limits are stated in the OUTPUT FORMAT section at the end.
-    return """\
-WORD LIMITS:
-
-See the OUTPUT FORMAT section at the end of this prompt for per-field word limits.
-
----"""
+    return "WORD LIMITS: Hook heading ≤12 w | Content heading ≤8 w | Content body ≤20 w | CTA heading ≤14 w\n"
 
 
 def _output_format_section(num_slides: int, template_style: str) -> str:
-    """Return the OUTPUT FORMAT block injected at the end of the system prompt.
-
-    NOTE: This function is called from within an f-string expression in
-    _build_system_prompt.  The returned string is inserted verbatim — it is NOT
-    processed a second time for {{ }} escapes.  So use {{ }} here to get literal
-    { } in the output (standard f-string escaping applied once).
-    """
-    if template_style == "text_only":
-        return f"""\
-OUTPUT FORMAT (STRICT JSON):
-
-{{
-  "slides": [
-    {{"type": "hook",    "text": "You're prompting Claude **wrong** — here's why"}},
-    {{"type": "content", "text": "Specific prompts work better — because Claude knows exactly what to do"}},
-    {{"type": "content", "text": "Structured prompts cut editing time — Claude returns answers **ready** to use"}},
-    {{"type": "content", "text": "Add your role upfront — 'Act as a teacher' changes every answer **instantly**"}},
-    {{"type": "cta",     "text": "We show you how to write better prompts every day."}}
-  ]
-}}
-
-The "slides" array MUST contain EXACTLY {num_slides} objects.
-If your output does not meet ALL rules, regenerate internally until it does."""
-
-    # headings_and_text and headings_text_image share the same two-field format.
-    image_hook_note = ""
-    if template_style == "headings_text_image":
-        image_hook_note = (
-            "\nIMPORTANT: Slide 1 (hook) MUST have \"text\": \"\" — "
-            "an image is injected into that slide automatically. "
-            "Do NOT write body text for the hook.\n"
-        )
-
+    """Return the OUTPUT FORMAT block injected at the end of the system prompt."""
     return f"""\
-WORD LIMITS (two-field format — enforce strictly):
-
-- Hook heading (Slide 1): max 8 words
-- Content heading:         max 8 words  \u2190 the bold title shown large
-- Content body (text):     max 20 words \u2190 the supporting explanation shown smaller
-- CTA heading:             max 8 words
-- CTA body (text):         max 12 words
-{image_hook_note}
-OUTPUT FORMAT (STRICT JSON — three fields per content slide, two for hook/cta):
-
-  "heading" \u2014 short, punchy title phrase
-  "tag"     \u2014 one word from: TIP FACT INSIGHT EXAMPLE WORKFLOW STAT TOOL MISTAKE (content slides only)
-  "text"    \u2014 body lines separated by \\n (empty "" for hook and CTA)
-
+OUTPUT FORMAT (strict JSON, exactly {num_slides} slides):
+Fields: "heading" (title), "tag" (content only: TIP/FACT/INSIGHT/EXAMPLE/WORKFLOW/STAT/TOOL/MISTAKE), "text" (body, \\n-separated; "" for hook/cta).
 {{
   "slides": [
-    {{"type": "hook",    "heading": "Stop prompting Claude the **wrong** way",                                  "text": ""}},
-    {{"type": "content", "heading": "Specific prompts work better",          "tag": "TIP",     "text": "Because Claude needs clear instructions to respond accurately and completely"}},
-    {{"type": "content", "heading": "Match the prompt to the task",          "tag": "EXAMPLE", "text": "Ask Claude to 'explain X in 3 steps with examples' — specificity shapes the output **directly**"}},
-    {{"type": "content", "heading": "Add a role to every prompt",            "tag": "FACT",    "text": "'Act as a teacher' changes every answer \u2014 Claude adjusts tone and depth **instantly**"}},
-    {{"type": "cta",     "heading": "We show you how to write better prompts every day.",                       "text": ""}}
+    {{"type": "hook",    "heading": "Hook heading here",       "text": ""}},
+    {{"type": "content", "heading": "Content heading", "tag": "TIP", "text": "First sentence. Second sentence."}},
+    {{"type": "cta",     "heading": "We show you how to [x] every day.", "text": ""}}
   ]
 }}
-
-The "slides" array MUST contain EXACTLY {num_slides} objects.
-Both "heading" and "text" are required on every slide (use "" for empty text).
-If your output does not meet ALL rules, regenerate internally until it does."""
+Array MUST have exactly {num_slides} items. "heading" and "text" required on every slide."""
 
 
-def _build_system_prompt(num_slides: int, template_style: str = "text_only") -> str:
+def _build_system_prompt(num_slides: int, template_style: str = "dark_core") -> str:
     """Return the generation system prompt with the exact slide count baked in.
 
     A hook style is chosen randomly at call time so every generation request
@@ -271,237 +173,38 @@ def _build_system_prompt(num_slides: int, template_style: str = "text_only") -> 
     carousel_arc = _build_carousel_arc(num_slides)
 
     return f"""\
-You are a carousel copywriter researching and writing slide content. \
-Before writing any slides, search the web for recent, accurate \
-information about the topic provided. Use only what you find in search \
-results to support any specific claims. Do not invent statistics, \
-quotes, studies, or named frameworks — if you cannot find a real \
-source for a claim, write it as a general principle instead. \
-Prioritise information from the last 12 months where possible.
+Search the web for accurate info before writing. Return ONLY valid JSON — no text before or after, no code fences.
 
-You MUST return ONLY valid JSON.
-Do NOT include any text before or after the JSON.
-Do NOT explain anything.
-Do NOT use markdown or code blocks.
+SLIDES: Exactly {num_slides}. Slide 1 = hook | Slides 2–{num_slides - 1} = content | Slide {num_slides} = cta
 
----
+HOOK (Slide 1) — {hook_name}:
+Rule: {hook_instruction}
+e.g. {hook_example}
+- ≤12 words. Must include a keyword from the topic. No em-dash or arrow ending. Don't start with "Claude".
 
-SLIDE COUNT (CRITICAL):
+HEADINGS (all slides): No em-dashes. No transition word starts (First, Then, Next, Now, Finally). Content ≤6 words; hook ≤12. Never end with a preposition or conjunction.
 
-Generate EXACTLY {num_slides} slides. There are NO other slide count rules.
-Do NOT default to 5 slides. Do NOT add extra slides.
+CONTENT SLIDES (2–{num_slides - 1}):
+- Body: exactly 2 sentences, each ≤12 words, total ≤20 words.
+- Bold 1 impactful word (prefer numbers, results, contrast words). Skip if nothing earns it.
+- Include: insight ("because…"), concrete example (real prompt in context), or outcome (specific result).
+- Each slide self-contained — never split a pattern (e.g. "Instead of/Try") across slides.
+- Tag: one of TIP, FACT, INSIGHT, EXAMPLE, WORKFLOW, STAT, TOOL, MISTAKE
 
-Structure:
-- Slide 1 = hook
-- Slides 2 to {num_slides - 1} = content  ({content_count} content slide{"s" if content_count != 1 else ""})
-- Slide {num_slides} = cta
-
----
-
-HOOK STYLE — use this style for Slide 1:
-
-Style: {hook_name}
-Rule:  {hook_instruction}
-e.g.   {hook_example}
-
-REQUIREMENTS:
-- MUST use a keyword or phrase directly from the topic — generic hooks are invalid
-- Must be concise and scannable — target 4–8 words
-- Do NOT end with a bare em-dash (—) or arrow (→)
-- Do NOT start with "Claude" — the subject should reflect the topic
-- Must create tension, curiosity, or contrast
-
-BAD (generic — could apply to any topic):
-  "Most people use Claude wrong"
-GOOD (topic-specific — reader instantly recognises it's about their problem):
-  "Stop building everything at once in Claude Code"
-
----
-
-HEADING STYLE (if applicable):
-
-HEADINGS MUST:
-- Stand alone as a complete phrase
-- Never end with words that require continuation (e.g. "with", "for", "a", "the")
-- Read naturally if shown alone on a slide
-
-HEADINGS MUST NOT start with transition words:
-- Do NOT use: First, Then, Next, Now, Finally
-
-Headings are standalone titles, not sentence transitions.
-
-Transitions should appear in the body text ONLY.
-
-HEADINGS MUST NOT use em dashes (—).
-Use commas or split into clean phrases instead.
-
-BAD: "Better prompts — better results"
-GOOD: "Better prompts, better results"
-
----
-
-CONTENT SLIDES (Slides 2–{num_slides - 1}):
-- One idea per slide.
-- Body: exactly two complete sentences, each ≤12 words, total ≤20 words.
-- Bold the single most impactful word: prefer numbers, concrete results, or contrast words. Skip if no word clearly earns it.
-- Each slide must include at least one of:
-  A) Insight: "[observation] because [reason]"
-  B) Example: real prompt, action, or before/after
-  C) Outcome: specific concrete result
-- Vary structure across slides.
-- Tag: pick exactly one word for this slide from: TIP, FACT, INSIGHT, EXAMPLE, WORKFLOW, STAT, TOOL, MISTAKE
-
----
-
-PROGRESSIVE FLOW — follow this exact arc:
-
+ARC:
 {carousel_arc}
 
-RULES FOR FLOW:
-- Each slide must build on the previous one — "because of this → here's what to do next"
-- Use transition words to signal progression:
-    Slide 2: (no transition — state the core principle directly)
-    Step slides:
-        - Use transition words in the BODY text only (First…, Then…, Next…, Now…)
-        - NEVER use transition words in headings
-    Outcome slide: Finally…
-- Do NOT write random, disconnected tips — every slide must earn the next one
-- The real prompt example belongs in the middle of the carousel, not at the end
+CTA (Slide {num_slides}): Heading MUST be "We show you [specific thing] every day." — starts "We show you", ends "every day."
 
----
+EMPHASIS: 1–2 bold words per slide. Bold outcomes/contrasts/actions only. Never bold filler.
 
-REAL PROMPT EXAMPLE (MANDATORY):
-
-At least ONE content slide MUST include a concrete Claude prompt example.
-
-PREFERRED format — prompt shown in context:
-  "Ask Claude: 'Explain X in 3 steps with examples' — specificity shapes the output **directly**"
-  "'Act as a teacher. Walk me through X step by step.' — Claude adjusts tone and depth **instantly**"
-
-USE contrast formats ONLY when the slide is specifically about correcting a mistake:
-  Instead of → Try:
-     Instead of: "Explain this" → Try: "Explain this in 3 steps with examples"
-  Bad → Better:
-     Bad: "Summarise this" → Better: "Summarise this in 5 bullet points for a busy reader"
-
-Do NOT default to contrast. If the topic is not about a common mistake,
-show the prompt in action (preferred format above).
-
-A short bare quote (1–3 words) with nothing around it is NOT valid.
-A substantive quoted prompt (4+ words) shown with context IS valid without contrast.
-
----
-
-DEPTH PER SLIDE:
-
-Each content slide MUST include at least ONE of:
-- a concrete example (a real Claude prompt shown in use)
-- a short explanation using "because…" (the reason behind the advice)
-- a concrete outcome (the specific result the reader gets)
-
-Bad:  "Use better prompts"
-Good: "Use structured prompts — because Claude needs clear instructions to respond **accurately**"
-
-MANDATORY FORMATS — the depth validator enforces BOTH of these:
-
-1. CONTRAST example (at least one content slide MUST use this format):
-   Instead of [x] → try [y]
-   e.g. 'Instead of "summarise this" → try "summarise in 5 bullet points for a busy reader"'
-
-2. INSIGHT (at least one content slide MUST use one of these formats):
-   [observation] — [implication]
-   [observation] because [reason]
-   e.g. "Specific prompts work better — because Claude needs clear instructions to respond accurately"
-
-If your slides do not include at least one of each, the output will be rejected.
-
----
-
-PROOF SLIDE (web-sourced evidence):
-
-For the Proof slide, use a real finding, statistic, or example sourced
-from your web search. Cite it naturally in the slide copy rather than
-as a footnote. If no reliable source was found, write the proof slide
-as a strong observational statement instead — do not fabricate a source.
-
----
+ERRORS — fix the specific issue before returning:
+- Wrong slide count → exactly {num_slides}
+- Bad CTA format → "We show you [specific thing] every day."
+- Incomplete sentence → complete it on the same slide
+- Invalid JSON → fix formatting
 
 {_word_limits_section(template_style)}
-
-COMPLETENESS:
-
-HEADINGS ("heading" field):
-- Should be concise and scannable — target 2–6 words, up to 8 maximum
-- Sentence-like headings are fine if short and readable
-- Do NOT end with a bare em-dash (—) or arrow (→)
-- A phrase is valid: "Specific prompts work better" ✓
-
-BODY TEXT ("text" field, or the full text in text_only):
-- MUST be a complete, self-contained unit of meaning
-- Must make sense when viewed in isolation — NOT as a continuation of the previous slide
-- NEVER end with words that require a follow-up on the next slide:
-  ✗ "Because"  ✗ "Instead of:"  ✗ "Instead"  ✗ "→ Try"  ✗ "Then"  ✗ "And"
-- Do NOT start a slide body with "Because..." if the premise lives in the previous slide
-- NEVER split a pattern across two slides:
-  ✗ Split: Slide 3 = 'Instead of: "Explain this"'  +  Slide 4 = 'Try: "Explain this in 3 steps"'
-  ✓ Same slide: 'Instead of: "Explain this" → Try: "Explain this in 3 steps with examples"'
-- CONTRAST format MUST have BOTH sides written in full on the SAME slide:
-  ✗ BAD:  Instead of: "Explain this" → Try
-  ✓ GOOD: Instead of: "Explain this" → Try: "Explain this simply with examples"
-
----
-
-CTA RULE (MANDATORY):
-
-IMPORTANT: The final slide heading MUST start with "We show you" and end with "every day." — this is non-negotiable. Any other format will be rejected.
-
-Write the final slide heading in this exact format:
-"We show you [specific thing directly related to the topic] every day."
-
-The [specific thing] must name the exact technique, tool, or outcome from THIS carousel.
-
-✓ GOOD: "We show you how to run your desktop from your phone every day."
-✓ GOOD: "We show you how to build apps with Claude Code every day."
-✓ GOOD: "We show you how to write better prompts every day."
-✗ BAD:  "We show you daily Claude workflows every day." (too generic)
-✗ BAD:  "Follow @claudeinsights for more Claude tips" (wrong format)
-
----
-
-EMPHASIS (bold using **word**):
-
-- 1–2 bold words per slide only
-- Bold ONLY: outcomes (better, faster, clearer), contrasts (wrong, mistake), actions (specific, structured)
-- NEVER bold filler words
-
----
-
-SELF-CHECK (mandatory — do this before returning your output):
-
-Review each slide independently. For every slide ask:
-1. Does this slide make complete sense if shown alone, without the previous slide?
-2. Does the body end on a complete thought? (not "because", "instead of", "and", "then")
-3. If using "Instead of → Try" — are BOTH sides present on THIS slide?
-4. Does the body start with "Because..." where the premise was stated in the previous slide?
-
-If any slide fails → rewrite it to be self-contained before returning.
-
----
-
-SELF-CORRECTION:
-
-If you receive an error message with the topic, you MUST fix the specific issue.
-Common errors:
-- "Incorrect number of slides"         → regenerate EXACTLY {num_slides} slides
-- "No actionable prompt example found" → add a slide with a concrete Claude prompt example (contrast format A/B, or a quoted prompt of 4+ words shown in context)
-- "Slides lack depth"                  → add a because/insight slide AND a slide with a concrete prompt example
-- "Truncated slide content"            → make the slide self-contained: complete the contrast on the same slide, or remove the dangling ending word
-- "CTA heading does not follow 'We show you' format" → rewrite final slide heading as "We show you [specific thing] every day."
-- "Invalid JSON"                       → fix the JSON formatting
-Do NOT repeat the same mistake.
-
----
-
 {_output_format_section(num_slides, template_style)}\
 """
 
@@ -578,51 +281,37 @@ def enforce_word_limit(text: str, max_words: int) -> str:
     return stripped
 
 
-def _enforce_slide_limits(slides: list[dict], template_style: str = "text_only") -> list[dict]:
+def _enforce_slide_limits(slides: list[dict], template_style: str = "dark_core") -> list[dict]:
     """Ensure every slide's heading (and body) respects the word limit for its type."""
-    limits = WORD_LIMITS[template_style]
+    limits = WORD_LIMITS.get(template_style, WORD_LIMITS["dark_core"])
     result = []
     for slide in slides:
         slide_type = slide["type"]
         heading    = slide.get("heading", "")
         body       = slide.get("body", "")
 
-        if template_style == "text_only":
-            max_h    = limits[slide_type]
-            enforced = enforce_word_limit(heading, max_h)
-            if not _is_valid_heading(enforced):
-                logger.info("Reverting truncation (invalid heading): %r → %r", enforced, heading)
-                enforced = heading
-            if enforced != heading:
-                logger.info(
-                    "Truncated %s slide from %d→%d words: %r",
-                    slide_type, len(heading.split()), max_h, heading,
-                )
-            result.append({**slide, "heading": enforced, "body": ""})
-        else:
-            # heading styles: enforce separate limits on heading and body
-            if slide_type == "hook":
-                max_h     = limits["hook_heading"]
-                enforced_h = enforce_word_limit(heading, max_h)
-                if enforced_h != heading:
-                    logger.info("Truncated hook heading %d→%d words", len(heading.split()), max_h)
-                result.append({**slide, "heading": enforced_h, "body": ""})
-            elif slide_type == "cta":
-                max_h = limits["cta_heading"]
-                max_b = limits["cta_body"]
-                enforced_h = enforce_word_limit(heading, max_h)
-                enforced_b = enforce_word_limit(body, max_b)
-                result.append({**slide, "heading": enforced_h, "body": enforced_b})
-            else:  # content
-                max_h = limits["content_heading"]
-                max_b = limits["content_body"]
-                enforced_h = enforce_word_limit(heading, max_h)
-                enforced_b = enforce_word_limit(body, max_b)
-                if enforced_h != heading:
-                    logger.info("Truncated content heading %d→%d words", len(heading.split()), max_h)
-                if enforced_b != body:
-                    logger.info("Truncated content body %d→%d words", len(body.split()), max_b)
-                result.append({**slide, "heading": enforced_h, "body": enforced_b})
+        if slide_type == "hook":
+            max_h      = limits["hook_heading"]
+            enforced_h = enforce_word_limit(heading, max_h)
+            if enforced_h != heading:
+                logger.info("Truncated hook heading %d→%d words", len(heading.split()), max_h)
+            result.append({**slide, "heading": enforced_h, "body": ""})
+        elif slide_type == "cta":
+            max_h = limits["cta_heading"]
+            max_b = limits["cta_body"]
+            enforced_h = enforce_word_limit(heading, max_h)
+            enforced_b = enforce_word_limit(body, max_b)
+            result.append({**slide, "heading": enforced_h, "body": enforced_b})
+        else:  # content
+            max_h = limits["content_heading"]
+            max_b = limits["content_body"]
+            enforced_h = enforce_word_limit(heading, max_h)
+            enforced_b = enforce_word_limit(body, max_b)
+            if enforced_h != heading:
+                logger.info("Truncated content heading %d→%d words", len(heading.split()), max_h)
+            if enforced_b != body:
+                logger.info("Truncated content body %d→%d words", len(body.split()), max_b)
+            result.append({**slide, "heading": enforced_h, "body": enforced_b})
     return result
 
 
@@ -829,24 +518,16 @@ def _is_complete_slide(text: str) -> bool:
     return True
 def _validate_completeness(
     slides: list[dict],
-    template_style: str = "text_only",
+    template_style: str = "dark_core",
 ) -> list[dict]:
     """Auto-correct minor issues and hard-fail only on genuinely broken output.
 
     What this does:
       - Auto-compress headings >10 words (never a hard failure)
-      - Hard-fail only when _is_complete_slide() returns False, which now only
-        catches: empty text, bare arrow (arrow), lone article (a/an/the), or
-        "arrow Try:" with no payload.
-
-    What this does NOT do:
-      - Reject fragments e.g. "Instead of: ..." or "First, match your task"
-      - Reject text ending with "because", "instead", "then", "first", etc.
-      - Enforce grammar or sentence structure
+      - Hard-fail only when _is_complete_slide() returns False
 
     Returns the (possibly auto-corrected) slides list.
     """
-    is_heading_style = template_style in ("headings_and_text", "headings_text_image")
     corrected = []
     broken: list[str] = []
 
@@ -854,23 +535,18 @@ def _validate_completeness(
         heading = s.get("heading", "")
         body    = s.get("body", "")
 
-        if is_heading_style:
-            # Auto-correct oversized headings — never a hard failure
-            heading_words = len(heading.split())
-            if heading_words > 10:
-                old = heading
-                heading = _compress_heading(heading, max_words=6)
-                logger.info(
-                    "Auto-compressed %s heading (%d→%d words): %r → %r",
-                    s["type"], heading_words, len(heading.split()), old, heading,
-                )
-            # Check body for genuinely broken output only
-            if body and not _is_complete_slide(body):
-                broken.append(f"[{s['type']} body] {body!r}")
-        else:
-            # text_only: heading IS the full text
-            if not _is_complete_slide(heading):
-                broken.append(f"[{s['type']}] {heading!r}")
+        # Auto-correct oversized headings — never a hard failure
+        heading_words = len(heading.split())
+        if heading_words > 10:
+            old = heading
+            heading = _compress_heading(heading, max_words=6)
+            logger.info(
+                "Auto-compressed %s heading (%d→%d words): %r → %r",
+                s["type"], heading_words, len(heading.split()), old, heading,
+            )
+        # Check body for genuinely broken output only
+        if body and not _is_complete_slide(body):
+            broken.append(f"[{s['type']} body] {body!r}")
 
         corrected.append({**s, "heading": heading, "body": body})
 
@@ -1062,13 +738,16 @@ def _generate_anthropic(
     if error_context:
         user_content += f"\n\nPREVIOUS ATTEMPT FAILED — fix this error:\n{error_context}"
 
+    system_prompt = _build_system_prompt(num_slides, template_style)
+    logger.info("System prompt chars: %d", len(system_prompt))
     message = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=2048,
-        system=_build_system_prompt(num_slides, template_style),
+        max_tokens=1500,
+        system=system_prompt,
         messages=[{"role": "user", "content": user_content}],
         tools=[{"type": "web_search_20250305", "name": "web_search"}],
     )
+    logger.info("API call input tokens: %d", message.usage.input_tokens)
     # Web search may produce multiple content blocks; return the last text block.
     text_blocks = [b for b in message.content if getattr(b, "type", None) == "text"]
     if not text_blocks:
@@ -1181,42 +860,26 @@ def _parse_json_slides(
                 f"Must be one of: {sorted(valid_types)}"
             )
 
-        if template_style == "text_only":
-            text_val = (s.get("text") or "").strip()
-            if not text_val:
-                raise ValueError(f"Slide {i} has empty 'text'")
-            result.append({
-                "type":    slide_type,
-                "heading": text_val,
-                "body":    "",
-            })
-        else:
-            # heading styles: separate heading and body fields
-            heading_val = (s.get("heading") or "").strip()
-            body_val    = (s.get("text") or "").strip()
+        # Heading styles: separate heading and body fields
+        heading_val = (s.get("heading") or "").strip()
+        body_val    = (s.get("text") or "").strip()
 
-            if not heading_val:
-                raise ValueError(f"Slide {i} has empty 'heading'")
+        if not heading_val:
+            raise ValueError(f"Slide {i} has empty 'heading'")
 
-            # Hook slides in headings_text_image have empty body by design
-            # (the image occupies the lower half); all other slides need body
-            if not body_val and not (
-                slide_type == "hook"
-                or (slide_type == "hook" and template_style == "headings_and_text")
-            ):
-                if slide_type != "hook":
-                    logger.debug(
-                        "Slide %d (%s) has empty body — acceptable for hook, warning for others",
-                        i, slide_type,
-                    )
+        if not body_val and slide_type != "hook":
+            logger.debug(
+                "Slide %d (%s) has empty body — acceptable for hook, warning for others",
+                i, slide_type,
+            )
 
-            tag_val = (s.get("tag") or "").strip().upper()
-            result.append({
-                "type":    slide_type,
-                "heading": heading_val,
-                "body":    body_val,
-                "tag":     tag_val,
-            })
+        tag_val = (s.get("tag") or "").strip().upper()
+        result.append({
+            "type":    slide_type,
+            "heading": heading_val,
+            "body":    body_val,
+            "tag":     tag_val,
+        })
 
     # Validate structure: first=hook, last=cta
     if result[0]["type"] != "hook":
@@ -1231,30 +894,20 @@ def _parse_json_slides(
 # Review & improve pass
 # ---------------------------------------------------------------------------
 
-def _build_review_prompt(template_style: str = "text_only") -> str:
-    """Build a review prompt appropriate for the given template style."""
-    if template_style == "text_only":
-        return_format = """\
-Return ONLY a JSON array in the same format as the input — no extra text:
-[
-  { "type": "hook",    "text": "..." },
-  { "type": "content", "text": "..." },
-  { "type": "cta",     "text": "..." }
-]"""
-        word_limits = "hook: max 8 words | content: max 15 words | cta: max 12 words"
-    else:
-        return_format = """\
+def _build_review_prompt(template_style: str = "dark_core") -> str:
+    """Build a review prompt for the given template style."""
+    return_format = """\
 Return ONLY a JSON array with two fields per slide — no extra text:
 [
   { "type": "hook",    "heading": "...", "text": "" },
   { "type": "content", "heading": "...", "text": "..." },
   { "type": "cta",     "heading": "...", "text": "..." }
 ]"""
-        word_limits = (
-            "hook heading: max 8 words | "
-            "content heading: max 8 words | content body (text): max 20 words | "
-            "cta heading: max 8 words | cta body (text): max 12 words"
-        )
+    word_limits = (
+        "hook heading: max 8 words | "
+        "content heading: max 8 words | content body (text): max 20 words | "
+        "cta heading: max 8 words | cta body (text): max 12 words"
+    )
 
     return f"""\
 You are an expert Instagram content strategist. You will receive a set of carousel
@@ -1304,7 +957,7 @@ def _slides_to_review_input(slides: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _review_anthropic(slides: list[dict], template_style: str = "text_only") -> str:
+def _review_anthropic(slides: list[dict], template_style: str = "dark_core") -> str:
     import anthropic
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
@@ -1312,14 +965,15 @@ def _review_anthropic(slides: list[dict], template_style: str = "text_only") -> 
     client = anthropic.Anthropic(api_key=api_key)
     msg = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=1024,
+        max_tokens=600,
         system=_build_review_prompt(template_style),
         messages=[{"role": "user", "content": _slides_to_review_input(slides)}],
     )
+    logger.info("API call input tokens: %d", msg.usage.input_tokens)
     return msg.content[0].text.strip()
 
 
-def _review_openai(slides: list[dict], template_style: str = "text_only") -> str:
+def _review_openai(slides: list[dict], template_style: str = "dark_core") -> str:
     from openai import OpenAI
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
@@ -1337,7 +991,7 @@ def _review_openai(slides: list[dict], template_style: str = "text_only") -> str
     return resp.choices[0].message.content.strip()
 
 
-def review_and_improve(slides: list[dict], template_style: str = "text_only") -> list[dict]:
+def review_and_improve(slides: list[dict], template_style: str = "dark_core") -> list[dict]:
     """Run a second LLM pass to improve slide quality.
 
     Returns the improved slides parsed back into internal dict format.
@@ -1436,10 +1090,11 @@ def _generate_caption_anthropic(slides: list[dict]) -> str:
     client = anthropic.Anthropic(api_key=api_key)
     message = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=512,
+        max_tokens=400,
         system=CAPTION_PROMPT,
         messages=[{"role": "user", "content": _build_caption_user_message(slides)}],
     )
+    logger.info("API call input tokens: %d", message.usage.input_tokens)
     return message.content[0].text.strip()
 
 
@@ -1573,7 +1228,7 @@ def generate_slides(
         raise ValueError(f"num_slides must be between 4 and 10, got {num_slides}")
 
     if template_style is None:
-        template_style = "text_only"
+        template_style = "dark_core"
     if template_style not in TEMPLATE_STYLES:
         raise ValueError(
             f"Unknown template_style {template_style!r}. "
@@ -1635,7 +1290,7 @@ def generate_slides(
             # For heading styles the hook is a short phrase, not a sentence —
             # only reject genuinely broken forms (trailing em-dash / bare arrow).
             # For text_only the full sentence check still applies.
-            hook_is_heading_style = template_style in ("headings_and_text", "headings_text_image")
+            hook_is_heading_style = True  # both dark_core and light_image use heading style
             hook_broken = (
                 hook_text.rstrip().endswith("—")
                 or hook_text.rstrip().endswith("→")
@@ -1696,7 +1351,7 @@ def generate_slides(
                 slides[-1] = {**slides[-1], "heading": f"We show you {topic} every day."}
             caption = generate_caption(slides)
             if os.environ.get("DEBUG", "false").lower() == "true":
-                caption += f"\n\n[DEBUG] template={template_style} | image_enabled={_IMAGE_ENABLED}"
+                caption += f"\n\n[DEBUG] template={template_style}"
             # caption = (
             #     f"{caption}\n\n"
             #     f"[DEBUG] template={template_style} | image_enabled={_IMAGE_ENABLED}"
@@ -1716,3 +1371,116 @@ def generate_slides(
         f"Slide generation failed after {max_retries} attempts. "
         f"Last error: {last_error}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Light image pipeline — vision-driven slide generation
+# ---------------------------------------------------------------------------
+
+def generate_light_slides(
+    topic: str,
+    hook: str,
+    image_bytes_list: list[bytes],
+    image_types: list[str],
+) -> dict:
+    """Generate carousel slides for the light image-driven pipeline.
+
+    Analyzes each uploaded image with Claude vision to infer heading + body,
+    then builds: hook slide → one content slide per image → CTA slide.
+
+    Returns dict with keys: template, hook, slides, cta.
+    """
+    import anthropic
+    import base64
+
+    if not (1 <= len(image_bytes_list) <= 8):
+        raise ValueError(f"Expected 1–8 images, got {len(image_bytes_list)}")
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise RuntimeError("ANTHROPIC_API_KEY not set")
+
+    client = anthropic.Anthropic(api_key=api_key)
+
+    _VISION_SYSTEM = """\
+Analyze this image and generate Instagram carousel slide content.
+
+The image shows a workflow, tool, process, or action being performed.
+
+Infer: what action is shown, what tool or process is used, what outcome it represents.
+
+Respond ONLY with valid JSON — no text before or after:
+{
+  "heading": "Short outcome-driven heading (max 6 words, no em-dashes)",
+  "tag": "one of: TIP/FACT/INSIGHT/EXAMPLE/WORKFLOW/STAT/TOOL/MISTAKE",
+  "body": "Two concise sentences tied to what is shown. Total max 20 words. Bold 1 key word with **word**."
+}
+
+Heading: action or outcome driven, max 6 words, no em-dashes.
+Body: exactly 2 sentences, each under 12 words, total under 20 words."""
+
+    content_slides = []
+    for i, (img_bytes, img_type) in enumerate(zip(image_bytes_list, image_types)):
+        b64 = base64.standard_b64encode(img_bytes).decode("utf-8")
+        msg = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=200,
+            system=_VISION_SYSTEM,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": img_type,
+                            "data": b64,
+                        },
+                    },
+                    {
+                        "type": "text",
+                        "text": f"Generate slide content for this image. Topic context: {topic}",
+                    },
+                ],
+            }],
+        )
+        logger.info(
+            "Vision API input tokens: %d (image %d/%d)",
+            msg.usage.input_tokens, i + 1, len(image_bytes_list),
+        )
+        raw = msg.content[0].text.strip()
+
+        if raw.startswith("```"):
+            raw = re.sub(r'^```(?:json)?\s*', '', raw)
+            raw = re.sub(r'\s*```$', '', raw.strip())
+
+        try:
+            slide_data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            logger.warning("Vision API invalid JSON (image %d): %s — using placeholder", i + 1, exc)
+            slide_data = {
+                "heading": f"Step {i + 1}",
+                "tag": "WORKFLOW",
+                "body": "This step is part of the workflow. Follow along to see the full process.",
+            }
+
+        content_slides.append({
+            "type":    "content",
+            "heading": _strip_markdown(slide_data.get("heading", f"Step {i + 1}")),
+            "body":    slide_data.get("body", ""),
+            "tag":     (slide_data.get("tag") or "WORKFLOW").strip().upper(),
+        })
+
+    cta_heading = f"We show you {topic} every day."
+    slides = [
+        {"type": "hook",    "heading": _strip_markdown(hook), "body": "", "tag": ""},
+        *content_slides,
+        {"type": "cta",     "heading": cta_heading,           "body": "", "tag": ""},
+    ]
+
+    return {
+        "template": "light_image",
+        "hook":     hook,
+        "slides":   slides,
+        "cta":      cta_heading,
+    }

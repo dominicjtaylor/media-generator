@@ -7,9 +7,9 @@ import Output from './components/Output.jsx'
 import Toast from './components/Toast.jsx'
 
 // Stage flow:
-// idle → hooks_loading → hook_selection → image_selection
-//      → slides_loading → qc_loading → review
-//      → rendering → done
+// idle → template_selection → hooks_loading → hook_selection
+//   Dark:  → image_selection → slides_loading → qc_loading → review → rendering → done
+//   Light: → light_upload → light_generating → done
 // Any stage → error
 
 function LoadingPane({ message }) {
@@ -41,6 +41,136 @@ async function readSse(res, onEvent) {
   }
 }
 
+// ── Template selector ──────────────────────────────────────────────────────
+function TemplateSelector({ onSelect, onBack }) {
+  return (
+    <div className="space-y-6 animate-slide-up">
+      <div>
+        <h2 className="text-xl font-semibold">Choose a template</h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Select the visual style for your carousel.</p>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {/* Dark card */}
+        <button
+          onClick={() => onSelect('dark')}
+          className="rounded-xl border border-gray-200 dark:border-gray-800 p-5 text-left hover:border-accent hover:bg-gray-50 dark:hover:bg-gray-900/60 transition-all group"
+        >
+          <div className="w-full h-28 rounded-lg bg-gradient-to-br from-gray-900 to-gray-950 mb-4 flex items-center justify-center border border-gray-700">
+            <span className="text-white text-4xl font-black tracking-tight" style={{ fontFamily: 'serif' }}>Aa</span>
+          </div>
+          <div className="font-semibold text-sm group-hover:text-accent transition-colors">Dark Template</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Bold headings on dark background with library image</div>
+        </button>
+
+        {/* Light card */}
+        <button
+          onClick={() => onSelect('light')}
+          className="rounded-xl border border-gray-200 dark:border-gray-800 p-5 text-left hover:border-accent hover:bg-gray-50 dark:hover:bg-gray-900/60 transition-all group"
+        >
+          <div className="w-full h-28 rounded-lg bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-200 dark:to-gray-300 mb-4 flex items-center justify-center border border-gray-200">
+            <span className="text-gray-900 text-4xl font-black tracking-tight" style={{ fontFamily: 'serif' }}>Aa</span>
+          </div>
+          <div className="font-semibold text-sm group-hover:text-accent transition-colors">Light Template</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Image-driven slides — you upload one photo per slide</div>
+        </button>
+      </div>
+
+      <button
+        onClick={onBack}
+        className="text-sm text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+      >
+        ← Back
+      </button>
+    </div>
+  )
+}
+
+// ── Light image upload ─────────────────────────────────────────────────────
+function LightUpload({ onConfirm, onBack }) {
+  const [files, setFiles] = useState([])
+  const [previews, setPreviews] = useState([])
+
+  const handleChange = (e) => {
+    const selected = Array.from(e.target.files).slice(0, 8)
+    setFiles(selected)
+    // Revoke old previews
+    previews.forEach(URL.revokeObjectURL)
+    setPreviews(selected.map(f => URL.createObjectURL(f)))
+  }
+
+  useEffect(() => {
+    return () => previews.forEach(URL.revokeObjectURL)
+  }, [previews])
+
+  const canGenerate = files.length >= 2
+
+  return (
+    <div className="space-y-6 animate-slide-up">
+      <div>
+        <h2 className="text-xl font-semibold">Upload your images</h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          Upload 2–8 images. Each image becomes one content slide. Claude will analyse each image and write the slide text.
+        </p>
+      </div>
+
+      <label className="block cursor-pointer rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-700 hover:border-accent transition-colors p-8 text-center">
+        <input
+          type="file"
+          className="sr-only"
+          accept="image/*"
+          multiple
+          onChange={handleChange}
+        />
+        <div className="flex flex-col items-center gap-2 text-gray-400 dark:text-gray-500">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/>
+            <polyline points="21 15 16 10 5 21"/>
+          </svg>
+          <span className="text-sm">
+            {files.length > 0
+              ? `${files.length} image${files.length > 1 ? 's' : ''} selected — click to change`
+              : 'Click to select images (2–8)'}
+          </span>
+        </div>
+      </label>
+
+      {previews.length > 0 && (
+        <div className="grid grid-cols-4 gap-2">
+          {previews.map((src, i) => (
+            <div key={i} className="aspect-square rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800">
+              <img src={src} alt={`Preview ${i + 1}`} className="w-full h-full object-cover" />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {files.length > 0 && files.length < 2 && (
+        <p className="text-xs text-amber-600 dark:text-amber-400">Please select at least 2 images.</p>
+      )}
+
+      <div className="flex gap-3">
+        <button
+          onClick={onBack}
+          className="flex-1 rounded-xl border border-gray-200 dark:border-gray-800 py-3 text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-900 transition-colors"
+        >
+          Back
+        </button>
+        <button
+          onClick={() => onConfirm(files)}
+          disabled={!canGenerate}
+          className="flex-[2] rounded-xl bg-accent text-white py-3 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-orange-600 transition-colors"
+        >
+          {canGenerate
+            ? `Generate carousel (${files.length} slide${files.length > 1 ? 's' : ''})`
+            : 'Select at least 2 images'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Main App ───────────────────────────────────────────────────────────────
 export default function App() {
   const [dark, setDark]       = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
   const [status, setStatus]   = useState('idle')
@@ -51,16 +181,16 @@ export default function App() {
   // Pipeline data
   const [topic,          setTopic]          = useState('')
   const [numSlides,      setNumSlides]      = useState(5)
+  const [templateType,   setTemplateType]   = useState(null)   // 'dark' | 'light'
   const [hooks,          setHooks]          = useState([])
   const [selectedHook,   setSelectedHook]   = useState(null)
   const [selectedImage,  setSelectedImage]  = useState(null)
   const [slides,         setSlides]         = useState([])
   const [caption,        setCaption]        = useState('')
-  const [carouselStyle,  setCarouselStyle]  = useState('text_only')
+  const [carouselStyle,  setCarouselStyle]  = useState('dark_core')
   const [flags,          setFlags]          = useState([])
   const [images,         setImages]         = useState([])
 
-  // Keep slides in a ref so QC callbacks always read latest value
   const slidesRef = useRef(slides)
   useEffect(() => { slidesRef.current = slides }, [slides])
 
@@ -83,6 +213,7 @@ export default function App() {
     setStatus('idle')
     setError('')
     setStepMsg('')
+    setTemplateType(null)
     setHooks([])
     setSelectedHook(null)
     setSelectedImage(null)
@@ -92,18 +223,23 @@ export default function App() {
     setImages([])
   }, [])
 
-  // ── Stage 1: form → hooks ─────────────────────────────────────────────────
-  const handleGenerate = useCallback(async ({ topic: t, slides: n }) => {
-    const trimmed = t.trim()
-    setTopic(trimmed)
+  // ── Stage 1: form submit → template selection ──────────────────────────
+  const handleFormSubmit = useCallback(({ topic: t, slides: n }) => {
+    setTopic(t.trim())
     setNumSlides(n)
+    setStatus('template_selection')
+  }, [])
+
+  // ── Stage 2: template selected → load hooks ────────────────────────────
+  const handleTemplateSelect = useCallback(async (type) => {
+    setTemplateType(type)
     setStatus('hooks_loading')
     setStepMsg('Generating hook options…')
     try {
       const res = await fetch('/hooks', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ topic: trimmed, num_slides: n }),
+        body:    JSON.stringify({ topic, num_slides: numSlides }),
       })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
@@ -115,15 +251,19 @@ export default function App() {
     } catch (err) {
       goError(err.message || 'Failed to generate hooks.')
     }
-  }, [goError])
+  }, [topic, numSlides, goError])
 
-  // ── Stage 2a: hook selected → image selection ────────────────────────────
+  // ── Stage 3a: hook selected — branch on template type ─────────────────
   const handleHookSelect = useCallback((hook) => {
     setSelectedHook(hook)
-    setStatus('image_selection')
-  }, [])
+    if (templateType === 'light') {
+      setStatus('light_upload')
+    } else {
+      setStatus('image_selection')
+    }
+  }, [templateType])
 
-  // ── Stage 2b: image selected → slides (SSE) → auto-QC ───────────────────
+  // ── Dark pipeline: QC ─────────────────────────────────────────────────
   const runQc = useCallback(async (slidesToCheck) => {
     setStatus('qc_loading')
     setStepMsg('Running quality check…')
@@ -141,6 +281,7 @@ export default function App() {
     setStatus('review')
   }, [topic])
 
+  // ── Dark pipeline: image confirmed → generate slides (SSE) ────────────
   const handleImageConfirm = useCallback(async (image) => {
     setSelectedImage(image)
     setStatus('slides_loading')
@@ -153,7 +294,7 @@ export default function App() {
           topic,
           hook:           selectedHook.hook,
           num_slides:     numSlides,
-          image_filename: image.filename,
+          image_filename: image?.filename || null,
         }),
       })
       if (!res.ok) {
@@ -166,7 +307,6 @@ export default function App() {
         if (event.step === 'complete') {
           gotComplete = true
           let receivedSlides = event.slides || []
-          // Enforce "We show you … every day." on final slide (belt-and-suspenders)
           if (receivedSlides.length > 0) {
             const last = receivedSlides[receivedSlides.length - 1]
             if (last && !last.heading?.trim().toLowerCase().startsWith('we show you')) {
@@ -175,7 +315,7 @@ export default function App() {
           }
           setSlides(receivedSlides)
           setCaption(event.caption || '')
-          setCarouselStyle(event.style || 'text_only')
+          setCarouselStyle(event.style || 'dark_core')
           runQc(receivedSlides)
         } else if (event.step === 'error') {
           gotError = true
@@ -190,7 +330,7 @@ export default function App() {
     }
   }, [topic, numSlides, selectedHook, goError, runQc])
 
-  // ── Per-slide regenerate ──────────────────────────────────────────────────
+  // ── Dark pipeline: per-slide regenerate ───────────────────────────────
   const handleRegenerate = useCallback(async (index, flag) => {
     const f = flag || {}
     try {
@@ -199,11 +339,12 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
           topic,
-          slide_index: index,
-          hook:        selectedHook?.hook || '',
-          slides:      slidesRef.current,
-          issue:       f.issue       || '',
-          suggestion:  f.suggestion  || '',
+          slide_index:    index,
+          hook:           selectedHook?.hook || '',
+          slides:         slidesRef.current,
+          issue:          f.issue       || '',
+          suggestion:     f.suggestion  || '',
+          template_style: carouselStyle,
         }),
       })
       if (!res.ok) {
@@ -211,15 +352,24 @@ export default function App() {
         throw new Error(body.detail || `Regeneration failed (${res.status})`)
       }
       const data = await res.json()
-      setSlides(prev => prev.map((s, i) => i === index ? data.slide : s))
+      let regenerated = data.slide
+      const isLast = index === slidesRef.current.length - 1
+      if (isLast && regenerated) {
+        const h = (regenerated.heading || '').trim().toLowerCase()
+        if (!h.startsWith('we show you')) {
+          regenerated = { ...regenerated, heading: `We show you ${topic} every day.` }
+        } else if (!h.replace(/\.$/, '').endsWith('every day')) {
+          regenerated = { ...regenerated, heading: regenerated.heading.replace(/\.?\s*$/, '') + ' every day.' }
+        }
+      }
+      setSlides(prev => prev.map((s, i) => i === index ? regenerated : s))
       setFlags(prev => prev.filter(fl => (fl.slide_number - 1) !== index))
       showToast('Slide regenerated!')
     } catch (err) {
       showToast(err.message || 'Regeneration failed.', 'error')
     }
-  }, [topic, selectedHook, showToast])
+  }, [topic, selectedHook, carouselStyle, showToast])
 
-  // Apply the QC-suggested replacement directly (no API call)
   const handleApplyFix = useCallback((index, flag) => {
     setSlides(prev => prev.map((s, i) => i === index ? {
       ...s,
@@ -236,7 +386,7 @@ export default function App() {
 
   const handleRerunQc = useCallback(() => runQc(slidesRef.current), [runQc])
 
-  // ── Stage 3: render ───────────────────────────────────────────────────────
+  // ── Dark pipeline: render ──────────────────────────────────────────────
   const handleRender = useCallback(async () => {
     setStatus('rendering')
     setStepMsg('Rendering slides…')
@@ -269,9 +419,49 @@ export default function App() {
     } catch (err) {
       goError(err.message || 'Rendering failed.')
     }
-  }, [topic, carouselStyle, selectedImage, goError, showToast, status])
+  }, [topic, carouselStyle, selectedImage, goError, showToast])
 
-  const LOADING_STAGES = new Set(['hooks_loading', 'slides_loading', 'qc_loading', 'rendering'])
+  // ── Light pipeline: images uploaded → generate-light (SSE) ───────────
+  const handleLightGenerate = useCallback(async (imageFiles) => {
+    setStatus('light_generating')
+    setStepMsg('Analysing images…')
+
+    const formData = new FormData()
+    formData.append('topic', topic)
+    formData.append('hook', selectedHook.hook)
+    for (const file of imageFiles) {
+      formData.append('images', file)
+    }
+
+    try {
+      const res = await fetch('/generate-light', { method: 'POST', body: formData })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.detail || `Server error (${res.status})`)
+      }
+      let gotComplete = false
+      let gotError = false
+      await readSse(res, (event) => {
+        if (event.step === 'complete') {
+          gotComplete = true
+          setImages(event.images || [])
+          setCaption(event.caption || '')
+          setStatus('done')
+          showToast('Carousel generated!')
+        } else if (event.step === 'error') {
+          gotError = true
+          goError(event.message || 'Generation failed.')
+        } else {
+          setStepMsg(event.message || '')
+        }
+      })
+      if (!gotComplete && !gotError) goError('Generation did not complete.')
+    } catch (err) {
+      goError(err.message || 'Generation failed.')
+    }
+  }, [topic, selectedHook, goError, showToast])
+
+  const LOADING_STAGES = new Set(['hooks_loading', 'slides_loading', 'qc_loading', 'rendering', 'light_generating'])
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -326,7 +516,15 @@ export default function App() {
 
         {/* ── idle: show form ── */}
         {status === 'idle' && (
-          <Form onGenerate={handleGenerate} loading={false} onReset={null} />
+          <Form onGenerate={handleFormSubmit} loading={false} onReset={null} />
+        )}
+
+        {/* ── template selection ── */}
+        {status === 'template_selection' && (
+          <TemplateSelector
+            onSelect={handleTemplateSelect}
+            onBack={() => setStatus('idle')}
+          />
         )}
 
         {/* ── loading spinner ── */}
@@ -338,11 +536,11 @@ export default function App() {
             hooks={hooks}
             topic={topic}
             onSelect={handleHookSelect}
-            onBack={reset}
+            onBack={() => setStatus('template_selection')}
           />
         )}
 
-        {/* ── image selection ── */}
+        {/* ── dark: image selection ── */}
         {status === 'image_selection' && (
           <ImagePicker
             onSelect={handleImageConfirm}
@@ -350,7 +548,15 @@ export default function App() {
           />
         )}
 
-        {/* ── slide review ── */}
+        {/* ── light: image upload ── */}
+        {status === 'light_upload' && (
+          <LightUpload
+            onConfirm={handleLightGenerate}
+            onBack={() => setStatus('hook_selection')}
+          />
+        )}
+
+        {/* ── dark: slide review ── */}
         {status === 'review' && (
           <SlideReview
             slides={slides}

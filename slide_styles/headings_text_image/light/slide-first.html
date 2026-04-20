@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Slide 1</title>
+
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Anton&display=swap" rel="stylesheet">
+
+<style>
+* {
+  margin:0;
+  padding:0;
+  box-sizing:border-box;
+  font-family:'Inter', sans-serif;
+}
+
+.slide {
+  width:1080px;
+  height:1350px;
+  /* background:linear-gradient(135deg,#111,#0a0a0a); */
+  background:linear-gradient(135deg,#F7F6F5,#F7F6F5);
+  color:#111;
+  position:relative;
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  padding-top:120px;
+}
+
+/* ---------- HANDLE ---------- */
+
+.handle {
+  position:absolute;
+  bottom:80px;
+  left:90px;
+  font-size:34px;
+  opacity:.7;
+  z-index:3;
+}
+
+/* ---------- CENTRED CONTENT BLOCK ---------- */
+
+.content-center {
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:42px;
+  text-align:center;
+  padding:0 18px;
+  max-width:960px;
+  width:100%;
+}
+
+.swipe {
+  display:inline-block;
+  border:1px solid rgba(10,10,10,.4);
+  border-radius:999px;
+  padding:6px 18px;
+  font-size:24px;
+  letter-spacing:3px;
+  color:#0a0a0a;
+}
+
+.headline {
+  font-family:'Anton', sans-serif;
+  font-size:100px;
+  font-weight:400;
+  line-height:1.05;
+  text-align:center;
+}
+
+.headline strong {
+  font-weight:700;
+}
+
+/* ---------- ACCENT SYSTEM ---------- */
+
+:root {
+  --circle-size:160px;
+  --circle-bottom:120px;
+  --circle-right:80px;
+  --accent:#e84a24;
+}
+
+.circle {
+  position:absolute;
+  right:var(--circle-right);
+  bottom:var(--circle-bottom);
+  width:var(--circle-size);
+  height:var(--circle-size);
+  background:var(--accent);
+  border-radius:50%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:26px;
+  font-weight:600;
+  z-index:2;
+}
+
+.bar {
+  position:absolute;
+  height:12px;
+  background:var(--accent);
+  bottom:calc(var(--circle-bottom) + (var(--circle-size) / 2));
+  left:calc(100% - var(--circle-right) - (var(--circle-size) / 2));
+  width:calc(var(--circle-right) + (var(--circle-size) / 2));
+  z-index:1;
+}
+
+</style>
+</head>
+
+<body>
+<div class="slide">
+
+  <div class="content-center">
+    <div class="swipe">SWIPE</div>
+    <div class="headline">{{TEXT}}</div>
+  </div>
+
+  <div class="handle">@claudeinsights</div>
+
+  <!-- Accent -->
+  <div class="bar"></div>
+  <div class="circle">SWIPE</div>
+
+</div>
+</body>
+</html>

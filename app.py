@@ -20,13 +20,14 @@ import json
 import logging
 import os
 import re as _re
+import tempfile
 from pathlib import Path
-from typing import Generator, Optional
+from typing import Generator, List, Optional
 from urllib.parse import quote
 
 import anthropic as _anthropic
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -34,7 +35,7 @@ from pydantic import BaseModel
 load_dotenv()
 
 from utils import setup_logging
-from generator import generate_slides, select_template_style
+from generator import generate_slides, generate_light_slides, generate_caption, _build_system_prompt, _IMAGE_STYLES
 from renderer import render_slides
 
 setup_logging(os.environ.get("LOG_LEVEL", "INFO"))
@@ -55,15 +56,57 @@ _ARC = ["Problem", "Cost", "Shift", "System", "Proof", "Decision", "CTA"]
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _claude(prompt: str, max_tokens: int = 1024) -> str:
+# Zero-width and invisible Unicode characters that browsers may append to
+# text copied from web pages.  Strip these before passing to any LLM call.
+_ZW_CHARS  = _re.compile(r'[\u200b\u200c\u200d\u200e\u200f\u00ad\ufeff]+')
+_CITE_RE   = _re.compile(r'<cite[^>]*>(.*?)</cite>', _re.DOTALL | _re.IGNORECASE)
+_MD_RE     = _re.compile(r'\*{1,2}|_{1,2}|~~')
+_NL_RE     = _re.compile(r'[\n\r]+')
+
+def _strip_citations(text: str) -> str:
+    return _CITE_RE.sub(r'\1', text)
+
+def _strip_markdown(text: str) -> str:
+    return _MD_RE.sub('', text)
+
+def _strip_newlines(text: str) -> str:
+    return _NL_RE.sub(' ', text).strip()
+
+_SENTENCE_TERM_RE = _re.compile(r'[.!?]["\')>]?\s*$')
+_SENTENCE_SPLIT_RE = _re.compile(r'(?<=[.!?])\s+')
+
+def _ensure_complete_sentences(text: str) -> str:
+    """Drop any trailing fragment that does not end with . ! or ?
+
+    Final validation step applied after all other stripping.
+    """
+    if not text:
+        return text
+    text = text.strip()
+    if _SENTENCE_TERM_RE.search(text):
+        return text
+    parts = _SENTENCE_SPLIT_RE.split(text)
+    complete = [p.strip() for p in parts if _SENTENCE_TERM_RE.search(p.strip())]
+    return " ".join(complete)
+
+
+def _clean_topic(text: str) -> str:
+    """Strip whitespace and zero-width Unicode characters from topic input."""
+    return _ZW_CHARS.sub('', text).strip()
+
+
+def _claude(prompt: str, max_tokens: int = 1024, system: Optional[str] = None) -> str:
     """Single-turn Claude call, returns response text."""
     client = _anthropic.Anthropic()
     model  = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
-    msg = client.messages.create(
+    kwargs: dict = dict(
         model=model,
         max_tokens=max_tokens,
         messages=[{"role": "user", "content": prompt}],
     )
+    if system:
+        kwargs["system"] = system
+    msg = client.messages.create(**kwargs)
     return msg.content[0].text
 
 
@@ -114,12 +157,13 @@ class QcRequest(BaseModel):
 
 
 class RegenerateRequest(BaseModel):
-    topic:       str
-    slide_index: int
-    hook:        str
-    slides:      list[dict]
-    issue:       str = ""
-    suggestion:  str = ""
+    topic:          str
+    slide_index:    int
+    hook:           str
+    slides:         list[dict]
+    issue:          str = ""
+    suggestion:     str = ""
+    template_style: str = "headings_and_text"
 
 
 class RenderRequest(BaseModel):
@@ -141,9 +185,8 @@ def _stream(topic: str, num_slides: int) -> Generator[str, None, None]:
     """Sync generator that emits SSE events at each real pipeline stage."""
     print("HTML PIPELINE ACTIVE")
 
-    # Step 0: Select template style
-    style = select_template_style()
-    logger.info("Template style selected: %s", style)
+    style = "dark_core"
+    logger.info("Template style: %s", style)
 
     # Step 1: Generate slides via Claude
     logger.info("Generating slides for topic: %r (style=%s)", topic, style)
@@ -158,39 +201,25 @@ def _stream(topic: str, num_slides: int) -> Generator[str, None, None]:
 
     logger.info("Generated %d slides", len(slides))
 
-    # Step 2: Fetch image (only for headings_text_image)
+    # Step 2: Fetch image for dark_core hook slide
     image_data = None
-    if style == "headings_text_image":
-        import os as _os
-        yield _sse({"step": "fetching_image", "message": "Fetching image..."})
-        try:
-            if _os.getenv("LUMMI_API_KEY"):
-                from image_fetcher import fetch_lummi_image
-                image_data = fetch_lummi_image(topic)
-                logger.info("Lummi image fetched: %s", image_data.get("local_path"))
-            else:
-                from local_image import get_image_for_heading_template
-                logger.info("Using local image fallback for topic: %r", topic)
-                image_data = get_image_for_heading_template(topic)
-
-            if image_data.get("author_name"):
-                author_url = image_data.get("author_url", "")
-                credit = image_data["author_name"]
-                if author_url:
-                    credit += f" ({author_url})"
-                caption += f"\n\nImage credit: {credit}"
-        except Exception as exc:
-            logger.warning("Image fetch failed (%s) — falling back to text_only", exc)
-            style      = "text_only"
-            image_data = None
-            try:
-                slides, caption = generate_slides(
-                    topic, num_slides=num_slides, template_style=style
-                )
-            except Exception as exc2:
-                logger.error("Fallback generation failed: %s", exc2)
-                yield _sse({"step": "error", "message": f"Content generation failed: {exc2}"})
-                return
+    yield _sse({"step": "fetching_image", "message": "Fetching image..."})
+    try:
+        if os.getenv("LUMMI_API_KEY"):
+            from image_fetcher import fetch_lummi_image
+            image_data = fetch_lummi_image(topic)
+        else:
+            from local_image import get_image_for_heading_template
+            image_data = get_image_for_heading_template(topic)
+        if image_data and image_data.get("author_name"):
+            author_url = image_data.get("author_url", "")
+            credit = image_data["author_name"]
+            if author_url:
+                credit += f" ({author_url})"
+            caption += f"\n\nImage credit: {credit}"
+    except Exception as exc:
+        logger.warning("Image fetch failed (%s) — proceeding without image", exc)
+        image_data = None
 
     # Step 3: Render slides to PNG via Playwright
     print("Rendering slides via Playwright")
@@ -267,29 +296,42 @@ Read the following carousel slides, starting from slide 2. Flag any slides that 
 repeat the same idea, feel too vague, or don't advance the argument. \
 Do not evaluate slide 1. Suggest a replacement for each flagged slide.
 
+IMPORTANT: Only flag issues based on the exact text provided below. Do not reference \
+or quote any text that does not appear verbatim in the slide content given. If you \
+cannot point to specific words in the slide that demonstrate the problem, do not flag it.
+
 Return as a JSON array of objects with keys: slide_number, issue, \
 replacement_heading, replacement_body. Return an empty array if no issues found.
 
-Carousel: {slides_json}"""
+Carousel:
+{slides_json}"""
 
 _REGEN_PROMPT = """\
-Rewrite slide {slide_num} of {total} for an Instagram carousel about "{topic}".
+Write like a smart 10 year old explaining something to a friend. \
+Short words. Short sentences. Specific details. No jargon.
 
-Opening hook of this carousel: "{hook}"
-Arc position: {arc} — write content fitting this narrative stage.
+You are rewriting slide {slide_num} of {total} in an Instagram carousel about "{topic}".
 
-Current slide (to replace):
-  Heading: {heading}
-  Body: {body}
+The hook on slide 1 is: "{hook}"
+
+This slide sits at the {arc} stage of the arc:
+Problem → Cost → Shift → System → Proof → Decision → CTA
+
+Here are all the other slides in the carousel for context — do NOT reproduce any of their \
+ideas. Your rewrite must introduce a distinct idea that fits the {arc} stage and does not \
+repeat anything already covered:
+
+{other_slides}
 
 {issue_block}\
-Requirements:
-- Return JSON: {{"type": "{slide_type}", "heading": "...", "body": "..."}}
-- Heading: 3-7 words, punchy
-- Body: 20-35 words, specific and actionable
-- Content must flow naturally from the hook and arc position
-- Must be clearly different from the original
-- No markdown, just the JSON object"""
+Write complete sentences only. Every sentence MUST end with a full stop, exclamation mark, \
+or question mark. No fragments. No sentences that trail off.
+
+Write a new version of slide {slide_num} only. One idea. Exactly two complete sentences in \
+the body. Each sentence under 12 words. Total body text under 20 words. If a sentence exceeds \
+12 words, split it or cut it — no exceptions. \
+Return as JSON with keys "heading" and "body" — no type, no markdown, just the object:
+{{"heading": "...", "body": "..."}}"""
 
 
 @app.get("/healthz", tags=["meta"])
@@ -300,7 +342,7 @@ def healthz():
 @app.post("/hooks", tags=["carousel"])
 def hooks_route(req: HookRequest):
     """Generate 4 hook options for a given topic."""
-    topic = req.topic.strip()
+    topic = _clean_topic(req.topic)
     if not topic:
         raise HTTPException(status_code=422, detail="topic must not be empty")
 
@@ -331,8 +373,7 @@ def _slides_stream(topic: str, hook: str, num_slides: int, image_filename: Optio
             yield _sse({"step": "error", "message": f"Image not found: {image_filename}. Please go back and select a different image."})
             return
 
-    # Use image template when the user has picked an image
-    style = "headings_text_image" if image_filename else select_template_style()
+    style = "dark_core"
     yield _sse({"step": "generating", "message": "Generating slides..."})
 
     try:
@@ -345,32 +386,23 @@ def _slides_stream(topic: str, hook: str, num_slides: int, image_filename: Optio
         return
 
     image_data = None
-    if style == "headings_text_image":
-        yield _sse({"step": "fetching_image", "message": "Fetching image..."})
-        try:
-            if os.getenv("LUMMI_API_KEY"):
-                from image_fetcher import fetch_lummi_image
-                image_data = fetch_lummi_image(topic)
-            else:
-                from local_image import get_image_for_heading_template
-                image_data = get_image_for_heading_template(topic, image_filename)
-            if image_data and image_data.get("author_name"):
-                author_url = image_data.get("author_url", "")
-                credit = image_data["author_name"]
-                if author_url:
-                    credit += f" ({author_url})"
-                caption += f"\n\nImage credit: {credit}"
-        except Exception as exc:
-            logger.warning("Image fetch failed (%s) — falling back to text_only", exc)
-            style      = "text_only"
-            image_data = None
-            try:
-                slides, caption = generate_slides(
-                    topic, num_slides=num_slides, template_style=style, hook=hook
-                )
-            except Exception as exc2:
-                yield _sse({"step": "error", "message": f"Content generation failed: {exc2}"})
-                return
+    yield _sse({"step": "fetching_image", "message": "Fetching image..."})
+    try:
+        if os.getenv("LUMMI_API_KEY"):
+            from image_fetcher import fetch_lummi_image
+            image_data = fetch_lummi_image(topic)
+        else:
+            from local_image import get_image_for_heading_template
+            image_data = get_image_for_heading_template(topic, image_filename)
+        if image_data and image_data.get("author_name"):
+            author_url = image_data.get("author_url", "")
+            credit = image_data["author_name"]
+            if author_url:
+                credit += f" ({author_url})"
+            caption += f"\n\nImage credit: {credit}"
+    except Exception as exc:
+        logger.warning("Image fetch failed (%s) — proceeding without image", exc)
+        image_data = None
 
     slide_models = [
         {"type": s.get("type", "content"), "heading": s.get("heading", ""), "description": s.get("body", "")}
@@ -388,7 +420,7 @@ def _slides_stream(topic: str, hook: str, num_slides: int, image_filename: Optio
 @app.post("/slides", tags=["carousel"])
 def slides_route(req: SlidesRequest):
     """Generate carousel slides using the user-selected hook (SSE stream)."""
-    topic = req.topic.strip()
+    topic = _clean_topic(req.topic)
     hook  = req.hook.strip()
     if not topic:
         raise HTTPException(status_code=422, detail="topic must not be empty")
@@ -404,10 +436,43 @@ def slides_route(req: SlidesRequest):
     )
 
 
+def _qc_flag_is_grounded(flag: dict, slides: list[dict]) -> bool:
+    """Return False if the flag quotes text that doesn't appear in the slide.
+
+    The QC LLM occasionally hallucinates issues that reference words or phrases
+    not present in the actual slide.  If the issue field contains a quoted string
+    (double quotes), we verify that string appears verbatim in the slide text.
+    Flags without any quoted text are accepted as-is.
+    """
+    slide_num = flag.get("slide_number")
+    if not isinstance(slide_num, int) or not (1 <= slide_num <= len(slides)):
+        return False
+
+    issue = flag.get("issue", "")
+    quoted = _re.findall(r'"([^"]{4,})"', issue)   # only check substantive quotes (4+ chars)
+    if not quoted:
+        return True
+
+    slide = slides[slide_num - 1]
+    slide_text = (
+        slide.get("heading", "") + " " + slide.get("description", slide.get("body", ""))
+    ).lower()
+
+    for q in quoted:
+        if q.lower() not in slide_text:
+            logger.info(
+                "QC flag for slide %d discarded — quoted text %r not found in slide",
+                slide_num, q,
+            )
+            return False
+
+    return True
+
+
 @app.post("/qc", tags=["carousel"])
 def qc_route(req: QcRequest):
     """QC-check slides and return a list of flags."""
-    topic = req.topic.strip()
+    topic = _clean_topic(req.topic)
     if not topic:
         raise HTTPException(status_code=422, detail="topic must not be empty")
     if not req.slides:
@@ -421,6 +486,17 @@ def qc_route(req: QcRequest):
         flags = _parse_json(raw)
         if not isinstance(flags, list):
             flags = []
+        # Strip web-search citation tags from any replacement text
+        for f in flags:
+            if isinstance(f.get("replacement_heading"), str):
+                f["replacement_heading"] = _strip_citations(f["replacement_heading"])
+            if isinstance(f.get("replacement_body"), str):
+                f["replacement_body"] = _strip_citations(f["replacement_body"])
+        # Discard any flag that quotes text not present in the actual slide
+        before = len(flags)
+        flags  = [f for f in flags if _qc_flag_is_grounded(f, req.slides)]
+        if len(flags) < before:
+            logger.info("QC: discarded %d hallucinated flag(s)", before - len(flags))
     except Exception as exc:
         logger.warning("QC parse failed (%s) — returning no flags", exc)
         flags = []
@@ -431,7 +507,7 @@ def qc_route(req: QcRequest):
 @app.post("/regenerate", tags=["carousel"])
 def regenerate_route(req: RegenerateRequest):
     """Regenerate a single slide at the given index."""
-    topic = req.topic.strip()
+    topic = _clean_topic(req.topic)
     idx   = req.slide_index
     if not (0 <= idx < len(req.slides)):
         raise HTTPException(status_code=422, detail="slide_index out of range")
@@ -440,8 +516,24 @@ def regenerate_route(req: RegenerateRequest):
     total      = len(req.slides)
     arc        = _arc_position(idx + 1, total)
     slide_type = slide.get("type", "content")
+
+    # Build context list of every OTHER slide with its arc position so the
+    # LLM knows exactly what has already been said and won't repeat ideas.
+    other_lines: list[str] = []
+    for i, s in enumerate(req.slides):
+        if i == idx:
+            continue
+        s_arc    = _arc_position(i + 1, total)
+        heading  = s.get("heading", "")
+        body     = s.get("description", s.get("body", ""))
+        entry    = f"Slide {i + 1} ({s_arc}): {heading}"
+        if body:
+            entry += f" — {body}"
+        other_lines.append(entry)
+    other_slides = "\n".join(other_lines)
+
     issue_block = (
-        f"Issue flagged: {req.issue}\nSuggestion: {req.suggestion}\n\n"
+        f"Issue with the current slide: {req.issue}\nSuggestion: {req.suggestion}\n\n"
         if req.issue else ""
     )
 
@@ -451,14 +543,13 @@ def regenerate_route(req: RegenerateRequest):
         topic=topic,
         hook=req.hook or topic,
         arc=arc,
-        heading=slide.get("heading", ""),
-        body=slide.get("description", ""),
+        other_slides=other_slides,
         issue_block=issue_block,
-        slide_type=slide_type,
     )
+    system = _build_system_prompt(total, req.template_style)
     try:
-        raw        = _claude(prompt, max_tokens=256)
-        new_slide  = _parse_json(raw)
+        raw       = _claude(prompt, max_tokens=512, system=system)
+        new_slide = _parse_json(raw)
         if not isinstance(new_slide, dict):
             raise ValueError("Expected a JSON object")
         new_slide.setdefault("type", slide_type)
@@ -466,9 +557,23 @@ def regenerate_route(req: RegenerateRequest):
         logger.error("Regenerate failed: %s", exc)
         raise HTTPException(status_code=500, detail=f"Regeneration failed: {exc}")
 
+    heading     = _strip_citations(new_slide.get("heading", ""))
+    description = _ensure_complete_sentences(_strip_newlines(_strip_citations(new_slide.get("body", new_slide.get("description", "")))))
+
+    # Enforce "We show you … every day." on the final slide after regeneration
+    is_last = (idx == total - 1)
+    if is_last:
+        h_lower = heading.strip().lower()
+        if not h_lower.startswith("we show you"):
+            heading = f"We show you {topic} every day."
+            logger.info("Corrected final slide heading after regeneration")
+        elif not h_lower.rstrip(".").rstrip().endswith("every day"):
+            heading = heading.rstrip(".").rstrip() + " every day."
+            logger.info("Corrected final slide heading after regeneration")
+
     return {"slide": {"type": new_slide.get("type", slide_type),
-                      "heading": new_slide.get("heading", ""),
-                      "description": new_slide.get("body", new_slide.get("description", ""))}}
+                      "heading": heading,
+                      "description": description}}
 
 
 def _render_stream(
@@ -478,12 +583,14 @@ def _render_stream(
     yield _sse({"step": "rendering", "message": "Rendering slides..."})
 
     internal_slides = [
-        {"type": s.get("type", "content"), "heading": s.get("heading", ""), "body": s.get("description", "")}
+        {"type": s.get("type", "content"),
+         "heading": _strip_citations(s.get("heading", "")),
+         "body":    _ensure_complete_sentences(_strip_newlines(_strip_citations(s.get("description", ""))))}
         for s in slides
     ]
 
     image_data = None
-    if style == "headings_text_image":
+    if style == "dark_core":
         try:
             if os.getenv("LUMMI_API_KEY"):
                 from image_fetcher import fetch_lummi_image
@@ -492,8 +599,8 @@ def _render_stream(
                 from local_image import get_image_for_heading_template
                 image_data = get_image_for_heading_template(topic, image_filename)
         except Exception as exc:
-            logger.warning("Image fetch failed for render (%s) — using text_only", exc)
-            style = "text_only"
+            logger.warning("Image fetch failed for render (%s) — proceeding without image", exc)
+            image_data = None
 
     try:
         png_paths, run_id = render_slides(
@@ -515,7 +622,7 @@ def _render_stream(
 @app.post("/render", tags=["carousel"])
 def render_route(req: RenderRequest):
     """Render approved slides to PNG (SSE stream)."""
-    topic = req.topic.strip()
+    topic = _clean_topic(req.topic)
     if not topic:
         raise HTTPException(status_code=422, detail="topic must not be empty")
     if not req.slides:
@@ -528,11 +635,101 @@ def render_route(req: RenderRequest):
     )
 
 
+def _generate_light_stream_full(
+    topic: str,
+    hook: str,
+    image_bytes_list: list[bytes],
+    image_types: list[str],
+    content_temp_paths: list[str],
+) -> Generator[str, None, None]:
+    """SSE stream: analyse images, render light carousel, then clean up temp files."""
+    yield _sse({"step": "analysing", "message": "Analysing images…"})
+    try:
+        result = generate_light_slides(topic, hook, image_bytes_list, image_types)
+    except Exception as exc:
+        logger.error("Light slide generation failed: %s", exc)
+        yield _sse({"step": "error", "message": f"Slide generation failed: {exc}"})
+        for p in content_temp_paths:
+            try: os.unlink(p)
+            except OSError: pass
+        return
+
+    slides = result["slides"]
+    caption = generate_caption(slides)
+
+    yield _sse({"step": "rendering", "message": "Rendering slides…"})
+    try:
+        png_paths, run_id = render_slides(
+            slides,
+            renders_base=str(RENDERS_DIR),
+            template_style="light_image",
+            content_image_paths=content_temp_paths,
+        )
+    except Exception as exc:
+        logger.error("Light rendering failed: %s", exc)
+        yield _sse({"step": "error", "message": f"Rendering failed: {exc}"})
+        return
+    finally:
+        for p in content_temp_paths:
+            try: os.unlink(p)
+            except OSError: pass
+
+    image_urls = [f"/renders/{run_id}/slide-{i + 1}.png" for i in range(len(png_paths))]
+    logger.info("Light render complete: %d images (run=%s)", len(image_urls), run_id)
+    yield _sse({"step": "complete", "images": image_urls, "caption": caption})
+
+
+@app.post("/generate-light", tags=["carousel"])
+async def generate_light_route(
+    topic: str = Form(...),
+    hook: str = Form(...),
+    images: List[UploadFile] = File(...),
+):
+    """Generate and render a light image carousel (SSE stream).
+
+    Accepts: topic (str), hook (str), images (1–8 files).
+    Streams SSE events: analysing → rendering → complete | error.
+    """
+    topic = _clean_topic(topic)
+    hook  = hook.strip()
+    if not topic:
+        raise HTTPException(status_code=422, detail="topic must not be empty")
+    if not hook:
+        raise HTTPException(status_code=422, detail="hook must not be empty")
+    if not images:
+        raise HTTPException(status_code=422, detail="at least one image required")
+    if len(images) > 8:
+        raise HTTPException(status_code=422, detail="maximum 8 images allowed")
+
+    image_bytes_list: list[bytes] = []
+    image_types: list[str] = []
+    content_temp_paths: list[str] = []
+
+    for upload in images:
+        data  = await upload.read()
+        ctype = upload.content_type or "image/jpeg"
+        ext   = "." + (ctype.split("/")[-1] if "/" in ctype else "jpg")
+        if ext == ".jpeg":
+            ext = ".jpg"
+        tmp = tempfile.NamedTemporaryFile(suffix=ext, delete=False)
+        tmp.write(data)
+        tmp.close()
+        image_bytes_list.append(data)
+        image_types.append(ctype)
+        content_temp_paths.append(tmp.name)
+
+    return StreamingResponse(
+        _generate_light_stream_full(topic, hook, image_bytes_list, image_types, content_temp_paths),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.post("/generate", tags=["carousel"])
 def generate(req: GenerateRequest):
     print("=== NEW BACKEND RUNNING ===")
     print(f"Received topic={req.topic!r} num_slides={req.num_slides}")
-    topic = req.topic.strip()
+    topic = _clean_topic(req.topic)
     if not topic:
         raise HTTPException(status_code=422, detail="topic must not be empty")
     req.validate_num_slides()
@@ -550,24 +747,58 @@ def generate(req: GenerateRequest):
 
 _LOCAL_IMAGE_DIR = Path(__file__).parent / "assets" / "lummi_images"
 _IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+_THUMBS_DIR = Path("/tmp/thumbnails")
+_THUMBS_DIR.mkdir(parents=True, exist_ok=True)
+
+_THUMB_MAX_W = 300
+_THUMB_MAX_H = 200
+_THUMB_QUALITY = 60
+
+
+def _make_thumbnail(src: Path) -> Path:
+    """Return path to a cached JPEG thumbnail for *src*, generating it if needed."""
+    from PIL import Image as _PilImage
+
+    # Thumbnails are always stored as JPEG; use stem so PNG → .jpg works too.
+    thumb_path = _THUMBS_DIR / (src.stem + ".jpg")
+    if thumb_path.exists():
+        return thumb_path
+
+    try:
+        with _PilImage.open(src) as img:
+            img = img.convert("RGB")
+            img.thumbnail((_THUMB_MAX_W, _THUMB_MAX_H), _PilImage.LANCZOS)
+            img.save(thumb_path, "JPEG", quality=_THUMB_QUALITY, optimize=True)
+        logger.debug("Generated thumbnail: %s → %s", src.name, thumb_path.name)
+    except Exception as exc:
+        logger.warning("Thumbnail generation failed for %s: %s", src.name, exc)
+        return src  # fall back to original
+
+    return thumb_path
 
 
 @app.get("/api/images", tags=["assets"])
 def list_images():
-    """Return the list of available local images."""
+    """Return the list of available local images with pre-generated thumbnails."""
     if not _LOCAL_IMAGE_DIR.exists():
         return {"images": []}
-    images = [
-        {"filename": p.name, "url": f"/api/images/{quote(p.name)}"}
-        for p in sorted(_LOCAL_IMAGE_DIR.iterdir())
-        if p.is_file() and p.suffix.lower() in _IMAGE_EXTENSIONS
-    ]
+    images = []
+    for p in sorted(_LOCAL_IMAGE_DIR.iterdir()):
+        if not (p.is_file() and p.suffix.lower() in _IMAGE_EXTENSIONS):
+            continue
+        thumb = _make_thumbnail(p)
+        thumb_url = f"/thumbnails/{quote(thumb.name)}"
+        images.append({
+            "filename":      p.name,
+            "url":           f"/api/images/{quote(p.name)}",
+            "thumbnail_url": thumb_url,
+        })
     return {"images": images}
 
 
 @app.get("/api/images/{filename:path}", tags=["assets"])
 def serve_image(filename: str):
-    """Serve a single image from the local image library."""
+    """Serve a single full-resolution image from the local image library."""
     img_path = _LOCAL_IMAGE_DIR / filename
     if not img_path.exists() or not img_path.is_file():
         raise HTTPException(status_code=404, detail="Image not found")
@@ -578,7 +809,8 @@ def serve_image(filename: str):
 # Rendered PNGs  (/renders/<run_id>/slide-n.png)
 # ---------------------------------------------------------------------------
 
-app.mount("/renders", StaticFiles(directory=str(RENDERS_DIR)), name="renders")
+app.mount("/renders",    StaticFiles(directory=str(RENDERS_DIR)), name="renders")
+app.mount("/thumbnails", StaticFiles(directory=str(_THUMBS_DIR)), name="thumbnails")
 
 
 # ---------------------------------------------------------------------------

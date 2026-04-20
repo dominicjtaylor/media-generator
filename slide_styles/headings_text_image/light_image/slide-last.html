@@ -18,44 +18,73 @@
 .slide {
   width:1080px;
   height:1350px;
-  background:linear-gradient(135deg,#111,#0a0a0a);
-  color:#fff;
-  padding:100px 90px;
+  background:#F7F6F5;
+  color:#111;
   position:relative;
   overflow:hidden;
 }
 
-/* ---------- TEXT ---------- */
+/* ---------- CONTENT (CENTERED) ---------- */
+
+.content {
+  position: absolute;
+  inset: 0;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+
+  padding: 0 90px;
+}
+
+/* ---------- BRAND ---------- */
 
 .brand {
+  position: absolute;
+  top: 100px;
+  left: 90px;
+
   font-size:34px;
-  color:#cfcfcf;
+  color:#111;
   opacity:.85;
 }
 
+/* ---------- HEADLINE ---------- */
+
 .headline {
   font-family:'Anton', sans-serif;
-  margin-top:220px;
   font-size:105px;
-  font-weight:400;
   line-height:1.05;
   max-width:820px;
+
+  color:#111;
+
+  /* subtle edge definition (clean, not glowy) */
+  text-shadow:
+    0 -1px 0 rgba(255,255,255,0.4),
+    0 1px 1px rgba(0,0,0,0.08);
 }
 
 .headline strong {
   font-weight:700;
 }
 
+/* ---------- CTA ---------- */
+
 .cta {
-  margin-top:70px;
+  margin-top:40px;
   display:inline-flex;
   align-items:center;
-  white-space:nowrap;
   gap:12px;
-  border:1px solid rgba(255,255,255,.4);
+
+  border:1px solid rgba(10,10,10,.3);
   border-radius:999px;
+
   padding:12px 24px;
   font-size:30px;
+  color:#111;
 }
 
 .logo {
@@ -64,7 +93,7 @@
   border-radius:50%;
 }
 
-/* ---------- HANDLE (FIX ADDED) ---------- */
+/* ---------- HANDLE ---------- */
 
 .handle {
   position:absolute;
@@ -72,9 +101,10 @@
   left:90px;
   font-size:34px;
   opacity:.7;
+  color:#111;
 }
 
-/* ---------- SHARED ACCENT SYSTEM ---------- */
+/* ---------- ACCENT SYSTEM ---------- */
 
 :root {
   --circle-size:160px;
@@ -88,10 +118,13 @@
   position:absolute;
   right:var(--circle-right);
   bottom:var(--circle-bottom);
+
   width:var(--circle-size);
   height:var(--circle-size);
+
   background:var(--accent);
   border-radius:50%;
+
   display:flex;
   align-items:center;
   justify-content:center;
@@ -102,8 +135,10 @@
   position:absolute;
   height:12px;
   background:var(--accent);
+
   bottom:var(--bar-height-pos);
   left:0;
+
   width:calc(100% - var(--circle-right) - (var(--circle-size) / 2));
   z-index:1;
 }
@@ -113,45 +148,45 @@
 .bookmark {
   width:40px;
   height:50px;
-  background:white;
+  background:#fff;
+
   clip-path: polygon(0 0,100% 0,100% 100%,50% 75%,0 100%);
 }
 
-/* ---------- TOP RIGHT DOUBLE ARROW ---------- */
+/* ---------- TOP RIGHT ARROWS ---------- */
 
 .top-arrow {
-  position: absolute;
-  top: 40px;
-  right: 130px;
-  width: 30px;
-  height: 60px;
-  opacity: 0.7;
+  position:absolute;
+  top:40px;
+  right:130px;
+
+  width:30px;
+  height:60px;
+  opacity:0.6;
 }
 
-/* first arrow */
 .top-arrow::before,
 .top-arrow::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  width: 30px;
-  height: 30px;
+  content:"";
+  position:absolute;
+  left:0;
 
-  border-top: 3px solid var(--accent);
-  border-right: 3px solid var(--accent);
+  width:30px;
+  height:30px;
 
-  transform: rotate(-45deg);
+  border-top:3px solid var(--accent);
+  border-right:3px solid var(--accent);
+
+  transform:rotate(-45deg);
 }
 
-/* top arrow */
 .top-arrow::before {
-  top: 0;
+  top:0;
 }
 
-/* bottom arrow */
 .top-arrow::after {
-  top: 20px;
-  opacity: 0.6;
+  top:20px;
+  opacity:0.5;
 }
 
 </style>
@@ -162,22 +197,21 @@
 
   <div class="brand">Claude Insights</div>
 
-  <div class="headline">
-    {{TEXT}}
+  <div class="content">
+    <div class="headline">
+      {{TEXT}}
+    </div>
+
+    <div class="cta">
+      <img src="../../../logo_light.png" class="logo">
+      Claude Insights
+    </div>
   </div>
 
-  <div class="cta">
-    <img src="../../logo.png" class="logo">
-    Follow for daily Claude workflows
-  </div>
-
-  <!-- HANDLE (now included) -->
   <div class="handle">@claudeinsights</div>
 
-  <!-- Bar -->
   <div class="bar"></div>
 
-  <!-- Circle -->
   <div class="circle">
     <div class="bookmark"></div>
   </div>

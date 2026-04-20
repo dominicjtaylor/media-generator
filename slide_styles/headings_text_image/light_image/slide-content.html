@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Content Slide</title>
+
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Anton&display=swap" rel="stylesheet">
+
+<style>
+* {
+  margin:0;
+  padding:0;
+  box-sizing:border-box;
+  font-family:'Inter', sans-serif;
+}
+
+.slide {
+  width:1080px;
+  height:1350px;
+  background:#F7F6F5;
+  color:#111;
+  position:relative;
+  overflow:hidden;
+}
+
+/* ---------- CONTENT LAYOUT ---------- */
+
+.content {
+  position: absolute;
+
+  top: 50px;       /* start of your top zone */
+  height: 400px;    /* controls vertical centering region */
+
+  left: 90px;       /* aligns perfectly with handle */
+  right: 90px;      /* keeps consistent right margin */
+
+  display: flex;
+  flex-direction: column;
+  justify-content: center;   /* vertical centering within zone */
+  align-items: center;   /* left aligned */
+  text-align: center;
+  gap: 20px;
+}
+
+/* ---------- TOP ROW ---------- */
+
+.top-row {
+  display:inline-flex;
+  align-items:center;
+  gap:12px;
+}
+
+/* .swipe {
+  border:1px solid rgba(10,10,10,.4);
+  border-radius:999px;
+  padding:6px 18px;
+  font-size:24px;
+  letter-spacing:3px;
+} */
+
+.tag {
+  border:1px solid rgba(10,10,10,.3);
+  border-radius:999px;
+  padding:5px 16px;
+  font-size:18px;
+  letter-spacing:3px;
+}
+
+/* ---------- HEADING ---------- */
+
+.heading-wrap {
+  display:flex;
+  align-items:stretch;  /* key change */
+  gap:18px;
+}
+
+.heading {
+  font-family:'Anton', sans-serif;
+  font-size:75px;
+  line-height:1.1;
+  max-width:780px;
+}
+
+/* ---------- DIVIDER ---------- */
+
+.divider {
+  height:2px;
+  width:820px;
+  background:#e84a24;
+}
+
+/* ---------- TEXT ---------- */
+
+.text {
+  font-size:51px;
+  font-weight:300;
+  line-height:1.1;
+  max-width:820px;
+}
+
+.text strong {
+  font-weight:700;
+}
+
+/* ---------- IMAGE ---------- */
+
+.image-box {
+  position:absolute;
+  bottom:150px;
+  left:50%;
+  transform:translateX(-50%);
+  width:1000px;
+  height:clamp(320px, 48vh, 850px);
+  border-radius:28px;
+  overflow:hidden;
+  z-index:2;
+}
+
+.image-box img {
+  width:100%;
+  height:100%;
+  object-fit:cover;
+}
+
+/* ---------- FOOTER ---------- */
+
+.handle {
+  position:absolute;
+  bottom:80px;
+  left:90px;
+  font-size:34px;
+  opacity:.7;
+}
+
+.slide-counter {
+  position:absolute;
+  bottom:80px;
+  right:90px;
+  font-size:30px;
+  color:rgba(10,10,10,.3);
+}
+
+/* ---------- ACCENT BAR ---------- */
+
+.bar {
+  position:absolute;
+  left:0;
+  width:100%;
+  height:12px;
+  background:#e84a24;
+  bottom:200px;
+}
+
+</style>
+</head>
+
+<body>
+<div class="slide">
+
+  <div class="content">
+
+    <div class="tag">{{TAG}}</div>
+
+    <div class="heading-wrap">
+      <!-- <div class="heading">{{HEADING}}</div> -->
+      <div class="heading">This will be the heading</div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- <div class="text">{{TEXT}}</div> -->
+    <div class="text">This will be a long piece of text that demonstrates how the layout will look with actual content.</div>
+
+  </div>
+
+  <div class="image-box">
+    <img src="../example.png" alt="visual">
+  </div>
+
+  <div class="handle">@claudeinsights</div>
+  <div class="slide-counter">{{SLIDE_COUNTER}}</div>
+
+  <div class="bar"></div>
+
+</div>
+</body>
+</html>

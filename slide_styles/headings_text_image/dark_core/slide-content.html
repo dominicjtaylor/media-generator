@@ -38,6 +38,21 @@
 
 /* ---------- TEXT ---------- */
 
+.content {
+  position: absolute;
+
+  top: 100px;
+  bottom: 100px;
+  left: 90px;
+  right: 90px;
+
+  display: flex;
+  flex-direction: column;
+  justify-content: center;   /* vertical centering */
+  align-items: flex-start;   /* left aligned */
+  text-align: left;
+}
+
 .brand {
   font-size:34px;
   color:#cfcfcf;
@@ -47,7 +62,7 @@
 }
 
 .swipe {
-  margin-top:50px;
+  margin-top:-50px;
   display:inline-block;
   border:1px solid rgba(255,255,255,.4);
   border-radius:999px;
@@ -59,24 +74,11 @@
   z-index:1;
 }
 
-.tag {
-  margin-top:22px;
-  display:inline-block;
-  border:1px solid rgba(255,255,255,.3);
-  border-radius:999px;
-  padding:5px 16px;
-  font-size:18px;
-  letter-spacing:3px;
-  color:#aaa;
-  position:relative;
-  z-index:1;
-}
-
 .heading-wrap {
   display:flex;
   align-items:flex-start;
   gap:22px;
-  margin-top:18px;
+  margin-top:40px;
   position:relative;
   z-index:1;
 }
@@ -157,12 +159,13 @@
 .slide-counter {
   position:absolute;
   right:90px;
-  bottom:calc(var(--bar-height-pos) + 20px);
+  bottom:calc(var(--bar-height-pos) + 105px);
   font-size:30px;
   color:rgba(255,255,255,.3);
   font-family:'Inter', sans-serif;
   z-index:3;
 }
+
 
 /* ---------- SHARED ACCENT SYSTEM ---------- */
 
@@ -201,27 +204,32 @@
 
   <div class="brand">Claude Insights</div>
 
-  <div class="swipe">SWIPE</div>
+  <div class="content">
+    <div class="swipe">SWIPE</div>
 
-  <div class="tag">{{TAG}}</div>
+    <div class="heading-wrap">
+      <div class="accent-bar"></div>
+      <!-- <div class="heading">{{HEADING}}</div> -->
+      <div class="heading">Skip the strategy, fix the workflow</div>
+    </div>
 
-  <div class="heading-wrap">
-    <div class="accent-bar"></div>
-    <div class="heading">{{HEADING}}</div>
-  </div>
+    <div class="divider"></div>
 
-  <div class="divider"></div>
+    <!-- <div class="text">{{TEXT}}</div> -->
+    <div class="text">Real AI gains come from repeatable processes, not grand plans.
+      Identify what your team does daily, then automate that first.</div>
 
-  <div class="text">{{TEXT}}</div>
+    <div class="cta">
+      <img src="../../../logo_dark.png" class="logo">
+      Claude Insights
+    </div>
 
-  <div class="cta">
-    <img src="../../logo.png" class="logo">
-    Claude Insights
   </div>
 
   <div class="handle">@claudeinsights</div>
 
-  <div class="slide-counter">{{SLIDE_COUNTER}}</div>
+  <!-- <div class="slide-counter">{{SLIDE_COUNTER}}</div> -->
+  <div class="slide-counter">1/5</div>
 
   <div class="bar"></div>
 

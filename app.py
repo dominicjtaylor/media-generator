@@ -425,6 +425,7 @@ def _slides_stream(topic: str, hook: str, num_slides: int, image_filename: Optio
 
 @app.post("/slides", tags=["carousel"])
 def slides_route(req: SlidesRequest):
+    print("TEMPLATE RECEIVED:", req.template)
     """Generate carousel slides using the user-selected hook (SSE stream)."""
     topic = _clean_topic(req.topic)
     hook  = req.hook.strip()

@@ -209,7 +209,7 @@ def _stream(topic: str, num_slides: int) -> Generator[str, None, None]:
     """Sync generator that emits SSE events at each real pipeline stage."""
     print("HTML PIPELINE ACTIVE")
 
-    style = STYLE_MAP.get(req_template, "dark_core")
+    style = "dark_core"
     logger.info("Template style: %s", style)
 
     # Step 1: Generate slides via Claude
@@ -763,7 +763,7 @@ async def generate_light_route(
             image_types,
             content_temp_paths,
             image_filename
-        )
+        ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

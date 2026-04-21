@@ -132,7 +132,7 @@ def inject_slide(
         logger.debug("Applied focal-point object-position: %s", obj_pos)
 
     # light_image content slides: substitute per-slide image filename.
-    if template_style == "light_image" and 0 < index < last_index and slide_image_filename:
+    if template_style == "light_image" and slide_image_filename:
         html = html.replace(
             '<img src="image.png" alt="visual">',
             f'<img src="{slide_image_filename}" alt="visual">',
@@ -162,12 +162,13 @@ def inject_slide(
 # ---------------------------------------------------------------------------
 
 def render_slides(
-    slides: list[dict],
-    renders_base: str = "/tmp/renders",
-    template_style: str = "dark_core",
-    image_data: Optional[dict] = None,
-    content_image_paths: Optional[list[str]] = None,
-) -> tuple[list[str], str]:
+    slides,
+    renders_base,
+    template_style,
+    image_data=None,
+    content_image_paths=None,
+    first_image_data=None,
+):
     """
     Render slides to PNG files using Playwright (Chromium headless).
 
@@ -196,7 +197,7 @@ def render_slides(
     logger.info("Render run %s (style=%s) -> %s", run_id, template_style, out_dir)
 
     # Copy logo files so absolute src paths in templates resolve correctly
-    for logo_name in ("logo.png", "logo_light.png"):
+    for logo_name in ("logo_dark.png", "logo_light.png"):
         logo_src = _ROOT / logo_name
         if logo_src.exists():
             shutil.copy2(logo_src, out_dir / logo_name)
@@ -217,20 +218,39 @@ def render_slides(
 
     # light_image: copy per-slide content images; build a per-slide filename map.
     slide_image_filenames: list[Optional[str]] = [None] * n
-    if template_style == "light_image" and content_image_paths:
-        for ci, img_path_str in enumerate(content_image_paths):
-            slide_idx = ci + 1  # content slides start at index 1
-            if slide_idx >= n - 1:
-                break
-            src = Path(img_path_str)
+
+    if template_style == "light_image":
+
+        # --- FIRST SLIDE IMAGE (from ImagePicker / library) ---
+        if first_image_data and first_image_data.get("local_path"):
+            src = Path(first_image_data["local_path"])
             ext = src.suffix.lower() or ".jpg"
-            dest_name = f"content-image-{ci}{ext}"
+            dest_name = f"cover-image{ext}"
+
             if src.exists():
                 shutil.copy2(src, out_dir / dest_name)
-                slide_image_filenames[slide_idx] = dest_name
-                logger.info("Copied content image %s → %s", src.name, dest_name)
+                slide_image_filenames[0] = dest_name
+                logger.info("Copied cover image %s → %s", src.name, dest_name)
             else:
-                logger.error("Content image not found: %s", src)
+                logger.error("Cover image not found: %s", src)
+
+        # --- CONTENT SLIDES (uploaded images) ---
+        if content_image_paths:
+            for ci, img_path_str in enumerate(content_image_paths):
+                slide_idx = ci + 1  # content slides start at index 1
+                if slide_idx >= n - 1:
+                    break
+
+                src = Path(img_path_str)
+                ext = src.suffix.lower() or ".jpg"
+                dest_name = f"content-image-{ci}{ext}"
+
+                if src.exists():
+                    shutil.copy2(src, out_dir / dest_name)
+                    slide_image_filenames[slide_idx] = dest_name
+                    logger.info("Copied content image %s → %s", src.name, dest_name)
+                else:
+                    logger.error("Content image not found: %s", src)
 
     # Write HTML files
     html_paths: list[Path] = []

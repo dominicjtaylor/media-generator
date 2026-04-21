@@ -594,18 +594,6 @@ def _clean_heading_punctuation(slides: list[dict]) -> list[dict]:
     return result
 
 # ---------------------------------------------------------------------------
-# CTA handle validation
-# ---------------------------------------------------------------------------
-
-def _has_cta_handle(slides: list[dict]) -> bool:
-    """Return True if the CTA slide contains @claudeinsights."""
-    cta_slides = [s for s in slides if s["type"] == "cta"]
-    if not cta_slides:
-        return False
-    return "@claudeinsights" in cta_slides[-1]["heading"]
-
-
-# ---------------------------------------------------------------------------
 # Depth validation — at least one example and one insight per carousel
 # ---------------------------------------------------------------------------
 
@@ -1029,7 +1017,7 @@ def review_and_improve(slides: list[dict], template_style: str = "dark_core") ->
 # ---------------------------------------------------------------------------
 
 CAPTION_PROMPT = """\
-You write high-performing Instagram captions for carousel posts about Claude AI.
+You write high-performing Instagram captions for carousel posts about AI.
 
 Given the carousel slides below, write a caption that matches this EXACT format:
 
@@ -1042,14 +1030,13 @@ Given the carousel slides below, write a caption that matches this EXACT format:
 [Value or takeaway line]
 [Value or takeaway line]
 
-Follow @claudeinsights for more AI tips
+Follow @focuslabs.ai for more AI tips
 
-#ClaudeAI #AItools #Productivity
+#ClaudeAI #AItools #AI #Productivity
 ---
 
 SPACING RULES (critical):
   - Separate each thematic block with ONE blank line (\\n\\n)
-  - The CTA line ("Follow @claudeinsights...") must be on its OWN line
   - Hashtags must be on their OWN line, separated from CTA by a blank line (\\n\\n)
   - NEVER place hashtags on the same line as the CTA
   - NEVER run hashtags directly after CTA without a blank line
@@ -1063,7 +1050,7 @@ STYLE:
 
 HASHTAGS:
   - 3–5 relevant hashtags
-  - Use: #ClaudeAI #AItools #Productivity #ChatGPT #AITips or similar
+  - Use: #ClaudeAI #AItools #AI #Productivity #ChatGPT #AITips or similar
 
 OUTPUT:
   Return ONLY the caption text — no JSON, no quotes, no extra commentary.\
@@ -1121,7 +1108,7 @@ def _format_caption(caption: str) -> str:
 
     Rules applied deterministically:
     - Hashtag tokens (#word) are collected and moved to their own block
-    - CTA line (contains @claudeinsights) is ensured to be on its own line
+    - CTA line (contains @focuslabs.ai) is ensured to be on its own line
     - Body and hashtag block are separated by exactly two newlines
     - Trailing/leading whitespace is stripped
     """
@@ -1167,8 +1154,8 @@ def _format_caption(caption: str) -> str:
 def _validate_caption(caption: str) -> None:
     """Raise ValueError if the caption is missing required elements."""
     lower = caption.lower()
-    if "@claudeinsights" not in lower:
-        raise ValueError("Caption missing @claudeinsights CTA — retrying.")
+    if "@focuslabs.ai" not in lower:
+        raise ValueError("Caption missing @focuslabs.ai CTA — retrying.")
     lines = [l for l in caption.splitlines() if l.strip()]
     if len(lines) < 4:
         raise ValueError(f"Caption too short ({len(lines)} lines) — retrying.")
@@ -1191,7 +1178,7 @@ def generate_caption(slides: list[dict], max_retries: int = 2) -> str:
             last_err = exc
     # Non-fatal: return a safe fallback rather than crashing the whole pipeline
     logger.error("Caption generation failed after %d attempts — using fallback", max_retries)
-    return "Follow @claudeinsights for more AI tips 🤖\n\n#ClaudeAI #AItools #Productivity"
+    return "Follow @focuslabs.ai for more AI tips 🤖\n\n#ClaudeAI #AItools #Productivity"
 
 
 # ---------------------------------------------------------------------------

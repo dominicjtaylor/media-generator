@@ -77,6 +77,24 @@ def _strip_markdown(text: str) -> str:
 def _strip_newlines(text: str) -> str:
     return _NL_RE.sub(' ', text).strip()
 
+def enforce_cta(slides, topic):
+    if not slides:
+        return slides
+
+    last = slides[-1]
+    heading = (last.get("heading") or "").strip()
+    h_lower = heading.lower()
+
+    if not h_lower.startswith("we show you"):
+        last["heading"] = f"We show you {topic} every day."
+    elif not h_lower.rstrip(".").rstrip().endswith("every day"):
+        last["heading"] = heading.rstrip(".").rstrip() + " every day."
+
+    # critical: remove body to match dark template
+    last["body"] = ""
+
+    return slides
+
 _SENTENCE_TERM_RE = _re.compile(r'[.!?]["\')>]?\s*$')
 _SENTENCE_SPLIT_RE = _re.compile(r'(?<=[.!?])\s+')
 
@@ -386,6 +404,7 @@ def _slides_stream(topic: str, hook: str, num_slides: int, image_filename: Optio
         slides, caption = generate_slides(
             topic, num_slides=num_slides, template_style=style, hook=hook
         )
+        slides = enforce_cta(slides, topic)
     except Exception as exc:
         logger.error("Slide generation failed: %s", exc)
         yield _sse({"step": "error", "message": f"Content generation failed: {exc}"})
@@ -648,7 +667,8 @@ def _generate_light_stream_full(
     image_bytes_list: list[bytes],
     image_types: list[str],
     content_temp_paths: list[str],
-) -> Generator[str, None, None]:
+    image_filename: Optional[str] = None,
+):
     """SSE stream: analyse images, render light carousel, then clean up temp files."""
     yield _sse({"step": "analysing", "message": "Analysing images…"})
     try:
@@ -662,6 +682,12 @@ def _generate_light_stream_full(
         return
 
     slides = result["slides"]
+    # Inject cover image for slide 1
+    first_image_data = None
+    if image_filename:
+        from local_image import get_image_for_heading_template
+        first_image_data = get_image_for_heading_template(topic, image_filename)
+    slides = enforce_cta(slides, topic)
     caption = generate_caption(slides)
 
     yield _sse({"step": "rendering", "message": "Rendering slides…"})
@@ -671,6 +697,7 @@ def _generate_light_stream_full(
             renders_base=str(RENDERS_DIR),
             template_style="light_image",
             content_image_paths=content_temp_paths,
+            first_image_data=first_image_data,
         )
     except Exception as exc:
         logger.error("Light rendering failed: %s", exc)
@@ -691,6 +718,7 @@ async def generate_light_route(
     topic: str = Form(...),
     hook: str = Form(...),
     images: List[UploadFile] = File(...),
+    image_filename: Optional[str] = Form(None),
 ):
     """Generate and render a light image carousel (SSE stream).
 
@@ -699,6 +727,8 @@ async def generate_light_route(
     """
     topic = _clean_topic(topic)
     hook  = hook.strip()
+    if not image_filename:
+        raise HTTPException(status_code=422, detail="Cover image is required for light template")
     if not topic:
         raise HTTPException(status_code=422, detail="topic must not be empty")
     if not hook:
@@ -726,7 +756,14 @@ async def generate_light_route(
         content_temp_paths.append(tmp.name)
 
     return StreamingResponse(
-        _generate_light_stream_full(topic, hook, image_bytes_list, image_types, content_temp_paths),
+        _generate_light_stream_full(
+            topic,
+            hook,
+            image_bytes_list,
+            image_types,
+            content_temp_paths,
+            image_filename
+        )
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

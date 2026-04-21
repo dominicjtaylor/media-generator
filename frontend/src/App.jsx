@@ -87,7 +87,7 @@ function TemplateSelector({ onSelect, onBack }) {
 }
 
 // ── Light image upload ─────────────────────────────────────────────────────
-function LightUpload({ onConfirm, onBack }) {
+function LightUpload({ onConfirm, onBack, selectedImage}) {
   const [files, setFiles] = useState([])
   const [previews, setPreviews] = useState([])
 
@@ -103,14 +103,15 @@ function LightUpload({ onConfirm, onBack }) {
     return () => previews.forEach(URL.revokeObjectURL)
   }, [previews])
 
-  const canGenerate = files.length >= 2
+  const canGenerate = files.length >= 2 && selectedImage
 
   return (
     <div className="space-y-6 animate-slide-up">
       <div>
         <h2 className="text-xl font-semibold">Upload your images</h2>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-          Upload 2–8 images. Each image becomes one content slide. Claude will analyse each image and write the slide text.
+          Step 1: Select a cover image above (required).<br/>
+          Step 2: Upload 2–8 images for the content slides.
         </p>
       </div>
 
@@ -424,12 +425,19 @@ export default function App() {
 
   // ── Light pipeline: images uploaded → generate-light (SSE) ───────────
   const handleLightGenerate = useCallback(async (imageFiles) => {
+    if (!selectedImage) {
+      showToast('Please select a cover image for slide 1', 'error')
+      return
+    }
     setStatus('light_generating')
     setStepMsg('Analysing images…')
 
     const formData = new FormData()
     formData.append('topic', topic)
     formData.append('hook', selectedHook.hook)
+    if (selectedImage?.filename) {
+      formData.append('image_filename', selectedImage.filename)
+    }
     for (const file of imageFiles) {
       formData.append('images', file)
     }
@@ -551,10 +559,18 @@ export default function App() {
 
         {/* ── light: image upload ── */}
         {status === 'light_upload' && (
-          <LightUpload
-            onConfirm={handleLightGenerate}
-            onBack={() => setStatus('hook_selection')}
-          />
+          <div className="space-y-8">
+            <ImagePicker
+              onSelect={(img) => setSelectedImage(img)}
+              onBack={() => setStatus('hook_selection')}
+            />
+
+            <LightUpload
+              onConfirm={handleLightGenerate}
+              onBack={() => setStatus('hook_selection')}
+              selectedImage={selectedImage}
+            />
+          </div>
         )}
 
         {/* ── dark: slide review ── */}

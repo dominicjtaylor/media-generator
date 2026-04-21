@@ -295,6 +295,7 @@ export default function App() {
           hook:           selectedHook.hook,
           num_slides:     numSlides,
           image_filename: image?.filename || null,
+          template: templateType,
         }),
       })
       if (!res.ok) {

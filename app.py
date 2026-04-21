@@ -38,6 +38,11 @@ from utils import setup_logging
 from generator import generate_slides, generate_light_slides, generate_caption, _build_system_prompt, _IMAGE_STYLES
 from renderer import render_slides
 
+STYLE_MAP = {
+    "dark": "dark_core",
+    "light": "light_image",
+}
+
 setup_logging(os.environ.get("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("carousel.api")
 print("Starting FastAPI server...")
@@ -149,6 +154,7 @@ class SlidesRequest(BaseModel):
     hook:           str
     num_slides:     int = 5
     image_filename: Optional[str] = None
+    template:       str = "dark"
 
 
 class QcRequest(BaseModel):
@@ -169,7 +175,7 @@ class RegenerateRequest(BaseModel):
 class RenderRequest(BaseModel):
     topic:          str
     slides:         list[dict]
-    style:          str = "text_only"
+    style:          str = "dark_core"
     image_filename: Optional[str] = None
 
 
@@ -185,7 +191,7 @@ def _stream(topic: str, num_slides: int) -> Generator[str, None, None]:
     """Sync generator that emits SSE events at each real pipeline stage."""
     print("HTML PIPELINE ACTIVE")
 
-    style = "dark_core"
+    style = STYLE_MAP.get(req_template, "dark_core")
     logger.info("Template style: %s", style)
 
     # Step 1: Generate slides via Claude
@@ -363,7 +369,7 @@ def hooks_route(req: HookRequest):
     return {"hooks": hooks}
 
 
-def _slides_stream(topic: str, hook: str, num_slides: int, image_filename: Optional[str] = None) -> Generator[str, None, None]:
+def _slides_stream(topic: str, hook: str, num_slides: int, image_filename: Optional[str] = None, template: str = "dark") -> Generator[str, None, None]:
     """SSE stream: generate slides using the selected hook."""
     # Validate selected image exists before spending time on generation
     if image_filename:
@@ -373,7 +379,7 @@ def _slides_stream(topic: str, hook: str, num_slides: int, image_filename: Optio
             yield _sse({"step": "error", "message": f"Image not found: {image_filename}. Please go back and select a different image."})
             return
 
-    style = "dark_core"
+    style = STYLE_MAP.get(template, "dark_core")
     yield _sse({"step": "generating", "message": "Generating slides..."})
 
     try:
@@ -430,7 +436,7 @@ def slides_route(req: SlidesRequest):
         raise HTTPException(status_code=422, detail="num_slides must be between 4 and 10")
 
     return StreamingResponse(
-        _slides_stream(topic, hook, req.num_slides, req.image_filename),
+        _slides_stream(topic, hook, req.num_slides, req.image_filename, req.template),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

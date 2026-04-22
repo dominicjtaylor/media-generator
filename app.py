@@ -204,15 +204,15 @@ class RenderRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 def _derive_topic_from_idea(idea: str) -> str:
-    """Use Claude to turn a long idea into a short topic label."""
     prompt = f"""
-Turn this idea into a short topic label (max 5 words).
+Convert this idea into a STRICT short topic label.
 
-Rules:
+RULES (must follow):
+- Maximum 4 words
 - No punctuation
-- No filler words
 - No full sentences
-- Make it feel like a category or theme
+- No explanations
+- Output MUST be <= 4 words
 
 Idea:
 {idea}
@@ -220,11 +220,14 @@ Idea:
 Return ONLY the label.
 """
     try:
-        topic = _claude(prompt, max_tokens=20).strip()
-        return topic
+        topic = _claude(prompt, max_tokens=10).strip()
+
+        # HARD ENFORCEMENT (this is the key)
+        words = topic.split()
+        return " ".join(words[:4])
+
     except Exception:
-        # fallback (important)
-        return " ".join(idea.split()[:5])
+        return " ".join(idea.split()[:4])
 
 def _sse(payload: dict) -> str:
     return f"data: {json.dumps(payload)}\n\n"
@@ -715,6 +718,8 @@ def _generate_light_stream_full(
             logger.error(f"Slide mismatch: expected {num_slides}, got {len(slides)}")
 
         # ONLY apply once, with short_topic
+        print("SHORT_TOPIC:", short_topic)
+        print("CTA_BEFORE:", slides[-1]["heading"])
         slides = enforce_cta(slides, short_topic)
         caption = generate_caption(slides)
 

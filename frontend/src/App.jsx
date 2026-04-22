@@ -262,6 +262,8 @@ export default function App() {
 
   // ── Stage 3a: hook selected — branch on template type ─────────────────
   const handleHookSelect = useCallback((hook) => {
+    console.log('HOOK SELECTED')
+    console.log('templateType:', templateType)
     setSelectedHook(hook)
     if (templateType === 'light') {
       setStatus('light_cover_selection')   // ← change is HERE

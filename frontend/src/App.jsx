@@ -110,10 +110,16 @@ function LightUpload({ onConfirm, onBack, selectedImage}) {
       <div>
         <h2 className="text-xl font-semibold">Upload your images</h2>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-          Step 1: Select a cover image above (required).<br/>
           Step 2: Upload 2–8 images for the content slides.
         </p>
       </div>
+
+      {selectedImage && (
+        <div className="flex items-center gap-3 p-3 border rounded-lg">
+          <img src={selectedImage.thumbnail_url} className="w-12 h-12 rounded object-cover" />
+          <span className="text-sm">Cover image selected</span>
+        </div>
+      )}
 
       <label className="block cursor-pointer rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-700 hover:border-accent transition-colors p-8 text-center">
         <input
@@ -258,7 +264,7 @@ export default function App() {
   const handleHookSelect = useCallback((hook) => {
     setSelectedHook(hook)
     if (templateType === 'light') {
-      setStatus('light_upload')
+      setStatus('light_cover_selection')   // ← change is HERE
     } else {
       setStatus('image_selection')
     }
@@ -557,20 +563,24 @@ export default function App() {
           />
         )}
 
+        {/* ── light: cover image selection ── */}
+        {status === 'light_cover_selection' && (
+          <ImagePicker
+            onSelect={(img) => {
+              setSelectedImage(img)
+              setStatus('light_upload')
+            }}
+            onBack={() => setStatus('hook_selection')}
+          />
+        )}
+
         {/* ── light: image upload ── */}
         {status === 'light_upload' && (
-          <div className="space-y-8">
-            <ImagePicker
-              onSelect={(img) => setSelectedImage(img)}
-              onBack={() => setStatus('hook_selection')}
-            />
-
-            <LightUpload
-              onConfirm={handleLightGenerate}
-              onBack={() => setStatus('hook_selection')}
-              selectedImage={selectedImage}
-            />
-          </div>
+          <LightUpload
+            onConfirm={handleLightGenerate}
+            onBack={() => setStatus('light_cover_selection')}
+            selectedImage={selectedImage}
+          />
         )}
 
         {/* ── dark: slide review ── */}

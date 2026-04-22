@@ -670,6 +670,7 @@ def _generate_light_stream_full(
     image_types: list[str],
     content_temp_paths: list[str],
     image_filename: Optional[str] = None,
+    num_slides: int = 0,
 ):
     """SSE stream: analyse images, render light carousel, then clean up temp files."""
     yield _sse({"step": "analysing", "message": "Analysing images…"})
@@ -684,6 +685,9 @@ def _generate_light_stream_full(
         return
 
     slides = result["slides"]
+    if len(slides) != num_slides:
+        logger.error(f"Slide mismatch: expected {num_slides}, got {len(slides)}")
+
     # Inject cover image for slide 1
     first_image_data = None
     if image_filename:
@@ -740,6 +744,8 @@ async def generate_light_route(
     if len(images) > 8:
         raise HTTPException(status_code=422, detail="maximum 8 images allowed")
 
+    num_slides = len(images) + 2
+
     image_bytes_list: list[bytes] = []
     image_types: list[str] = []
     content_temp_paths: list[str] = []
@@ -764,7 +770,8 @@ async def generate_light_route(
             image_bytes_list,
             image_types,
             content_temp_paths,
-            image_filename
+            image_filename,
+            num_slides
         ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},

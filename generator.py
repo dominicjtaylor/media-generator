@@ -1030,7 +1030,7 @@ Given the carousel slides below, write a caption that matches this EXACT format:
 [Value or takeaway line]
 [Value or takeaway line]
 
-Follow @focuslabs.ai for more AI tips
+Follow @focuslabs.ai for more AI content
 
 #ClaudeAI #AItools #AI #Productivity
 ---
@@ -1178,7 +1178,7 @@ def generate_caption(slides: list[dict], max_retries: int = 2) -> str:
             last_err = exc
     # Non-fatal: return a safe fallback rather than crashing the whole pipeline
     logger.error("Caption generation failed after %d attempts — using fallback", max_retries)
-    return "Follow @focuslabs.ai for more AI tips 🤖\n\n#ClaudeAI #AItools #Productivity"
+    return "Follow @focuslabs.ai for more AI content 🤖\n\n#ClaudeAI #AItools #Productivity"
 
 
 # ---------------------------------------------------------------------------

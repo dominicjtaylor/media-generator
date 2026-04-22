@@ -96,7 +96,7 @@
 .text {
   font-size:38px;
   font-weight:300;
-  line-height:1.08;
+  line-height:1.;
   max-width:900px;
 }
 
@@ -108,11 +108,11 @@
 
 .image-box {
   position:absolute;
-  bottom:125px;
+  bottom:35px;
   left:50%;
   transform:translateX(-50%);
   width:auto;
-  height:clamp(320px, 54vh, 850px);
+  height:clamp(340px, 72vh, 900px);
   border-radius:28px;
   overflow:hidden;
   z-index:2;
@@ -128,19 +128,21 @@
 
 /* ---------- FOOTER ---------- */
 
-.handle {
-  position:absolute;
-  bottom:60px;
-  left:90px;
-  font-size:30px;
-  opacity:.7;
+.brand {
+  position: absolute;
+  top: 60px;
+  left: 90px;
+
+  font-size:28px;
+  color:#111;
+  opacity:.85;
 }
 
 .slide-counter {
   position:absolute;
-  bottom:60px;
+  top:60px;
   right:90px;
-  font-size:30px;
+  font-size:28px;
   color:rgba(10,10,10,.3);
 }
 
@@ -161,6 +163,9 @@
 <body>
 <div class="slide">
 
+  <div class="brand">Focus Labs AI</div>
+  <div class="slide-counter">{{SLIDE_COUNTER}}</div>
+
   <div class="content">
 
     <div class="tag">{{TAG}}</div>
@@ -178,9 +183,6 @@
   <div class="image-box">
     <img src="image.png" alt="visual">
   </div>
-
-  <div class="handle">@focuslabsai</div>
-  <div class="slide-counter">{{SLIDE_COUNTER}}</div>
 
   <div class="bar"></div>
 

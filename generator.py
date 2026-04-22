@@ -1396,6 +1396,10 @@ The image shows a workflow, tool, process, or action being performed.
 
 Infer: what action is shown, what tool or process is used, what outcome it represents.
 
+Each slide must represent a DISTINCT idea or benefit.
+Do NOT use words like "Step", "Next", "Then", or imply progression between slides.
+Even if images are similar, treat each slide independently.
+
 Respond ONLY with valid JSON — no text before or after:
 {
   "heading": "Short outcome-driven heading (max 6 words, no em-dashes)",

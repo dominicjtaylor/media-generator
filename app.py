@@ -82,16 +82,18 @@ def enforce_cta(slides, topic):
         return slides
 
     last = slides[-1]
+
     heading = (last.get("heading") or "").strip()
     h_lower = heading.lower()
 
     if not h_lower.startswith("we show you"):
         last["heading"] = f"We show you {topic} every day."
-    elif not h_lower.rstrip(".").rstrip().endswith("every day"):
-        last["heading"] = heading.rstrip(".").rstrip() + " every day."
+    elif not h_lower.rstrip(".").endswith("every day"):
+        last["heading"] = heading.rstrip(".") + " every day."
 
-    # critical: remove body to match dark template
+    # 🔑 Handle BOTH keys defensively
     last["body"] = ""
+    last["description"] = ""
 
     return slides
 

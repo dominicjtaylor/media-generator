@@ -462,12 +462,32 @@ export default function App() {
       let gotComplete = false
       let gotError = false
       await readSse(res, (event) => {
+
         if (event.step === 'complete') {
-          gotComplete = true
+          let fixedSlides = event.slides || []
+
+          if (fixedSlides.length > 0) {
+            fixedSlides = fixedSlides.map((s, i) => {
+              const isLast = i === fixedSlides.length - 1
+
+              if (!isLast) return s
+
+              return {
+                ...s,
+                heading: `We show you ${topic} every day.`,
+                description: '' // enforce empty
+              }
+            })
+          }
+
+          setSlides(fixedSlides)
           setImages(event.images || [])
           setCaption(event.caption || '')
           setStatus('done')
           showToast('Carousel generated!')
+
+          gotComplete = true
+
         } else if (event.step === 'error') {
           gotError = true
           goError(event.message || 'Generation failed.')

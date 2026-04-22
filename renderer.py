@@ -106,15 +106,15 @@ def inject_slide(
     html = template_path.read_text(encoding="utf-8")
 
     # Fix logo paths — templates use relative paths; rewrite to absolute for Playwright.
-    logo_abs       = str(_ROOT / "logo.png")
+    logo_abs       = str(_ROOT / "logo_dark.png")
     logo_light_abs = str(_ROOT / "logo_light.png")
     for old, new in [
-        ('src="../../../logo.png"',       f'src="{logo_abs}"'),
-        ("src='../../../logo.png'",       f"src='{logo_abs}'"),
+        ('src="../../../logo_dark.png"',       f'src="{logo_abs}"'),
+        ("src='../../../logo_dark.png'",       f"src='{logo_abs}'"),
         ('src="../../../logo_light.png"', f'src="{logo_light_abs}"'),
         ("src='../../../logo_light.png'", f"src='{logo_light_abs}'"),
-        ('src="../../logo.png"',          f'src="{logo_abs}"'),
-        ("src='../../logo.png'",          f"src='{logo_abs}'"),
+        ('src="../../logo_dark.png"',          f'src="{logo_abs}"'),
+        ("src='../../logo_dark.png'",          f"src='{logo_abs}'"),
         ('src="../../logo_light.png"',    f'src="{logo_light_abs}"'),
         ("src='../../logo_light.png'",    f"src='{logo_light_abs}'"),
     ]:

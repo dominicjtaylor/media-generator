@@ -1398,6 +1398,7 @@ Infer: what action is shown, what tool or process is used, what outcome it repre
 
 Each slide must represent a DISTINCT idea or benefit.
 Do NOT use words like "Step", "Next", "Then", or imply progression between slides.
+Do NOT just say "This step is part of the workflow. Follow along to see the full process."
 Even if images are similar, treat each slide independently.
 
 Respond ONLY with valid JSON — no text before or after:
@@ -1408,7 +1409,7 @@ Respond ONLY with valid JSON — no text before or after:
 }
 
 Heading: action or outcome driven, max 6 words, no em-dashes.
-Body: exactly 2 sentences, each under 12 words, total under 20 words."""
+Body: exactly 2 sentences, each under 12 words, total under 20 words, no em-dashes."""
 
     content_slides = []
     for i, (img_bytes, img_type) in enumerate(zip(image_bytes_list, image_types)):

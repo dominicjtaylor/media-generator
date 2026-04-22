@@ -35,7 +35,7 @@ from pydantic import BaseModel
 load_dotenv()
 
 from utils import setup_logging
-from generator import generate_slides, generate_light_slides, generate_caption, _build_system_prompt, _IMAGE_STYLES
+from generator import generate_slides, generate_light_slides, generate_caption, _build_system_prompt, _VISUAL_STYLES
 from renderer import render_slides
 
 STYLE_MAP = {

@@ -1364,6 +1364,94 @@ def generate_slides(
 # Light image pipeline — vision-driven slide generation
 # ---------------------------------------------------------------------------
 
+def _generate_single_image_slide(client, topic, img_bytes, img_type, retries=3):
+    import base64, json, re, time
+
+    b64 = base64.standard_b64encode(img_bytes).decode("utf-8")
+
+    for attempt in range(1, retries + 1):
+        msg = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=200,
+            system=_VISION_SYSTEM,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": img_type,
+                            "data": b64,
+                        },
+                    },
+                    {
+                        "type": "text",
+                        "text": f"Generate slide content for this image. Topic context: {topic}",
+                    },
+                ],
+            }],
+        )
+
+        raw = msg.content[0].text.strip()
+
+        # clean code fences
+        if raw.startswith("```"):
+            raw = re.sub(r'^```(?:json)?\s*', '', raw)
+            raw = re.sub(r'\s*```$', '', raw.strip())
+
+        try:
+            slide_data = json.loads(raw)
+        except json.JSONDecodeError:
+            if attempt == retries:
+                raise
+            time.sleep(1.5 * attempt)
+            continue
+
+        # --- HARD VALIDATION (this is key) ---
+        heading = slide_data.get("heading", "")
+        body    = slide_data.get("body", "")
+
+        text = (heading + " " + body).lower()
+
+        GENERIC_PATTERNS = [
+            r"this (step|part) is",
+            r"follow along",
+            r"part of (the )?workflow",
+            r"part of (the )?process",
+            r"this shows (the )?(step|process)",
+        ]
+
+        # 1. Reject generic filler
+        if any(re.search(p, text) for p in GENERIC_PATTERNS):
+            if attempt == retries:
+                raise ValueError("Generic filler detected after retries")
+            time.sleep(1.5 * attempt)
+            continue
+
+        # 2. Reject weak headings
+        if len(heading.split()) < 3:
+            if attempt == retries:
+                raise ValueError("Heading too vague")
+            time.sleep(1.5 * attempt)
+            continue
+
+        # 3. Reject non-actionable slides
+        ACTION_WORDS = (
+            "add", "use", "export", "click", "run", "generate",
+            "create", "build", "write", "send", "open"
+        )
+
+        if not any(v in text for v in ACTION_WORDS):
+            if attempt == retries:
+                raise ValueError("No actionable content")
+            time.sleep(1.5 * attempt)
+            continue
+
+        return slide_data
+
+    raise RuntimeError("Unreachable")
+
 def generate_light_slides(
     topic: str,
     hook: str,
@@ -1392,13 +1480,17 @@ def generate_light_slides(
     _VISION_SYSTEM = """\
 Analyze this image and generate Instagram carousel slide content.
 
-The image shows a workflow, tool, process, or action being performed.
+Describe what is happening in the image as a specific action or result.
 
-Infer: what action is shown, what tool or process is used, what outcome it represents.
+Focus on:
+- what is being done
+- what changes as a result
+- what the user gains
+
+Avoid generic descriptions that could apply to any image.
 
 Each slide must represent a DISTINCT idea or benefit.
 Do NOT use words like "Step", "Next", "Then", or imply progression between slides.
-Do NOT just say "This step is part of the workflow. Follow along to see the full process."
 Even if images are similar, treat each slide independently.
 
 Respond ONLY with valid JSON — no text before or after:
@@ -1413,54 +1505,19 @@ Body: exactly 2 sentences, each under 12 words, total under 20 words, no em-dash
 
     content_slides = []
     for i, (img_bytes, img_type) in enumerate(zip(image_bytes_list, image_types)):
-        b64 = base64.standard_b64encode(img_bytes).decode("utf-8")
-        msg = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=200,
-            system=_VISION_SYSTEM,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": img_type,
-                            "data": b64,
-                        },
-                    },
-                    {
-                        "type": "text",
-                        "text": f"Generate slide content for this image. Topic context: {topic}",
-                    },
-                ],
-            }],
-        )
-        logger.info(
-            "Vision API input tokens: %d (image %d/%d)",
-            msg.usage.input_tokens, i + 1, len(image_bytes_list),
-        )
-        raw = msg.content[0].text.strip()
+        slide_data = _generate_single_image_slide(client, topic, img_bytes, img_type)
 
-        if raw.startswith("```"):
-            raw = re.sub(r'^```(?:json)?\s*', '', raw)
-            raw = re.sub(r'\s*```$', '', raw.strip())
+        heading = slide_data.get("heading")
+        body = slide_data.get("body")
 
-        try:
-            slide_data = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            logger.warning("Vision API invalid JSON (image %d): %s — using placeholder", i + 1, exc)
-            slide_data = {
-                "heading": f"Step {i + 1}",
-                "tag": "WORKFLOW",
-                "body": "This step is part of the workflow. Follow along to see the full process.",
-            }
+        if not heading or not body:
+            raise ValueError("Missing heading or body from vision model")
 
         content_slides.append({
-            "type":    "content",
-            "heading": _strip_markdown(slide_data.get("heading", f"Step {i + 1}")),
-            "body":    slide_data.get("body", ""),
-            "tag":     (slide_data.get("tag") or "WORKFLOW").strip().upper(),
+            "type": "content",
+            "heading": _strip_markdown(heading),
+            "body": body,
+            "tag": (slide_data.get("tag") or "WORKFLOW").strip().upper(),
         })
 
     cta_heading = f"We show you {topic} every day."

@@ -1032,7 +1032,7 @@ Given the carousel slides below, write a caption that matches this EXACT format:
 
 Follow @focuslabs.ai for more AI content
 
-#ClaudeAI #AItools #AI #Productivity
+#AI #ClaudeAI #AItools #Productivity #ChatGPT
 ---
 
 SPACING RULES (critical):
@@ -1050,7 +1050,7 @@ STYLE:
 
 HASHTAGS:
   - 3–5 relevant hashtags
-  - Use: #ClaudeAI #AItools #AI #Productivity #ChatGPT #AITips or similar
+  - Use: #AI #ClaudeAI #AItools #Productivity #ChatGPT or similar
 
 OUTPUT:
   Return ONLY the caption text — no JSON, no quotes, no extra commentary.\

@@ -83,15 +83,8 @@ def enforce_cta(slides, topic):
 
     last = slides[-1]
 
-    heading = (last.get("heading") or "").strip()
-    h_lower = heading.lower()
-
-    if not h_lower.startswith("we show you"):
-        last["heading"] = f"We show you {topic} every day."
-    elif not h_lower.rstrip(".").endswith("every day"):
-        last["heading"] = heading.rstrip(".") + " every day."
-
-    # 🔑 Handle BOTH keys defensively
+    # ALWAYS overwrite — do not trust upstream
+    last["heading"] = f"We show you {topic} every day."
     last["body"] = ""
     last["description"] = ""
 

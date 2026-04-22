@@ -266,8 +266,10 @@ export default function App() {
     console.log('templateType:', templateType)
     setSelectedHook(hook)
     if (templateType === 'light') {
+      console.log('→ going to cover selection')
       setStatus('light_cover_selection')   // ← change is HERE
     } else {
+      console.log('→ going to image_selection')
       setStatus('image_selection')
     }
   }, [templateType])

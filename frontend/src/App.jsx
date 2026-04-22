@@ -435,6 +435,7 @@ export default function App() {
 
   // ── Light pipeline: images uploaded → generate-light (SSE) ───────────
   const handleLightGenerate = useCallback(async (imageFiles) => {
+    console.log('selectedImage at generate:', selectedImage)
     if (!selectedImage) {
       showToast('Please select a cover image for slide 1', 'error')
       return
@@ -478,7 +479,7 @@ export default function App() {
     } catch (err) {
       goError(err.message || 'Generation failed.')
     }
-  }, [topic, selectedHook, goError, showToast])
+  }, [topic, selectedHook, selectedImage, goError, showToast])
 
   const LOADING_STAGES = new Set(['hooks_loading', 'slides_loading', 'qc_loading', 'rendering', 'light_generating'])
 

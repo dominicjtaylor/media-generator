@@ -94,7 +94,7 @@
 /* ---------- TEXT ---------- */
 
 .text {
-  font-size:38px;
+  font-size:37px;
   font-weight:300;
   line-height:1.;
   max-width:900px;
@@ -112,7 +112,7 @@
   left:50%;
   transform:translateX(-50%);
   width:auto;
-  height:clamp(340px, 72vh, 900px);
+  height:clamp(340px, 72vh, 860px);
   border-radius:28px;
   overflow:hidden;
   z-index:2;
@@ -140,8 +140,8 @@
 
 .slide-counter {
   position:absolute;
-  top:60px;
-  right:90px;
+  bottom:60px;
+  left:40px;
   font-size:28px;
   color:rgba(10,10,10,.3);
 }
@@ -163,7 +163,6 @@
 <body>
 <div class="slide">
 
-  <div class="brand">Focus Labs AI</div>
   <div class="slide-counter">{{SLIDE_COUNTER}}</div>
 
   <div class="content">

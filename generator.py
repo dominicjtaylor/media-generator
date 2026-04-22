@@ -1452,32 +1452,7 @@ def _generate_single_image_slide(client, topic, img_bytes, img_type, retries=3):
 
     raise RuntimeError("Unreachable")
 
-def generate_light_slides(
-    topic: str,
-    hook: str,
-    image_bytes_list: list[bytes],
-    image_types: list[str],
-) -> dict:
-    """Generate carousel slides for the light image-driven pipeline.
-
-    Analyzes each uploaded image with Claude vision to infer heading + body,
-    then builds: hook slide → one content slide per image → CTA slide.
-
-    Returns dict with keys: template, hook, slides, cta.
-    """
-    import anthropic
-    import base64
-
-    if not (1 <= len(image_bytes_list) <= 8):
-        raise ValueError(f"Expected 1–8 images, got {len(image_bytes_list)}")
-
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY not set")
-
-    client = anthropic.Anthropic(api_key=api_key)
-
-    _VISION_SYSTEM = """\
+_VISION_SYSTEM = """\
 Analyze this image and generate Instagram carousel slide content.
 
 Describe what is happening in the image as a specific action or result.
@@ -1502,6 +1477,31 @@ Respond ONLY with valid JSON — no text before or after:
 
 Heading: action or outcome driven, max 6 words, no em-dashes.
 Body: exactly 2 sentences, each under 12 words, total under 20 words, no em-dashes."""
+
+def generate_light_slides(
+    topic: str,
+    hook: str,
+    image_bytes_list: list[bytes],
+    image_types: list[str],
+) -> dict:
+    """Generate carousel slides for the light image-driven pipeline.
+
+    Analyzes each uploaded image with Claude vision to infer heading + body,
+    then builds: hook slide → one content slide per image → CTA slide.
+
+    Returns dict with keys: template, hook, slides, cta.
+    """
+    import anthropic
+    import base64
+
+    if not (1 <= len(image_bytes_list) <= 8):
+        raise ValueError(f"Expected 1–8 images, got {len(image_bytes_list)}")
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise RuntimeError("ANTHROPIC_API_KEY not set")
+
+    client = anthropic.Anthropic(api_key=api_key)
 
     content_slides = []
     for i, (img_bytes, img_type) in enumerate(zip(image_bytes_list, image_types)):

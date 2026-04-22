@@ -8,7 +8,7 @@ Public API
 ----------
 generate_slides(topic) → (list[dict], str)
     Returns (slides, caption) where slides is a list of dicts with
-    "type", "heading", and "description" keys (4–7 slides), and caption
+    "type", "heading", and "body" keys (4–7 slides), and caption
     is a ready-to-post Instagram caption string.
     "type" is one of: "hook", "content", "cta".
 """
@@ -44,9 +44,9 @@ TEMPLATE_STYLES: list[str] = [
 ]
 
 # Styles that require photo images
-_IMAGE_STYLES: frozenset[str] = frozenset({"dark_core", "light_image"})
+_VISUAL_STYLES: frozenset[str] = frozenset({"dark_core", "light_image"})
 
-QUALITY_THRESHOLD = 0.6
+QUALITY_THRESHOLD = 0.7
 
 
 # Per-style word limits (heading + body fields rendered separately)
@@ -239,10 +239,6 @@ def enforce_word_limit(text: str, max_words: int) -> str:
     Also strips any unclosed **marker so the HTML renderer never sees a
     dangling opening bold tag.
     """
-    # NEVER truncate contrast slides — they must remain complete
-    if "instead of" in text.lower() and "try" in text.lower():
-        return text
-
     words = text.split()
     if len(words) <= max_words:
         return text
@@ -256,10 +252,6 @@ def enforce_word_limit(text: str, max_words: int) -> str:
     # Fix unbalanced quotes after truncation
     if truncated.count('"') % 2 != 0:
         truncated = truncated.rsplit('"', 1)[0].rstrip()
-
-    # Detect ANY incomplete contrast pattern
-    if re.search(r'(→|->).*?try\s*:?\s*$', truncated.lower()):
-        return text  # fallback
 
     # If already ends with sentence-final punctuation, we're done
     stripped = truncated.rstrip()
@@ -487,7 +479,6 @@ def _is_complete_slide(text: str) -> bool:
 
     words = plain.split()
     last_word = words[-1].lower().rstrip('.,!?:"\'\u2018\u2019')
-    last_two  = " ".join(w.lower().rstrip('.,!?:"\'\u2018\u2019') for w in words[-2:]) if len(words) >= 2 else last_word
 
     # Bare arrow — contrast started, never resolved
     if last_word in ("→", "->"):
@@ -501,19 +492,9 @@ def _is_complete_slide(text: str) -> bool:
     if last_word == "because":
         return False
 
-    # Trailing "instead of" or standalone "instead" — comparison deferred
-    if last_two == "instead of" or last_word == "instead":
-        return False
-
     # "→ Try:" at very end with nothing after the colon
     if re.search(r'[→>]\s*[Tt]ry\s*:\s*$', plain):
         return False
-
-    # Contrast lead-in ("Instead of:") with no resolution on this slide.
-    # Catches slides that open a contrast but put the "Try" half on the next slide.
-    if re.search(r'(?i)^\s*instead\s+of\s*:', plain):
-        if not re.search(r'(→|->|\btry\s*:)', plain, re.IGNORECASE):
-            return False
 
     return True
 def _validate_completeness(
@@ -608,16 +589,14 @@ def _has_depth(slides: list[dict]) -> bool:
     """Return True if the carousel contains at least one example slide AND
     one insight/explanation slide among the content slides.
     Checks both heading and body fields to support two-field heading styles."""
-    has_example = False
-    has_insight = False
-    for slide in slides:
-        if slide["type"] != "content":
-            continue
-        text_lower = (slide.get("heading", "") + " " + slide.get("body", "")).lower()
-        if any(m in text_lower for m in _EXAMPLE_MARKERS):
-            has_example = True
-        if any(m in text_lower for m in _INSIGHT_MARKERS):
-            has_insight = True
+    has_example = _has_actionable_prompt_example(slides)
+
+    has_insight = any(
+        "because" in (s["heading"] + " " + s["body"]).lower()
+        or " — " in (s["heading"] + " " + s["body"])
+        for s in slides if s["type"] == "content"
+    )
+
     return has_example and has_insight
 
 # ---------------------------------------------------------------------------
@@ -1261,23 +1240,9 @@ def generate_slides(
             score = _score_slides(slides)
             logger.info("Slide score: %.2f", score)
 
-            # --- Guard: detect truncated contrast (→ Try: with no payload) ---
-            if any(
-                re.search(r'(→|->)?\s*try\s*:?\s*$', (s["heading"] + " " + s.get("body", "")).lower())
-                for s in slides
-            ):
-                raise ValueError("Truncated contrast detected (ends with 'Try:') — retrying")
-
-            if score < QUALITY_THRESHOLD:
-                raise ValueError(
-                    f"Low quality slides (score={score:.2f} < {QUALITY_THRESHOLD}) — retrying"
-                )
-
-            hook_text = slides[0]["heading"]
-            # For heading styles the hook is a short phrase, not a sentence —
-            # only reject genuinely broken forms (trailing em-dash / bare arrow).
             # For text_only the full sentence check still applies.
             hook_is_heading_style = True  # both dark_core and light_image use heading style
+            hook_text = slides[0]["heading"]
             hook_broken = (
                 hook_text.rstrip().endswith("—")
                 or hook_text.rstrip().endswith("→")
@@ -1288,12 +1253,6 @@ def generate_slides(
                     f"Hook is incomplete: {hook_text!r}. "
                     "Retrying for a complete hook."
                 )
-            if not _has_actionable_prompt_example(slides):
-                raise ValueError(
-                    "No actionable prompt example found. At least one content slide must include "
-                    "a quoted Claude prompt AND a comparison (Instead of/Try/Bad/Better/→). "
-                    "A quoted prompt alone is not enough — show why one phrasing is better."
-                )
             if not _has_depth(slides):
                 logger.error(
                     "Depth check failed (attempt %d/%d) — missing example or insight. "
@@ -1302,9 +1261,8 @@ def generate_slides(
                     [(s["type"], (s.get("heading", "") + " " + s.get("body", ""))[:60]) for s in slides],
                 )
                 raise ValueError(
-                    "Slides lack depth: need at least one contrast example "
-                    "(Instead of [x] → try [y]) AND at least one insight "
-                    "([observation] — [implication] or [observation] because [reason]). "
+                    "Slides lack depth: need at least one concrete example AND one insight "
+                    "([observation] — [implication] or [observation] because [reason])."
                     "Retrying for more informative content."
                 )
             slides = _validate_completeness(slides, template_style)  # auto-corrects headings; raises if body is broken
@@ -1319,7 +1277,7 @@ def generate_slides(
                 else s
                 for s in slides
             ]
-            if score < 0.85:
+            if score < QUALITY_THRESHOLD:
                 time.sleep(2)
                 slides = review_and_improve(slides, template_style)
                 slides = _clean_heading_punctuation(slides)

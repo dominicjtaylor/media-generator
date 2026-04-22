@@ -156,7 +156,7 @@ def _arc_position(slide_number: int, total: int) -> str:
 # ---------------------------------------------------------------------------
 
 class GenerateRequest(BaseModel):
-    topic:      str
+    idea:      str
     num_slides: int = 5
 
     def validate_num_slides(self) -> None:
@@ -202,6 +202,29 @@ class RenderRequest(BaseModel):
 # ---------------------------------------------------------------------------
 # SSE helpers
 # ---------------------------------------------------------------------------
+
+def _derive_topic_from_idea(idea: str) -> str:
+    """Use Claude to turn a long idea into a short topic label."""
+    prompt = f"""
+Turn this idea into a short topic label (max 5 words).
+
+Rules:
+- No punctuation
+- No filler words
+- No full sentences
+- Make it feel like a category or theme
+
+Idea:
+{idea}
+
+Return ONLY the label.
+"""
+    try:
+        topic = _claude(prompt, max_tokens=20).strip()
+        return topic
+    except Exception:
+        # fallback (important)
+        return " ".join(idea.split()[:5])
 
 def _sse(payload: dict) -> str:
     return f"data: {json.dumps(payload)}\n\n"
@@ -675,7 +698,32 @@ def _generate_light_stream_full(
     """SSE stream: analyse images, render light carousel, then clean up temp files."""
     yield _sse({"step": "analysing", "message": "Analysing images…"})
     try:
-        result = generate_light_slides(topic, hook, image_bytes_list, image_types)
+        # result = generate_light_slides(topic, hook, image_bytes_list, image_types)
+        idea = topic
+        short_topic = _derive_topic_from_idea(idea)
+
+        result = generate_light_slides(
+            idea,
+            hook,
+            image_bytes_list,
+            image_types
+        )
+
+        slides = result["slides"]
+
+        if len(slides) != num_slides:
+            logger.error(f"Slide mismatch: expected {num_slides}, got {len(slides)}")
+
+        # ONLY apply once, with short_topic
+        slides = enforce_cta(slides, short_topic)
+        caption = generate_caption(slides)
+
+        # cover image (use short_topic here too)
+        first_image_data = None
+        if image_filename:
+            from local_image import get_image_for_heading_template
+            first_image_data = get_image_for_heading_template(short_topic, image_filename)
+
     except Exception as exc:
         logger.error("Light slide generation failed: %s", exc)
         yield _sse({"step": "error", "message": f"Slide generation failed: {exc}"})
@@ -683,18 +731,6 @@ def _generate_light_stream_full(
             try: os.unlink(p)
             except OSError: pass
         return
-
-    slides = result["slides"]
-    if len(slides) != num_slides:
-        logger.error(f"Slide mismatch: expected {num_slides}, got {len(slides)}")
-
-    # Inject cover image for slide 1
-    first_image_data = None
-    if image_filename:
-        from local_image import get_image_for_heading_template
-        first_image_data = get_image_for_heading_template(topic, image_filename)
-    slides = enforce_cta(slides, topic)
-    caption = generate_caption(slides)
 
     print("\nFINAL LIGHT SLIDES:")
     for i, s in enumerate(slides):

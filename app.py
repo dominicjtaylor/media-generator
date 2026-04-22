@@ -696,6 +696,10 @@ def _generate_light_stream_full(
     slides = enforce_cta(slides, topic)
     caption = generate_caption(slides)
 
+    print("\nFINAL LIGHT SLIDES:")
+    for i, s in enumerate(slides):
+        print(i, s.get("type"), s.get("heading"))
+
     yield _sse({"step": "rendering", "message": "Rendering slides…"})
     try:
         png_paths, run_id = render_slides(

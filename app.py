@@ -222,6 +222,46 @@ Return ONLY the label.
     except Exception:
         return " ".join(idea.split()[:4])
 
+def _derive_cta_topic(idea: str) -> str:
+    prompt = f"""
+What is the core topic of this?
+
+Write a short noun phrase that describes what this content is really about,
+not what it literally says.
+
+It must fit naturally in:
+"We show you ___ every day."
+
+Rules:
+- Max 4 words
+- Must be a category or theme
+- Prefer abstraction over detail
+- Do NOT summarise the sentence
+- Do NOT include verbs like "announced", "released"
+
+Idea:
+{idea}
+
+Return ONLY the phrase.
+"""
+    try:
+        out = _claude(prompt, max_tokens=10).strip()
+
+        # 🔒 HARD GUARDRAILS (this is what makes it “regardless of input”)
+        words = out.split()[:4]
+        cleaned = " ".join(words)
+
+        # fallback if model still does something weird
+        if len(words) == 0 or len(cleaned) > 40:
+            raise ValueError("Bad CTA topic")
+
+        return cleaned
+
+    except Exception:
+        # deterministic fallback (always grammatical)
+        words = idea.split()[:3]
+        return " ".join(words) + " updates"
+
 def _sse(payload: dict) -> str:
     return f"data: {json.dumps(payload)}\n\n"
 
@@ -683,7 +723,7 @@ def render_route(req: RenderRequest):
 
 
 def _generate_light_stream_full(
-    topic: str,
+    idea: str,
     hook: str,
     image_bytes_list: list[bytes],
     image_types: list[str],
@@ -695,8 +735,8 @@ def _generate_light_stream_full(
     yield _sse({"step": "analysing", "message": "Analysing images…"})
     try:
         # result = generate_light_slides(topic, hook, image_bytes_list, image_types)
-        idea = topic
         short_topic = _derive_topic_from_idea(idea)
+        cta_topic   = _derive_cta_topic(short_topic)
 
         result = generate_light_slides(
             idea,
@@ -713,7 +753,7 @@ def _generate_light_stream_full(
         # ONLY apply once, with short_topic
         print("SHORT_TOPIC:", short_topic)
         print("CTA_BEFORE:", slides[-1]["heading"])
-        slides = enforce_cta(slides, short_topic)
+        slides = enforce_cta(slides, cta_topic)
         caption = generate_caption(slides)
 
         # cover image (use short_topic here too)

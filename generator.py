@@ -1456,7 +1456,18 @@ def _generate_single_image_slide(client, topic, img_bytes, img_type, retries=3):
             "create", "build", "write", "send", "open"
         )
 
-        if not any(v in text for v in ACTION_WORDS):
+        has_action = any(v in text for v in ACTION_WORDS)
+        has_outcome = any(w in text for w in ["result", "output", "faster", "improves", "gives", "creates"])
+
+        if not (has_action or has_outcome):
+
+            print("---- ACTIONABLE DEBUG ----")
+            print("HEADING:", heading)
+            print("BODY:", body)
+            print("TEXT:", text)
+            print("ACTION WORD MATCH:", [v for v in ACTION_WORDS if v in text])
+            print("--------------------------")
+
             if attempt == retries:
                 raise ValueError("No actionable content")
             time.sleep(1.5 * attempt)

@@ -24,6 +24,7 @@ import tempfile
 from pathlib import Path
 from typing import Generator, List, Optional
 from urllib.parse import quote
+import random
 
 import anthropic as _anthropic
 from dotenv import load_dotenv

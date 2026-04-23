@@ -1322,6 +1322,18 @@ def generate_slides(
 # Light image pipeline — vision-driven slide generation
 # ---------------------------------------------------------------------------
 
+def _safe_json_load(raw: str):
+    # normalise quotes
+    raw = raw.replace("“", '"').replace("”", '"').replace("’", "'")
+
+    # quote keys
+    raw = re.sub(r'([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:', r'\1"\2":', raw)
+
+    # remove trailing commas
+    raw = re.sub(r',\s*([}\]])', r'\1', raw)
+
+    return json.loads(raw)
+
 def _generate_single_image_slide(client, topic, img_bytes, img_type, retries=3):
     import base64, json, re, time
 
@@ -1359,7 +1371,8 @@ def _generate_single_image_slide(client, topic, img_bytes, img_type, retries=3):
             raw = re.sub(r'\s*```$', '', raw.strip())
 
         try:
-            slide_data = json.loads(raw)
+            logger.error("RAW MODEL OUTPUT:\n%s", raw)
+            slide_data = _safe_json_load(raw)
         except json.JSONDecodeError:
             if attempt == retries:
                 raise
@@ -1368,7 +1381,7 @@ def _generate_single_image_slide(client, topic, img_bytes, img_type, retries=3):
 
         # --- HARD VALIDATION (this is key) ---
         heading = slide_data.get("heading", "")
-        body    = slide_data.get("body", "")
+        body = slide_data.get("body") or slide_data.get("text") or ""
 
         text = (heading + " " + body).lower()
 
@@ -1433,6 +1446,11 @@ Respond ONLY with valid JSON — no text before or after:
   "body": "Two concise sentences tied to what is shown. Total max 20 words. Bold 1 key word with **word**."
 }
 
+STRICT JSON RULES:
+- All keys MUST be in double quotes
+- Do NOT use single quotes for keys
+- Escape any quotes inside strings
+
 Heading: action or outcome driven, max 6 words, no em-dashes.
 Body: exactly 2 sentences, each under 12 words, total under 20 words, no em-dashes."""
 
@@ -1466,7 +1484,7 @@ def generate_light_slides(
         slide_data = _generate_single_image_slide(client, topic, img_bytes, img_type)
 
         heading = slide_data.get("heading")
-        body = slide_data.get("body")
+        body = slide_data.get("body") or slide_data.get("text") or ""
 
         if not heading or not body:
             raise ValueError("Missing heading or body from vision model")

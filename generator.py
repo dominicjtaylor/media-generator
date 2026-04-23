@@ -21,7 +21,6 @@ import re
 import time
 from pathlib import Path
 from typing import Optional
-from app import _parse_json  # or better: move to a shared utils file
 
 logger = logging.getLogger("carousel.generator")
 
@@ -1330,6 +1329,41 @@ def generate_slides(
 # ---------------------------------------------------------------------------
 # Light image pipeline — vision-driven slide generation
 # ---------------------------------------------------------------------------
+
+def _parse_json(text: str):
+    text = text.strip()
+
+    # Remove markdown fences
+    text = _re.sub(r"^```(?:json)?\s*", "", text)
+    text = _re.sub(r"\s*```$", "", text.strip())
+
+    # Remove leading "json" (Claude sometimes does this)
+    if text.lower().startswith("json"):
+        text = text[4:].strip()
+
+    # Try full parse first (fast path)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Fallback: extract first JSON object OR array
+    start_obj = text.find("{")
+    start_arr = text.find("[")
+
+    if start_arr != -1 and (start_arr < start_obj or start_obj == -1):
+        start = start_arr
+        end = text.rfind("]") + 1
+    else:
+        start = start_obj
+        end = text.rfind("}") + 1
+
+    if start == -1 or end == -1:
+        raise ValueError(f"No JSON found in response:\n{text[:200]}")
+
+    json_str = text[start:end]
+
+    return json.loads(json_str)
 
 def _safe_json_load(raw: str):
     # normalise quotes

@@ -112,7 +112,7 @@
   left:50%;
   transform:translateX(-50%);
   width:auto;
-  height:clamp(340px, 72vh, 850px);
+  height:clamp(340px, 70vh, 850px);
   border-radius:28px;
   overflow:hidden;
   z-index:2;
@@ -157,13 +157,39 @@
   bottom:200px;
 }
 
+/* arrows */
+.bar::before,
+.bar::after {
+  content: "";
+  position: absolute;
+  right: 60px;              /* distance from right edge */
+  
+  width: 40px;
+  height: 40px;
+
+  border-top: 10px solid #e84a24;
+  border-right: 10px solid #e84a24;
+
+  transform: rotate(45deg); /* points right */
+}
+
+.bar::before {
+  top: -19px;                /* center vertically on bar */
+  opacity: 0;
+}
+
+.bar::after {
+  top: -19px;
+  right: 5px;              /* second arrow slightly left */
+}
+
 </style>
 </head>
 
 <body>
 <div class="slide">
 
-  <div class="slide-counter">{{SLIDE_COUNTER}}</div>
+  <!-- <div class="slide-counter">{{SLIDE_COUNTER}}</div> -->
 
   <div class="content">
 

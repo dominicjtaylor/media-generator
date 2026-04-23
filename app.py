@@ -77,16 +77,34 @@ def _strip_markdown(text: str) -> str:
 def _strip_newlines(text: str) -> str:
     return _NL_RE.sub(' ', text).strip()
 
+# def enforce_cta(slides, topic):
+#     if not slides:
+#         return slides
+
+#     last = slides[-1]
+
+#     # ALWAYS overwrite — do not trust upstream
+#     last["heading"] = f"We show you {topic} every day."
+#     last["body"] = ""
+#     last["description"] = ""
+
+#     return slides
+
+CTA_POOL = [
+    "We show you how AI works every day.",
+    "We show you better ways to use AI every day.",
+    "We show you what AI can really do every day.",
+    "We show you practical AI workflows every day.",
+    "We show you how to get more from AI every day.",
+]
+
 def enforce_cta(slides, topic):
     if not slides:
         return slides
 
-    last = slides[-1]
-
-    # ALWAYS overwrite — do not trust upstream
-    last["heading"] = f"We show you {topic} every day."
-    last["body"] = ""
-    last["description"] = ""
+    slides[-1]["heading"] = random.choice(CTA_POOL)
+    slides[-1]["body"] = ""
+    slides[-1]["description"] = ""
 
     return slides
 
@@ -764,7 +782,7 @@ def _generate_light_stream_full(
     try:
         # result = generate_light_slides(topic, hook, image_bytes_list, image_types)
         short_topic = _derive_topic_from_idea(idea)
-        cta_topic   = _derive_cta_topic(short_topic)
+        # cta_topic   = _derive_cta_topic(short_topic)
 
         result = generate_light_slides(
             idea,
@@ -781,7 +799,7 @@ def _generate_light_stream_full(
         # ONLY apply once, with short_topic
         print("SHORT_TOPIC:", short_topic)
         print("CTA_BEFORE:", slides[-1]["heading"])
-        slides = enforce_cta(slides, cta_topic)
+        slides = enforce_cta(slides, short_topic)
         caption = generate_caption(slides)
 
         # cover image (use short_topic here too)

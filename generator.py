@@ -1457,9 +1457,17 @@ def _generate_single_image_slide(client, topic, img_bytes, img_type, retries=3):
         )
 
         has_action = any(v in text for v in ACTION_WORDS)
-        has_outcome = any(w in text for w in ["result", "output", "faster", "improves", "gives", "creates"])
 
-        if not (has_action or has_outcome):
+        has_insight = any(w in text for w in [
+            "is", "are", "means", "shows", "reveals", "confirms",
+            "contains", "exists", "carries", "exposes"
+        ])
+
+        has_outcome = any(w in text for w in [
+            "result", "risk", "faster", "improves", "fix", "prevents"
+        ])
+
+        if not (has_action or has_insight or has_outcome):
 
             print("---- ACTIONABLE DEBUG ----")
             print("HEADING:", heading)

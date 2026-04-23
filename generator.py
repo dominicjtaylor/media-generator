@@ -175,6 +175,13 @@ def _build_system_prompt(num_slides: int, template_style: str = "dark_core") -> 
     return f"""\
 Search the web for accurate info before writing. Return ONLY valid JSON — no text before or after, no code fences.
 
+FACTUALITY RULES:
+- Do NOT include statistics, percentages, or numbers unless you can cite a real source.
+- Any statistic MUST include a source in the same sentence (e.g., "according to X").
+- If no source is available, do not include the statistic.
+- Prefer qualitative insights over unverifiable claims.
+- Never invent reports, studies, or benchmarks.
+
 SLIDES: Exactly {num_slides}. Slide 1 = hook | Slides 2–{num_slides - 1} = content | Slide {num_slides} = cta
 
 HOOK (Slide 1) — {hook_name}:
@@ -193,8 +200,6 @@ CONTENT SLIDES (2–{num_slides - 1}):
 
 ARC:
 {carousel_arc}
-
-CTA (Slide {num_slides}): Heading MUST be "We show you [specific thing] every day." — starts "We show you", ends "every day."
 
 EMPHASIS: 1–2 bold words per slide. Bold outcomes/contrasts/actions only. Never bold filler.
 
@@ -1164,6 +1169,11 @@ def generate_caption(slides: list[dict], max_retries: int = 2) -> str:
 # Public API
 # ---------------------------------------------------------------------------
 
+def _format_cta(topic: str) -> str:
+    words = topic.split()
+    core = " ".join(words[:3])
+    return f"We show you {core} every day."
+
 def generate_slides(
     topic: str,
     num_slides: int = 5,
@@ -1288,12 +1298,10 @@ def generate_slides(
             slides[0]  = {**slides[0],  "heading": _strip_markdown(slides[0]["heading"])}
             slides[-1] = {**slides[-1], "heading": _strip_markdown(slides[-1]["heading"])}
             # Enforce "We show you … every day." format on the CTA slide
-            if not slides[-1]["heading"].strip().lower().startswith("we show you"):
-                logger.warning(
-                    "CTA heading does not follow 'We show you' format: %r — correcting",
-                    slides[-1]["heading"],
-                )
-                slides[-1] = {**slides[-1], "heading": f"We show you {topic} every day."}
+            cta = slides[-1]["heading"].strip()
+            if not re.match(r"^We show you .+ every day\.$", cta) or len(cta.split()) > 8:
+                logger.warning("CTA invalid or too long: %r — using fallback", cta)
+                slides[-1] = {**slides[-1], "heading": _format_cta(topic)}
             caption = generate_caption(slides)
             if os.environ.get("DEBUG", "false").lower() == "true":
                 caption += f"\n\n[DEBUG] template={template_style}"

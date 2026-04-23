@@ -129,11 +129,22 @@ def _claude(prompt: str, max_tokens: int = 1024, system: Optional[str] = None) -
 
 
 def _parse_json(text: str):
-    """Parse JSON from a Claude response, stripping markdown code fences."""
     text = text.strip()
+
+    # Remove code fences
     text = _re.sub(r"^```(?:json)?\s*", "", text)
     text = _re.sub(r"\s*```$", "", text.strip())
-    return json.loads(text.strip())
+
+    # Extract first JSON object only
+    start = text.find("{")
+    end = text.rfind("}") + 1
+
+    if start == -1 or end == -1:
+        raise ValueError("No JSON found in response")
+
+    json_str = text[start:end]
+
+    return json.loads(json_str)
 
 
 def _arc_position(slide_number: int, total: int) -> str:

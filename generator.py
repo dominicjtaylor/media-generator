@@ -21,6 +21,7 @@ import re
 import time
 from pathlib import Path
 from typing import Optional
+from app import _parse_json  # or better: move to a shared utils file
 
 logger = logging.getLogger("carousel.generator")
 
@@ -797,7 +798,7 @@ def _parse_json_slides(
             text = text[4:].strip()
 
     try:
-        parsed = json.loads(text)
+        parsed = _parse_json(text)
     except json.JSONDecodeError as exc:
         raise ValueError(f"LLM returned invalid JSON: {exc}\nRaw output:\n{raw[:500]}") from exc
 

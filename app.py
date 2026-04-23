@@ -131,16 +131,33 @@ def _claude(prompt: str, max_tokens: int = 1024, system: Optional[str] = None) -
 def _parse_json(text: str):
     text = text.strip()
 
-    # Remove code fences
+    # Remove markdown fences
     text = _re.sub(r"^```(?:json)?\s*", "", text)
     text = _re.sub(r"\s*```$", "", text.strip())
 
-    # Extract first JSON object only
-    start = text.find("{")
-    end = text.rfind("}") + 1
+    # Remove leading "json" (Claude sometimes does this)
+    if text.lower().startswith("json"):
+        text = text[4:].strip()
+
+    # Try full parse first (fast path)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Fallback: extract first JSON object OR array
+    start_obj = text.find("{")
+    start_arr = text.find("[")
+
+    if start_arr != -1 and (start_arr < start_obj or start_obj == -1):
+        start = start_arr
+        end = text.rfind("]") + 1
+    else:
+        start = start_obj
+        end = text.rfind("}") + 1
 
     if start == -1 or end == -1:
-        raise ValueError("No JSON found in response")
+        raise ValueError(f"No JSON found in response:\n{text[:200]}")
 
     json_str = text[start:end]
 

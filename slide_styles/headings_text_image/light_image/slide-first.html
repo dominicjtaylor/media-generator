@@ -5,7 +5,6 @@
 <title>Slide 1</title>
 
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
-<link href="https://fonts.googleapis.com/css2?family=Anton&display=swap" rel="stylesheet">
 
 <style>
 * {
@@ -74,13 +73,14 @@
 
 .headline {
   margin-top: 30px;
-  font-family:'Anton', sans-serif;
-  font-size:100px;
-  line-height:1.05;
   text-align:center;
-  color:#111;
-
-  /* subtle edge definition for light bg */
+  font-family:'Inter', sans-serif;
+  color: #111;
+  font-size: 90px;
+  font-weight: 600;
+  letter-spacing: -0.06em;
+  line-height: 0.9;
+  display: block;
   text-shadow:
     0 -1px 0 rgba(255,255,255,0.5),
     0 1px 1px rgba(0,0,0,0.08);
@@ -89,6 +89,14 @@
 .headline strong {
   font-weight:700;
 }
+
+.serif {
+  font-family: 'Playfair Display', serif;
+  font-style: italic;
+  font-size: 120px;
+  font-weight: 600;
+}
+
 
 /* ---------- IMAGE SYSTEM ---------- */
 
@@ -157,6 +165,7 @@
   <div class="content-center">
     <div class="tag">FROM THE FEED</div>
     <div class="headline">{{TEXT}}</div>
+    <!-- <div class="headline">Anthropic's Claude Mythos is <span class="serif">exposing</span> global softwares</div> -->
   </div>
 
   <div class="handle">@focuslabs.ai</div>

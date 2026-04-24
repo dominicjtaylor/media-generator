@@ -8,7 +8,7 @@ import Toast from './components/Toast.jsx'
 
 // Stage flow:
 // idle → template_selection → hooks_loading → hook_selection
-//   Dark:  → image_selection → slides_loading → qc_loading → review → rendering → done
+//   Dark:  → image_selection → slides_loading → review → rendering → done
 //   Light: → light_upload → light_generating → done
 // Any stage → error
 
@@ -195,7 +195,6 @@ export default function App() {
   const [slides,         setSlides]         = useState([])
   const [caption,        setCaption]        = useState('')
   const [carouselStyle,  setCarouselStyle]  = useState('dark_core')
-  const [flags,          setFlags]          = useState([])
   const [images,         setImages]         = useState([])
 
   const slidesRef = useRef(slides)
@@ -226,7 +225,6 @@ export default function App() {
     setSelectedImage(null)
     setSlides([])
     setCaption('')
-    setFlags([])
     setImages([])
   }, [])
 
@@ -274,24 +272,6 @@ export default function App() {
     }
   }, [templateType])
 
-  // ── Dark pipeline: QC ─────────────────────────────────────────────────
-  const runQc = useCallback(async (slidesToCheck) => {
-    setStatus('qc_loading')
-    setStepMsg('Running quality check…')
-    try {
-      const res = await fetch('/qc', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ topic, slides: slidesToCheck }),
-      })
-      const data = res.ok ? await res.json() : { flags: [] }
-      setFlags(data.flags || [])
-    } catch {
-      setFlags([])
-    }
-    setStatus('review')
-  }, [topic])
-
   // ── Dark pipeline: image confirmed → generate slides (SSE) ────────────
   const handleImageConfirm = useCallback(async (image) => {
     setSelectedImage(image)
@@ -319,16 +299,10 @@ export default function App() {
         if (event.step === 'complete') {
           gotComplete = true
           let receivedSlides = event.slides || []
-          if (receivedSlides.length > 0) {
-            const last = receivedSlides[receivedSlides.length - 1]
-            if (last && !last.heading?.trim().toLowerCase().startsWith('we show you')) {
-              receivedSlides = [...receivedSlides.slice(0, -1), { ...last, heading: `We show you ${topic} every day.` }]
-            }
-          }
           setSlides(receivedSlides)
           setCaption(event.caption || '')
           setCarouselStyle(event.style || 'dark_core')
-          runQc(receivedSlides)
+          setStatus('review')
         } else if (event.step === 'error') {
           gotError = true
           goError(event.message || 'Slide generation failed.')
@@ -340,11 +314,10 @@ export default function App() {
     } catch (err) {
       goError(err.message || 'Slide generation failed.')
     }
-  }, [topic, numSlides, selectedHook, goError, runQc])
+  }, [topic, numSlides, selectedHook, goError])
 
   // ── Dark pipeline: per-slide regenerate ───────────────────────────────
-  const handleRegenerate = useCallback(async (index, flag) => {
-    const f = flag || {}
+  const handleRegenerate = useCallback(async (index) => {
     try {
       const res = await fetch('/regenerate', {
         method:  'POST',
@@ -354,8 +327,8 @@ export default function App() {
           slide_index:    index,
           hook:           selectedHook?.hook || '',
           slides:         slidesRef.current,
-          issue:          f.issue       || '',
-          suggestion:     f.suggestion  || '',
+          issue,
+          suggestion:     '',
           template_style: carouselStyle,
         }),
       })
@@ -375,28 +348,11 @@ export default function App() {
         }
       }
       setSlides(prev => prev.map((s, i) => i === index ? regenerated : s))
-      setFlags(prev => prev.filter(fl => (fl.slide_number - 1) !== index))
       showToast('Slide regenerated!')
     } catch (err) {
       showToast(err.message || 'Regeneration failed.', 'error')
     }
   }, [topic, selectedHook, carouselStyle, showToast])
-
-  const handleApplyFix = useCallback((index, flag) => {
-    setSlides(prev => prev.map((s, i) => i === index ? {
-      ...s,
-      heading:     flag.replacement_heading || s.heading,
-      description: flag.replacement_body    || s.description,
-    } : s))
-    setFlags(prev => prev.filter(f => (f.slide_number - 1) !== index))
-    showToast('Fix applied!')
-  }, [showToast])
-
-  const handleDismissFlag = useCallback((slideIndex) => {
-    setFlags(prev => prev.filter(f => (f.slide_number - 1) !== slideIndex))
-  }, [])
-
-  const handleRerunQc = useCallback(() => runQc(slidesRef.current), [runQc])
 
   // ── Dark pipeline: render ──────────────────────────────────────────────
   const handleRender = useCallback(async () => {
@@ -501,7 +457,7 @@ export default function App() {
     }
   }, [topic, selectedHook, selectedImage, goError, showToast])
 
-  const LOADING_STAGES = new Set(['hooks_loading', 'slides_loading', 'qc_loading', 'rendering', 'light_generating'])
+  const LOADING_STAGES = new Set(['hooks_loading', 'slides_loading', 'rendering', 'light_generating'])
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -612,12 +568,8 @@ export default function App() {
         {status === 'review' && (
           <SlideReview
             slides={slides}
-            flags={flags}
             caption={caption}
             onRegenerate={handleRegenerate}
-            onApplyFix={handleApplyFix}
-            onDismissFlag={handleDismissFlag}
-            onRerunQc={handleRerunQc}
             onRender={handleRender}
             onBack={reset}
             onToast={showToast}

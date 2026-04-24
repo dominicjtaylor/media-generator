@@ -1604,18 +1604,21 @@ def _generate_single_image_slide(client, topic, img_bytes, img_type, retries=3):
         # 3. Reject non-actionable slides
         ACTION_WORDS = (
             "add", "use", "export", "click", "run", "generate",
-            "create", "build", "write", "send", "open"
+            "create", "build", "write", "send", "open",
+            "build", "create", "generate", "run",
         )
 
         has_action = any(v in text for v in ACTION_WORDS)
 
         has_insight = any(w in text for w in [
             "is", "are", "means", "shows", "reveals", "confirms",
-            "contains", "exists", "carries", "exposes"
+            "contains", "exists", "carries", "exposes",
+            "shifts", "transforms", "enables", "allows", "supports", "moves", "turns",
         ])
 
         has_outcome = any(w in text for w in [
-            "result", "risk", "faster", "improves", "fix", "prevents"
+            "result", "risk", "faster", "improves", "fix", "prevents",
+            "improves", "reduces", "faster", "better", "simpler", "replaces", "automates",
         ])
 
         if not (has_action or has_insight or has_outcome):
@@ -1626,6 +1629,11 @@ def _generate_single_image_slide(client, topic, img_bytes, img_type, retries=3):
             print("TEXT:", text)
             print("ACTION WORD MATCH:", [v for v in ACTION_WORDS if v in text])
             print("--------------------------")
+
+            # Fallback: accept any slide with sufficient content
+            body_sentences = [s.strip() for s in re.split(r'[.!?]+', body) if s.strip()]
+            if len(body_sentences) >= 2 and len(text.split()) > 10:
+                return slide_data
 
             if attempt == retries:
                 raise ValueError("No actionable content")

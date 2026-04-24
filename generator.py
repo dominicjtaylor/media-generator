@@ -1175,7 +1175,6 @@ def _format_cta(topic: str) -> str:
     return f"We show you {core} every day."
 
 def italicise_one_word(text: str) -> str:
-    # Don't double-process
     if "<span" in text:
         return text
 
@@ -1183,19 +1182,46 @@ def italicise_one_word(text: str) -> str:
     if len(words) < 3:
         return text
 
-    # Pick a word near the middle (stable, looks good visually)
-    idx = len(words) // 2
+    STOPWORDS = {
+        "the", "a", "an", "that", "this", "these", "those",
+        "is", "are", "was", "were", "be", "to", "of", "and",
+        "in", "on", "for", "with", "at", "by", "from"
+    }
 
-    # Avoid tiny or useless words
-    for offset in range(len(words)):
-        i = idx + ((-1)**offset) * (offset // 2)  # expand outwards
-        if 0 <= i < len(words):
-            clean = words[i].strip(".,!?").lower()
-            if len(clean) > 3:
-                idx = i
-                break
+    PRIORITY_WORDS = {
+        # outcomes / value
+        "better", "faster", "clearer", "stronger", "simple", "powerful",
+        # contrast
+        "wrong", "right", "mistake", "instead", "actually",
+        # action / core nouns
+        "build", "write", "structure", "system", "prompt", "task",
+        "workflow", "tools", "output"
+    }
 
-    words[idx] = f'<span class="serif">{words[idx]}</span>'
+    def score(word, idx):
+        clean = word.strip(".,!?").lower()
+
+        if clean in STOPWORDS:
+            return -10
+
+        score = 0
+
+        # Prefer meaningful words
+        if clean in PRIORITY_WORDS:
+            score += 5
+
+        # Prefer longer words (but not too long bias)
+        score += min(len(clean), 10) * 0.3
+
+        # Slight preference toward center (but weak)
+        center_bias = 1 - abs(idx - len(words)/2) / len(words)
+        score += center_bias
+
+        return score
+
+    best_idx = max(range(len(words)), key=lambda i: score(words[i], i))
+
+    words[best_idx] = f'<span class="serif">{words[best_idx]}</span>'
     return " ".join(words)
 
 def generate_slides(

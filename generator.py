@@ -1364,8 +1364,8 @@ def _parse_json(text: str):
     text = text.strip()
 
     # Remove markdown fences
-    text = _re.sub(r"^```(?:json)?\s*", "", text)
-    text = _re.sub(r"\s*```$", "", text.strip())
+    text = re.sub(r"^```(?:json)?\s*", "", text)
+    text = re.sub(r"\s*```$", "", text.strip())
 
     # Remove leading "json" (Claude sometimes does this)
     if text.lower().startswith("json"):

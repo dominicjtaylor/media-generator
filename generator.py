@@ -1716,6 +1716,16 @@ def generate_light_slides(
         {"type": "cta", "heading": "", "body": "", "tag": ""},
     ]
 
+    slides = _enforce_slide_limits(slides, "light_image")
+    slides = _enforce_bold_caps(slides)
+    slides = _clean_heading_punctuation(slides)
+    slides = [
+        {**s, "heading": _compress_heading(s["heading"])}
+        if not _is_valid_heading(s["heading"])
+        else s
+        for s in slides
+    ]
+
     slides = _finalise_slides(slides, topic)
 
     return {

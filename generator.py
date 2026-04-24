@@ -205,12 +205,12 @@ CONTENT SLIDES (2–{num_slides - 1}):
 - Tag: one of TIP, FACT, INSIGHT, EXAMPLE, WORKFLOW, STAT, TOOL, MISTAKE
 
 CONTENT SLIDES MUST follow this format:
-{
+{{
   "type": "content",
   "heading": "...",
   "tag": "...",
   "text": "Sentence one. Sentence two."
-}
+}}
 Hook and CTA are the ONLY slides allowed to have empty text.
 If a content slide has empty text, the output is invalid.
 

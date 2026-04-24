@@ -12,6 +12,8 @@ import Toast from './components/Toast.jsx'
 //   Light: → light_upload → light_generating → done
 // Any stage → error
 
+const ensureSlides = (s) => Array.isArray(s) ? s : []
+
 function LoadingPane({ message }) {
   return (
     <div className="flex flex-col items-center justify-center py-16 gap-4 animate-fade-in">
@@ -298,8 +300,7 @@ export default function App() {
       await readSse(res, (event) => {
         if (event.step === 'complete') {
           gotComplete = true
-          let receivedSlides = event.slides || []
-          setSlides(receivedSlides)
+          setSlides(ensureSlides(event.slides))
           setCaption(event.caption || '')
           setCarouselStyle(event.style || 'dark_core')
           setStatus('review')
@@ -327,7 +328,6 @@ export default function App() {
           slide_index:    index,
           hook:           selectedHook?.hook || '',
           slides:         slidesRef.current,
-          issue,
           suggestion:     '',
           template_style: carouselStyle,
         }),
@@ -347,7 +347,9 @@ export default function App() {
           regenerated = { ...regenerated, heading: regenerated.heading.replace(/\.?\s*$/, '') + ' every day.' }
         }
       }
-      setSlides(prev => prev.map((s, i) => i === index ? regenerated : s))
+      setSlides(prev => ensureSlides(prev).map((s, i) =>
+        i === index ? regenerated : s
+      ))
       showToast('Slide regenerated!')
     } catch (err) {
       showToast(err.message || 'Regeneration failed.', 'error')
@@ -420,7 +422,7 @@ export default function App() {
       await readSse(res, (event) => {
 
         if (event.step === 'complete') {
-          let fixedSlides = event.slides || []
+          let fixedSlides = ensureSlides(event.slides)
 
           if (fixedSlides.length > 0) {
             fixedSlides = fixedSlides.map((s, i) => {

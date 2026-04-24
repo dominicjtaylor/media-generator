@@ -297,6 +297,33 @@ def enforce_word_limit(text: str, max_words: int) -> str:
 
     return stripped
 
+def _is_overloaded_hook(text: str) -> bool:
+    word_count = len(text.split())
+
+    if word_count > 14:
+        return True
+
+    if len(re.findall(r'[.!?]', text)) > 1:
+        return True
+
+    lower = text.lower()
+
+    # Instruction density
+    if any(phrase in lower for phrase in [
+        "you will", "you can", "first,", "then,", "next,", "finally"
+    ]):
+        return True
+
+    # 🔥 NEW: list / multi-clause detection
+    if lower.count(",") >= 3:
+        return True
+
+    # 🔥 NEW: repeated verb patterns (fetch, combine, run, monitor...)
+    verb_like = re.findall(r'\b(fetch|combine|run|monitor|build|create|generate)\b', lower)
+    if len(verb_like) >= 3:
+        return True
+
+    return False
 
 def _enforce_slide_limits(slides: list[dict], template_style: str = "dark_core") -> list[dict]:
     """Ensure every slide's heading (and body) respects the word limit for its type."""
@@ -1355,6 +1382,11 @@ def generate_slides(
             raw = backend(topic, num_slides, error_context, template_style, hook)
 
             slides = _parse_json_slides(raw, num_slides, template_style)
+
+            hook_text = slides[0]["heading"]
+            if _is_overloaded_hook(hook_text):
+                raise ValueError(f"Hook overloaded (trying to do full carousel): {hook_text[:100]}")
+
             slides = _enforce_slide_limits(slides, template_style)
             slides = _enforce_bold_caps(slides)
             slides = _clean_heading_punctuation(slides)

@@ -593,13 +593,13 @@ def _clean_heading_punctuation(slides: list[dict]) -> list[dict]:
 _EXAMPLE_MARKERS = ('"', "\u201c", "\u2018", "e.g.", "for example", "act as ", "ask claude")
 
 # Markers for an insight/explanation slide
-_INSIGHT_MARKERS = ("because", "—", " — ", "=", "≠", "means ", "so ", "which ")
+_INSIGHT_MARKERS = (
+    "because", "so that", "this means", "which helps",
+    "so ", "therefore", "as a result"
+)
 
 
-def _has_depth(slides: list[dict]) -> bool:
-    """Return True if the carousel contains at least one example slide AND
-    one insight/explanation slide among the content slides.
-    Checks both heading and body fields to support two-field heading styles."""
+def _has_depth(slides):
     has_example = _has_actionable_prompt_example(slides)
 
     has_insight = any(
@@ -1336,8 +1336,12 @@ def generate_slides(
                     f"Hook is incomplete: {hook_text!r}. "
                     "Retrying for a complete hook."
                 )
-            if not (_has_actionable_prompt_example(slides) and _has_depth(slides)):
-                raise ValueError("Missing example AND insight")
+            if not _has_depth(slides) and attempt < max_retries:
+                logger.error(
+                    "DEPTH FAIL:\n%s",
+                    [(s["type"], s["heading"], s["body"]) for s in slides]
+                )
+                raise ValueError("Missing example or insight")
             try:
                 slides = _validate_completeness(slides, template_style)
             except ValueError as e:

@@ -593,6 +593,61 @@ def _clean_heading_punctuation(slides: list[dict]) -> list[dict]:
 
     return result
 
+
+# ---------------------------------------------------------------------------
+# Heading italicisation — must be the LAST heading transform before render
+# ---------------------------------------------------------------------------
+
+# Common filler words that add no visual value when italicised
+_ITALIC_SKIP_WORDS: frozenset[str] = frozenset({
+    "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for",
+    "of", "with", "by", "from", "is", "are", "was", "were", "be", "been",
+    "this", "that", "it", "its", "they", "you", "we", "i", "not", "no",
+    "do", "use", "get", "how", "why", "what", "when", "where", "who",
+    "your", "my", "our", "their", "all", "just", "also", "even",
+})
+
+
+def _italicise_heading(text: str) -> str:
+    """Wrap the highest-value word in *text* with <em> tags.
+
+    Scores each word by length, preferring concrete/impactful words over
+    filler. Bold-marked words are skipped (they already have emphasis).
+    Returns *text* unchanged if no eligible candidate is found.
+    """
+    if "<em>" in text:
+        return text  # idempotent — never add duplicate spans
+
+    best_word: Optional[str] = None
+    best_score = -1
+
+    for word in text.split():
+        plain = re.sub(r'[^\w]+', '', word).lower()
+        if not plain or len(plain) < 4 or plain in _ITALIC_SKIP_WORDS:
+            continue
+        if "**" in word:  # already bold — don't stack emphasis
+            continue
+        score = len(plain)
+        if score > best_score:
+            best_score = score
+            best_word = word
+
+    if best_word is None:
+        return text
+
+    return text.replace(best_word, f"<em>{best_word}</em>", 1)
+
+
+def _italicise_slides(slides: list[dict]) -> list[dict]:
+    """Apply italic span to a key heading word on all non-CTA slides."""
+    result = []
+    for slide in slides:
+        if slide["type"] == "cta":
+            result.append(slide)
+        else:
+            result.append({**slide, "heading": _italicise_heading(slide.get("heading", ""))})
+    return result
+
 # ---------------------------------------------------------------------------
 # CTA handle validation
 # ---------------------------------------------------------------------------
@@ -1349,6 +1404,13 @@ def generate_slides(
                     slides[-1]["heading"],
                 )
                 slides[-1] = {**slides[-1], "heading": f"We show you {topic} every day."}
+            # Italicise hook + content headings — MUST come after hook restore and
+            # _strip_markdown so nothing overwrites the <em> spans before render.
+            slides = _italicise_slides(slides)
+            for s in slides:
+                logger.debug(
+                    "Pre-render heading [%s]: %r", s["type"], s.get("heading", "")
+                )
             caption = generate_caption(slides)
             if os.environ.get("DEBUG", "false").lower() == "true":
                 caption += f"\n\n[DEBUG] template={template_style}"

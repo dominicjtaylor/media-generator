@@ -5,7 +5,6 @@
 <title>Slide 1</title>
 
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
-<link href="https://fonts.googleapis.com/css2?family=Anton&display=swap" rel="stylesheet">
 
 <style>
 * {
@@ -34,9 +33,12 @@
   position:absolute;
   bottom:80px;
   left:90px;
-  font-size:34px;
-  opacity:.7;
+  font-size:30px;
+  opacity:1;
   z-index:3;
+  text-shadow:
+    0 10px 40px rgba(0,0,0,0.4),
+    0 20px 80px rgba(0,0,0,0.4);
 }
 
 /* ---------- CENTRED CONTENT BLOCK ---------- */
@@ -68,46 +70,66 @@
 }
 
 .swipe {
-  margin-top: -820px;
+  /* margin-top: -820px; */
+  margin-top: -150px;
+  background: #fff;
   display:inline-block;
-  border:1px solid rgba(255,255,255,.4);
   border-radius:999px;
   padding:6px 18px;
   font-size:24px;
-  letter-spacing:3px;
-  color:#ccc;
+  font-weight: 700;
+  letter-spacing:2px;
+  color:#111;
+  z-index: 4;
+  box-shadow:
+    0 10px 40px rgba(0,0,0,0.4),
+    0 20px 80px rgba(0,0,0,0.4);
 }
 
 .headline {
-  margin-top: 30px;
-  font-family:'Anton', sans-serif;
-  font-size:100px;
-  line-height:1.05;
-  text-align:center;
+  margin-top: 50px;
+  font-family:'Inter', sans-serif;
+  font-size:120px;
+  letter-spacing: -0.06em;
+  font-weight: 600;
+  line-height:1;
+  max-width: 800px;
+  display: block;
+  text-align:left;
   color: #fff;
+  z-index: 4;
 
   text-shadow:
-    0 0 3px rgba(255,255,255,0.6),
-    0 0 1px rgba(255,255,255,0.25),
-    0 0 10px rgba(255,255,255,0.12);
+    0 10px 40px rgba(0,0,0,0.4),
+    0 20px 80px rgba(0,0,0,0.4);
 }
 
 .headline strong {
   font-weight:700;
 }
 
+.serif {
+  font-family: 'Playfair Display', serif;
+  font-style: italic;
+  font-size: 190px;
+  font-weight: 500;
+}
+
 /* ---------- IMAGE SYSTEM (BOTTOM-LOCKED) ---------- */
 
 .image-box {
   position:absolute;
-  bottom:150px;
+  bottom:0px;
+  top: 0px;
   left:50%;
   transform:translateX(-50%);
-  width:1000px;
-  height:clamp(320px, 46vh, 850px);
-  border-radius:28px;
+  /* width:2000px; */
+  width: 100%;
+  /* height:clamp(320px, 300vh, 1000px); */
+  /* border-radius:28px; */
   overflow:hidden;
   z-index:1;
+  /* background-color: #111; */
 }
 
 .image-box img {
@@ -116,6 +138,7 @@
   object-fit:cover;
   object-position:center;
   display:block;
+  opacity: 1;
 }
 
 /* ---------- ACCENT SYSTEM ---------- */
@@ -141,6 +164,9 @@
   font-size:26px;
   font-weight:600;
   z-index:2;
+  box-shadow:
+    0 10px 40px rgba(0,0,0,0.4),
+    0 20px 80px rgba(0,0,0,0.4);
 }
 
 .bar {
@@ -151,6 +177,9 @@
   left:calc(100% - var(--circle-right) - (var(--circle-size) / 2));
   width:calc(var(--circle-right) + (var(--circle-size) / 2));
   z-index:1;
+  box-shadow:
+    0 10px 40px rgba(0,0,0,0.4),
+    0 20px 80px rgba(0,0,0,0.8);
 }
 
 </style>
@@ -161,7 +190,9 @@
 
   <div class="content-center">
     <div class="swipe">SWIPE</div>
-    <div class="headline">{{TEXT}}</div>
+    <div class="headline">
+      {{TEXT}}
+    </div>
   </div>
 
   <div class="handle">@focuslabs.ai</div>

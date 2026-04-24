@@ -1174,6 +1174,30 @@ def _format_cta(topic: str) -> str:
     core = " ".join(words[:3])
     return f"We show you {core} every day."
 
+def italicise_one_word(text: str) -> str:
+    # Don't double-process
+    if "<span" in text:
+        return text
+
+    words = text.split()
+    if len(words) < 3:
+        return text
+
+    # Pick a word near the middle (stable, looks good visually)
+    idx = len(words) // 2
+
+    # Avoid tiny or useless words
+    for offset in range(len(words)):
+        i = idx + ((-1)**offset) * (offset // 2)  # expand outwards
+        if 0 <= i < len(words):
+            clean = words[i].strip(".,!?").lower()
+            if len(clean) > 3:
+                idx = i
+                break
+
+    words[idx] = f'<span class="serif">{words[idx]}</span>'
+    return " ".join(words)
+
 def generate_slides(
     topic: str,
     num_slides: int = 5,
@@ -1297,11 +1321,17 @@ def generate_slides(
             # Strip bold markers from hook and CTA headings — Anton/display font makes ** noise
             slides[0]  = {**slides[0],  "heading": _strip_markdown(slides[0]["heading"])}
             slides[-1] = {**slides[-1], "heading": _strip_markdown(slides[-1]["heading"])}
-            # Enforce "We show you … every day." format on the CTA slide
+            # Enforce CTA format
             cta = slides[-1]["heading"].strip()
             if not re.match(r"^We show you .+ every day\.$", cta) or len(cta.split()) > 8:
                 logger.warning("CTA invalid or too long: %r — using fallback", cta)
                 slides[-1] = {**slides[-1], "heading": _format_cta(topic)}
+
+            # ✅ APPLY ITALICS HERE (FINAL STEP)
+            for s in slides:
+                if s["type"] != "cta":
+                    s["heading"] = italicise_one_word(s["heading"])
+
             caption = generate_caption(slides)
             if os.environ.get("DEBUG", "false").lower() == "true":
                 caption += f"\n\n[DEBUG] template={template_style}"

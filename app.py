@@ -91,12 +91,19 @@ def _strip_newlines(text: str) -> str:
 
 #     return slides
 
+# CTA_POOL = [
+#     "We show you how AI works every day.",
+#     "We show you better ways to use AI every day.",
+#     "We show you what AI can really do every day.",
+#     "We show you practical AI workflows every day.",
+#     "We show you how to get more from AI every day.",
+# ]
 CTA_POOL = [
-    "We show you how AI works every day.",
-    "We show you better ways to use AI every day.",
-    "We show you what AI can really do every day.",
-    "We show you practical AI workflows every day.",
-    "We show you how to get more from AI every day.",
+    'We show you how AI <span class="serif">works</span> every day.',
+    'We show you <span class="serif">better</span> ways to use AI every day.',
+    'We show you what AI can <span class="serif">really</span> do every day.',
+    'We show you practical AI <span class="serif">workflows</span> every day.',
+    'We show you how to get <span class="serif">more</span> from AI every day.',
 ]
 
 def enforce_cta(slides, topic):

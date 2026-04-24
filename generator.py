@@ -507,7 +507,11 @@ def _is_complete_slide(text: str) -> bool:
     if re.search(r'[→>]\s*[Tt]ry\s*:\s*$', plain):
         return False
 
+    if not re.search(r'[.!?]$', plain):
+        return False
+
     return True
+
 def _validate_completeness(
     slides: list[dict],
     template_style: str = "dark_core",
@@ -1345,7 +1349,7 @@ def generate_slides(
             try:
                 slides = _validate_completeness(slides, template_style)
             except ValueError as e:
-                logger.warning("Completeness check failed after truncation — continuing")
+                raise
             logger.info(
                 "Generated %d slides (validated: completeness, prompt example, depth)",
                 len(slides),

@@ -77,7 +77,7 @@ _MD_RE     = _re.compile(r'\*{1,2}|_{1,2}|~~')
 _NL_RE     = _re.compile(r'[\n\r]+')
 
 def _strip_html_tags(text: str) -> str:
-    return re.sub(r"<[^>]+>", "", text)
+    return _re.sub(r"<[^>]+>", "", text)
 
 def _strip_citations(text: str) -> str:
     return _CITE_RE.sub(r'\1', text)
@@ -207,6 +207,83 @@ def _arc_position(slide_number: int, total: int) -> str:
     idx = round((slide_number - 1) / max(total - 1, 1) * (len(_ARC) - 1))
     return _ARC[min(idx, len(_ARC) - 1)]
 
+def _validate_slide(slide: dict) -> Optional[str]:
+    text = (slide.get("description") or slide.get("body") or "").strip()
+
+    if not text:
+        return "Empty"
+
+    # Must end with proper punctuation
+    if not _re.search(r'[.!?]["\')>]?\s*$', text):
+        return "Incomplete sentence"
+
+    # Too short = likely broken
+    if len(text.split()) < 4:
+        return "Too short"
+
+    # Common truncation endings
+    bad_endings = (
+        "to", "and", "or", "with", "the", "a", "an",
+        "of", "for", "in", "on", "at", "by",
+        "this", "that", "these", "those",
+        "actually", "because"
+    )
+
+    last_word = text.rstrip(".!?").split()[-1].lower()
+    if last_word in bad_endings:
+        return "Truncated ending"
+
+    return None
+
+def _regenerate_slide_internal(
+    slides: list[dict],
+    idx: int,
+    topic: str,
+    hook: str,
+    template_style: str
+) -> dict:
+    total = len(slides)
+    arc = _arc_position(idx + 1, total)
+
+    other_lines = []
+    for i, s in enumerate(slides):
+        if i == idx:
+            continue
+        s_arc = _arc_position(i + 1, total)
+        heading = _strip_html_tags(s.get("heading", ""))
+        body = s.get("description", s.get("body", ""))
+        entry = f"Slide {i + 1} ({s_arc}): {heading}"
+        if body:
+            entry += f" — {body}"
+        other_lines.append(entry)
+
+    prompt = _REGEN_PROMPT.format(
+        slide_num=idx + 1,
+        total=total,
+        topic=topic,
+        hook=hook,
+        arc=arc,
+        other_slides="\n".join(other_lines),
+        issue_block=""
+    )
+
+    system = _build_system_prompt(total, template_style)
+
+    raw = _claude(prompt, max_tokens=512, system=system)
+    new_slide = _parse_json(raw)
+
+    heading = italicise_one_word(_strip_citations(new_slide.get("heading", "")))
+    description = _ensure_complete_sentences(
+        _strip_newlines(
+            _strip_citations(new_slide.get("body", ""))
+        )
+    )
+
+    return {
+        "type": new_slide.get("type", "content"),
+        "heading": heading,
+        "description": description
+    }
 
 # ---------------------------------------------------------------------------
 # Schemas
@@ -232,11 +309,6 @@ class SlidesRequest(BaseModel):
     num_slides:     int = 5
     image_filename: Optional[str] = None
     template:       str = "dark"
-
-
-class QcRequest(BaseModel):
-    topic:  str
-    slides: list[dict]
 
 
 class RegenerateRequest(BaseModel):
@@ -343,6 +415,13 @@ def _stream(topic: str, num_slides: int) -> Generator[str, None, None]:
 
     try:
         slides, caption = generate_slides(topic, num_slides=num_slides, template_style=style)
+        for i in range(len(slides)):
+            if i == 0:
+                continue
+
+            issue = _validate_slide(slides[i])
+            if issue:
+                slides[i] = _regenerate_slide_internal(slides,i,topic,hook,style)
     except Exception as exc:
         logger.error("Slide generation failed: %s", exc)
         yield _sse({"step": "error", "message": f"Content generation failed: {exc}"})
@@ -440,21 +519,6 @@ Return as a JSON array of 4 objects:
   {{"type": "named_thing", "hook": "..."}}
 ]"""
 
-_QC_PROMPT = """\
-Read the following carousel slides, starting from slide 2. Flag any slides that \
-repeat the same idea, feel too vague, or don't advance the argument. \
-Do not evaluate slide 1. Suggest a replacement for each flagged slide.
-
-IMPORTANT: Only flag issues based on the exact text provided below. Do not reference \
-or quote any text that does not appear verbatim in the slide content given. If you \
-cannot point to specific words in the slide that demonstrate the problem, do not flag it.
-
-Return as a JSON array of objects with keys: slide_number, issue, \
-replacement_heading, replacement_body. Return an empty array if no issues found.
-
-Carousel:
-{slides_json}"""
-
 _REGEN_PROMPT = """\
 Write like a smart 10 year old explaining something to a friend. \
 Short words. Short sentences. Specific details. No jargon.
@@ -530,6 +594,27 @@ def _slides_stream(topic: str, hook: str, num_slides: int, image_filename: Optio
             topic, num_slides=num_slides, template_style=style, hook=hook
         )
         slides = enforce_cta(slides, topic)
+
+        # --- NEW: validate + fix ---
+        for i in range(len(slides)):
+            # never touch hook slide
+            if i == 0:
+                continue
+
+            issue = _validate_slide(slides[i])
+            if issue:
+                logger.info(f"Regenerating slide {i+1}: {issue}")
+
+                try:
+                    slides[i] = _regenerate_slide_internal(slides,i,topic,hook,style)
+
+                    # one re-check only (no loops)
+                    if _validate_slide(slides[i]):
+                        logger.warning(f"Slide {i+1} still invalid after regen")
+
+                except Exception as exc:
+                    logger.error(f"Regeneration failed for slide {i+1}: {exc}")
+
     except Exception as exc:
         logger.error("Slide generation failed: %s", exc)
         yield _sse({"step": "error", "message": f"Content generation failed: {exc}"})
@@ -555,7 +640,14 @@ def _slides_stream(topic: str, hook: str, num_slides: int, image_filename: Optio
         image_data = None
 
     slide_models = [
-        {"type": s.get("type", "content"), "heading": s.get("heading", ""), "description": s.get("body", "")}
+        {
+            "type": s.get("type", "content"),
+            "heading": s.get("heading", ""),
+            "description": s.get("body", ""),
+            "validation": _validate_slide({
+                "description": s.get("body", "")
+            }) or ""
+        }
         for s in slides
     ]
     yield _sse({
@@ -585,74 +677,6 @@ def slides_route(req: SlidesRequest):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
-
-
-def _qc_flag_is_grounded(flag: dict, slides: list[dict]) -> bool:
-    """Return False if the flag quotes text that doesn't appear in the slide.
-
-    The QC LLM occasionally hallucinates issues that reference words or phrases
-    not present in the actual slide.  If the issue field contains a quoted string
-    (double quotes), we verify that string appears verbatim in the slide text.
-    Flags without any quoted text are accepted as-is.
-    """
-    slide_num = flag.get("slide_number")
-    if not isinstance(slide_num, int) or not (1 <= slide_num <= len(slides)):
-        return False
-
-    issue = flag.get("issue", "")
-    quoted = _re.findall(r'"([^"]{4,})"', issue)   # only check substantive quotes (4+ chars)
-    if not quoted:
-        return True
-
-    slide = slides[slide_num - 1]
-    slide_text = (
-        slide.get("heading", "") + " " + slide.get("description", slide.get("body", ""))
-    ).lower()
-
-    for q in quoted:
-        if q.lower() not in slide_text:
-            logger.info(
-                "QC flag for slide %d discarded — quoted text %r not found in slide",
-                slide_num, q,
-            )
-            return False
-
-    return True
-
-
-@app.post("/qc", tags=["carousel"])
-def qc_route(req: QcRequest):
-    """QC-check slides and return a list of flags."""
-    topic = _clean_topic(req.topic)
-    if not topic:
-        raise HTTPException(status_code=422, detail="topic must not be empty")
-    if not req.slides:
-        raise HTTPException(status_code=422, detail="slides must not be empty")
-
-    slides_from_2 = req.slides[1:]   # slide 1 is the hook — never QC'd
-    slides_json   = json.dumps(slides_from_2, indent=2)
-    prompt        = _QC_PROMPT.format(slides_json=slides_json)
-    try:
-        raw   = _claude(prompt, max_tokens=1024)
-        flags = _parse_json(raw)
-        if not isinstance(flags, list):
-            flags = []
-        # Strip web-search citation tags from any replacement text
-        for f in flags:
-            if isinstance(f.get("replacement_heading"), str):
-                f["replacement_heading"] = _strip_citations(f["replacement_heading"])
-            if isinstance(f.get("replacement_body"), str):
-                f["replacement_body"] = _strip_citations(f["replacement_body"])
-        # Discard any flag that quotes text not present in the actual slide
-        before = len(flags)
-        flags  = [f for f in flags if _qc_flag_is_grounded(f, req.slides)]
-        if len(flags) < before:
-            logger.info("QC: discarded %d hallucinated flag(s)", before - len(flags))
-    except Exception as exc:
-        logger.warning("QC parse failed (%s) — returning no flags", exc)
-        flags = []
-
-    return {"flags": flags}
 
 
 @app.post("/regenerate", tags=["carousel"])

@@ -602,7 +602,7 @@ def _has_depth(slides: list[dict]) -> bool:
         for s in slides if s["type"] == "content"
     )
 
-    return has_example and has_insight
+    return has_example or has_insight
 
 # ---------------------------------------------------------------------------
 # Quality scoring (moves system from pass/fail → quality-based selection)

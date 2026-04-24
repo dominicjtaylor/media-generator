@@ -173,7 +173,7 @@ def _build_system_prompt(num_slides: int, template_style: str = "dark_core") -> 
     carousel_arc = _build_carousel_arc(num_slides)
 
     return f"""\
-Search the web for accurate info before writing. Return ONLY valid JSON — no text before or after, no code fences.
+Do not invent statistics. Prefer qualitative insights.
 
 FACTUALITY RULES:
 - Do NOT include statistics, percentages, or numbers unless you can cite a real source.
@@ -296,34 +296,6 @@ def enforce_word_limit(text: str, max_words: int) -> str:
                 return candidate
 
     return stripped
-
-def _is_overloaded_hook(text: str) -> bool:
-    word_count = len(text.split())
-
-    if word_count > 14:
-        return True
-
-    if len(re.findall(r'[.!?]', text)) > 1:
-        return True
-
-    lower = text.lower()
-
-    # Instruction density
-    if any(phrase in lower for phrase in [
-        "you will", "you can", "first,", "then,", "next,", "finally"
-    ]):
-        return True
-
-    # 🔥 NEW: list / multi-clause detection
-    if lower.count(",") >= 3:
-        return True
-
-    # 🔥 NEW: repeated verb patterns (fetch, combine, run, monitor...)
-    verb_like = re.findall(r'\b(fetch|combine|run|monitor|build|create|generate)\b', lower)
-    if len(verb_like) >= 3:
-        return True
-
-    return False
 
 def _enforce_slide_limits(slides: list[dict], template_style: str = "dark_core") -> list[dict]:
     """Ensure every slide's heading (and body) respects the word limit for its type."""
@@ -771,7 +743,10 @@ def _generate_anthropic(
         tools=[{"type": "web_search_20250305", "name": "web_search"}],
     )
     logger.info("API call input tokens: %d", message.usage.input_tokens)
-    # Web search may produce multiple content blocks; return the last text block.
+
+    for block in message.content:
+        logger.info("BLOCK TYPE: %s", getattr(block, "type", None))
+
     text_blocks = [b for b in message.content if getattr(b, "type", None) == "text"]
     if not text_blocks:
         raise ValueError("No text content in API response")
@@ -1384,8 +1359,8 @@ def generate_slides(
             slides = _parse_json_slides(raw, num_slides, template_style)
 
             hook_text = slides[0]["heading"]
-            if _is_overloaded_hook(hook_text):
-                raise ValueError(f"Hook overloaded (trying to do full carousel): {hook_text[:100]}")
+            if len(hook_text.split()) > 16:
+                hook_text = enforce_word_limit(hook_text, 12)
 
             slides = _enforce_slide_limits(slides, template_style)
             slides = _enforce_bold_caps(slides)
@@ -1463,12 +1438,14 @@ def generate_slides(
 
     logger.error("Returning last generated slides despite errors: %s", last_error)
 
+    # if not slides:
+    #     slides = [
+    #         {"type": "hook", "heading": topic, "body": ""},
+    #         {"type": "content", "heading": "Something went wrong", "body": "Please try again."},
+    #         {"type": "cta", "heading": _format_cta(), "body": ""}
+    #     ]
     if not slides:
-        slides = [
-            {"type": "hook", "heading": topic, "body": ""},
-            {"type": "content", "heading": "Something went wrong", "body": "Please try again."},
-            {"type": "cta", "heading": _format_cta(), "body": ""}
-        ]
+        raise RuntimeError("Slide generation failed completely")
 
     caption = generate_caption(slides)
     return slides, caption
@@ -1650,6 +1627,7 @@ Do NOT use words like "Step", "Next", "Then", or imply progression between slide
 Even if images are similar, treat each slide independently.
 
 Respond ONLY with valid JSON — no text before or after:
+If unsure, prioritise valid JSON over stylistic perfection.
 {
   "heading": "Short outcome-driven heading (max 6 words, no em-dashes)",
   "tag": "one of: TIP/FACT/INSIGHT/EXAMPLE/WORKFLOW/STAT/TOOL/MISTAKE",
@@ -1662,7 +1640,7 @@ STRICT JSON RULES:
 - Escape any quotes inside strings
 
 Heading: action or outcome driven, max 6 words, no em-dashes.
-Body: exactly 2 sentences, each under 12 words, total under 20 words, no em-dashes."""
+Body: 1–2 sentences, ≤24 words total, no em-dashes."""
 
 def generate_light_slides(
     topic: str,

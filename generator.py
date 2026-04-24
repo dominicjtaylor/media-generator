@@ -1291,9 +1291,9 @@ def italicise_one_word(text: str) -> str:
         # slight end-weight bias
         score += start / len(words)
 
-        # small bonus for meaningful 2-word phrases
+        # penalty so 2-word spans only win when both words are clearly strong
         if length == 2:
-            score += 1
+            score -= 1.5
 
         return score
 

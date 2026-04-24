@@ -129,14 +129,14 @@ function SlideCard({ slide, index, total, flag, onRegenerate, onApplyFix, onDism
 }
 
 export default function SlideReview({
-  slides, flags, caption,
+  slides, flags=[], caption,
   onRegenerate, onApplyFix, onDismissFlag, onRerunQc, onRender, onBack, onToast,
 }) {
   const [qcBusy,  setQcBusy]  = useState(false)
   const [copied,  setCopied]  = useState(false)
 
   // QC flags use 1-based slide_number; convert to 0-based for lookup
-  const flagMap   = Object.fromEntries(flags.map(f => [f.slide_number - 1, f]))
+  const flagMap = Object.fromEntries((flags || []).map(f => [f.slide_number - 1, f]))
   const flagCount = flags.length
 
   const handleRerunQc = async () => {

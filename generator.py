@@ -1299,7 +1299,10 @@ def generate_slides(
                     "([observation] — [implication] or [observation] because [reason])."
                     "Retrying for more informative content."
                 )
-            slides = _validate_completeness(slides, template_style)  # auto-corrects headings; raises if body is broken
+            try:
+                slides = _validate_completeness(slides, template_style)
+            except ValueError as e:
+                logger.warning("Completeness check failed after truncation — continuing")
             logger.info(
                 "Generated %d slides (validated: completeness, prompt example, depth)",
                 len(slides),

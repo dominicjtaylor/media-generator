@@ -189,7 +189,13 @@ Rule: {hook_instruction}
 e.g. {hook_example}
 - ≤12 words. Must include a keyword from the topic. No em-dash or arrow ending. Don't start with "Claude".
 
-HEADINGS (all slides): No em-dashes. No transition word starts (First, Then, Next, Now, Finally). Content ≤6 words; hook ≤12. Never end with a preposition or conjunction.
+HEADINGS (all slides):
+- Use sentence case (only the first word capitalised, except proper nouns like AI)
+- Do NOT capitalise every word
+- No em-dashes
+- No transition word starts (First, Then, Next, Now, Finally)
+- Content ≤6 words; hook ≤12
+- Never end with a preposition or conjunction
 
 CONTENT SLIDES (2–{num_slides - 1}):
 - Body: exactly 2 sentences, each ≤12 words, total ≤20 words.

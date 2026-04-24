@@ -1195,6 +1195,27 @@ def generate_caption(slides: list[dict], max_retries: int = 2) -> str:
 # Public API
 # ---------------------------------------------------------------------------
 
+STOPWORDS = {
+    "the", "a", "an", "that", "this", "these", "those",
+    "is", "are", "was", "were", "be", "to", "of", "and",
+    "in", "on", "for", "with", "at", "by", "from",
+}
+
+PRIORITY_WORDS = {
+    "better", "faster", "clearer", "stronger", "simple", "powerful",
+    "wrong", "right", "mistake", "instead", "actually",
+    "build", "write", "structure", "system", "prompt", "task",
+    "workflow", "tools", "output",
+}
+
+WEAK_WORDS = {
+    "good", "bad", "new", "old", "big", "small",
+    "use", "make", "do", "get", "give", "take",
+    "know", "think", "want", "need",
+    "really", "very", "quite", "just", "even",
+    "every", "most", "many", "some", "all",
+}
+
 CTA_OPTIONS = [
     "We show you what <span class=\"serif\">matters</span> in AI every day.",
     "We show you the best AI <span class=\"serif\">tools</span> every day.",
@@ -1425,6 +1446,8 @@ def generate_slides(
             #     f"{caption}\n\n"
             #     f"[DEBUG] template={template_style} | image_enabled={_IMAGE_ENABLED}"
             # )
+            for s in slides:
+                logger.info("FINAL HEADING [%s]: %s", s.get("type"), s.get("heading"))
             return slides, caption
         except Exception as exc:
             logger.warning("Attempt %d/%d failed: %s", attempt, max_retries, exc)
@@ -1447,7 +1470,10 @@ def generate_slides(
     if not slides:
         raise RuntimeError("Slide generation failed completely")
 
+    slides = _finalise_slides(slides, topic)
     caption = generate_caption(slides)
+    for s in slides:
+        logger.info("FINAL HEADING [%s]: %s", s.get("type"), s.get("heading"))
     return slides, caption
 
 

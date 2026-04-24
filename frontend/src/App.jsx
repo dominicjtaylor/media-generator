@@ -565,7 +565,7 @@ export default function App() {
         )}
 
         {/* ── dark: slide review ── */}
-        {status === 'review' && (
+        {status === 'review' && slides?.length > 0 && (
           <SlideReview
             slides={slides}
             caption={caption}

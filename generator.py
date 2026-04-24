@@ -1277,6 +1277,7 @@ def generate_slides(
         Ready-to-post Instagram caption aligned with the slides.
         Falls back to a minimal CTA string if caption generation fails.
     """
+    slides: list[dict] = []
     if not (4 <= num_slides <= 10):
         raise ValueError(f"num_slides must be between 4 and 10, got {num_slides}")
 
@@ -1388,23 +1389,17 @@ def generate_slides(
                 logger.info("Waiting %ds before retry…", wait)
                 time.sleep(wait)
 
-    logger.error(
-        "Returning last generated slides despite errors: %s",
-        last_error
-    )
+    logger.error("Returning last generated slides despite errors: %s", last_error)
 
-    # Try to return the last usable slides instead of crashing
-    try:
-        slides = _finalise_slides(slides, topic)
-        caption = generate_caption(slides)
-        return slides, caption
-    except Exception:
-        # absolute fallback (should almost never hit)
-        return [
+    if not slides:
+        slides = [
             {"type": "hook", "heading": topic, "body": ""},
             {"type": "content", "heading": "Something went wrong", "body": "Please try again."},
             {"type": "cta", "heading": _format_cta(topic), "body": ""}
-        ], "Follow @focuslabs.ai for more AI content"
+        ]
+
+    caption = generate_caption(slides)
+    return slides, caption
 
 
 # ---------------------------------------------------------------------------

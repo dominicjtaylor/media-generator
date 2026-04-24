@@ -415,6 +415,10 @@ def _stream(topic: str, num_slides: int) -> Generator[str, None, None]:
 
     try:
         slides, caption = generate_slides(topic, num_slides=num_slides, template_style=style)
+        if not isinstance(slides, list):
+            logger.error("Slides is not a list: %r", slides)
+            yield _sse({"step": "error", "message": "Invalid slide data returned"})
+            return
         for i in range(len(slides)):
             if i == 0:
                 continue
@@ -472,7 +476,7 @@ def _stream(topic: str, num_slides: int) -> Generator[str, None, None]:
             "heading":     s.get("heading", ""),
             "description": s.get("body", ""),
         }
-        for s in slides
+        for s in (slides or [])
     ]
 
     image_urls = [f"/renders/{run_id}/slide-{i + 1}.png" for i in range(len(png_paths))]

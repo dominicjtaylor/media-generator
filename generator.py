@@ -1246,7 +1246,8 @@ def italicise_one_word(text: str) -> str:
 
         return score
 
-    best_idx = max(range(len(words)), key=lambda i: score(words[i], i))
+    valid_indices = range(1, len(words))  # skip first word
+    best_idx = max(valid_indices, key=lambda i: score(words[i], i))
 
     words[best_idx] = f'<span class="serif">{words[best_idx]}</span>'
     return " ".join(words)

@@ -608,7 +608,7 @@ def _has_depth(slides: list[dict]) -> bool:
         for s in slides if s["type"] == "content"
     )
 
-    return has_example or has_insight
+    return has_example and has_insight
 
 # ---------------------------------------------------------------------------
 # Quality scoring (moves system from pass/fail → quality-based selection)
@@ -1180,6 +1180,23 @@ def _format_cta(topic: str) -> str:
     core = " ".join(words[:3])
     return f"We show you {core} every day."
 
+def _finalise_slides(slides: list[dict], topic: str) -> list[dict]:
+    # Strip markdown from hook + CTA
+    slides[0]  = {**slides[0],  "heading": _strip_markdown(slides[0]["heading"])}
+    slides[-1] = {**slides[-1], "heading": _strip_markdown(slides[-1]["heading"])}
+
+    # Enforce CTA
+    cta = slides[-1]["heading"].strip()
+    if not re.match(r"^We show you .+ every day\.$", cta) or len(cta.split()) > 8:
+        slides[-1] = {**slides[-1], "heading": _format_cta(topic)}
+
+    # Apply italics LAST
+    for s in slides:
+        if s["type"] != "cta":
+            s["heading"] = italicise_one_word(s["heading"])
+
+    return slides
+
 def italicise_one_word(text: str) -> str:
     if "<span" in text:
         return text
@@ -1319,18 +1336,8 @@ def generate_slides(
                     f"Hook is incomplete: {hook_text!r}. "
                     "Retrying for a complete hook."
                 )
-            if not _has_depth(slides):
-                logger.error(
-                    "Depth check failed (attempt %d/%d) — missing example or insight. "
-                    "Slides: %s",
-                    attempt, max_retries,
-                    [(s["type"], (s.get("heading", "") + " " + s.get("body", ""))[:60]) for s in slides],
-                )
-                raise ValueError(
-                    "Slides lack depth: need at least one concrete example AND one insight "
-                    "([observation] — [implication] or [observation] because [reason])."
-                    "Retrying for more informative content."
-                )
+            if not (_has_actionable_prompt_example(slides) and _has_depth(slides)):
+                raise ValueError("Missing example AND insight")
             try:
                 slides = _validate_completeness(slides, template_style)
             except ValueError as e:
@@ -1346,26 +1353,18 @@ def generate_slides(
                 else s
                 for s in slides
             ]
-            if score < QUALITY_THRESHOLD:
-                time.sleep(2)
-                slides = review_and_improve(slides, template_style)
-                slides = _clean_heading_punctuation(slides)
+            # if score < QUALITY_THRESHOLD:
+            #     time.sleep(2)
+            #     slides = review_and_improve(slides, template_style)
+            #     slides = _clean_heading_punctuation(slides)
+            if score < QUALITY_THRESHOLD and attempt < max_retries:
+                raise ValueError(f"Low quality score: {score}")
+
             # Restore original hook verbatim (survives review_and_improve + _compress_heading)
             if hook:
                 slides[0] = {**slides[0], "heading": hook}
-            # Strip bold markers from hook and CTA headings — Anton/display font makes ** noise
-            slides[0]  = {**slides[0],  "heading": _strip_markdown(slides[0]["heading"])}
-            slides[-1] = {**slides[-1], "heading": _strip_markdown(slides[-1]["heading"])}
-            # Enforce CTA format
-            cta = slides[-1]["heading"].strip()
-            if not re.match(r"^We show you .+ every day\.$", cta) or len(cta.split()) > 8:
-                logger.warning("CTA invalid or too long: %r — using fallback", cta)
-                slides[-1] = {**slides[-1], "heading": _format_cta(topic)}
 
-            # ✅ APPLY ITALICS HERE (FINAL STEP)
-            for s in slides:
-                if s["type"] != "cta":
-                    s["heading"] = italicise_one_word(s["heading"])
+            slides = _finalise_slides(slides, topic)
 
             caption = generate_caption(slides)
             if os.environ.get("DEBUG", "false").lower() == "true":
@@ -1623,16 +1622,17 @@ def generate_light_slides(
             "tag": (slide_data.get("tag") or "WORKFLOW").strip().upper(),
         })
 
-    cta_heading = f"We show you {topic} every day."
     slides = [
-        {"type": "hook",    "heading": _strip_markdown(hook), "body": "", "tag": ""},
+        {"type": "hook", "heading": _strip_markdown(hook), "body": "", "tag": ""},
         *content_slides,
-        {"type": "cta",     "heading": cta_heading,           "body": "", "tag": ""},
+        {"type": "cta", "heading": "", "body": "", "tag": ""},
     ]
+
+    slides = _finalise_slides(slides, topic)
 
     return {
         "template": "light_image",
         "hook":     hook,
         "slides":   slides,
-        "cta":      cta_heading,
+        "cta":      slides[-1]["heading"],
     }

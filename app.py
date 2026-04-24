@@ -36,7 +36,14 @@ from pydantic import BaseModel
 load_dotenv()
 
 from utils import setup_logging
-from generator import generate_slides, generate_light_slides, generate_caption, _build_system_prompt, _VISUAL_STYLES
+from generator import (
+    generate_slides,
+    generate_light_slides,
+    generate_caption,
+    _build_system_prompt,
+    _VISUAL_STYLES,
+    italicise_one_word,   # ← add this
+)
 from renderer import render_slides
 
 STYLE_MAP = {
@@ -68,6 +75,9 @@ _ZW_CHARS  = _re.compile(r'[\u200b\u200c\u200d\u200e\u200f\u00ad\ufeff]+')
 _CITE_RE   = _re.compile(r'<cite[^>]*>(.*?)</cite>', _re.DOTALL | _re.IGNORECASE)
 _MD_RE     = _re.compile(r'\*{1,2}|_{1,2}|~~')
 _NL_RE     = _re.compile(r'[\n\r]+')
+
+def _strip_html_tags(text: str) -> str:
+    return re.sub(r"<[^>]+>", "", text)
 
 def _strip_citations(text: str) -> str:
     return _CITE_RE.sub(r'\1', text)
@@ -665,7 +675,7 @@ def regenerate_route(req: RegenerateRequest):
         if i == idx:
             continue
         s_arc    = _arc_position(i + 1, total)
-        heading  = s.get("heading", "")
+        heading  = _strip_html_tags(s.get("heading", ""))
         body     = s.get("description", s.get("body", ""))
         entry    = f"Slide {i + 1} ({s_arc}): {heading}"
         if body:
@@ -698,7 +708,8 @@ def regenerate_route(req: RegenerateRequest):
         logger.error("Regenerate failed: %s", exc)
         raise HTTPException(status_code=500, detail=f"Regeneration failed: {exc}")
 
-    heading     = _strip_citations(new_slide.get("heading", ""))
+    heading = _strip_citations(new_slide.get("heading", ""))
+    heading = italicise_one_word(heading)
     description = _ensure_complete_sentences(_strip_newlines(_strip_citations(new_slide.get("body", new_slide.get("description", "")))))
 
     # Enforce "We show you … every day." on the final slide after regeneration

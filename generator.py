@@ -204,6 +204,16 @@ CONTENT SLIDES (2–{num_slides - 1}):
 - Each slide self-contained — never split a pattern (e.g. "Instead of/Try") across slides.
 - Tag: one of TIP, FACT, INSIGHT, EXAMPLE, WORKFLOW, STAT, TOOL, MISTAKE
 
+CONTENT SLIDES MUST follow this format:
+{
+  "type": "content",
+  "heading": "...",
+  "tag": "...",
+  "text": "Sentence one. Sentence two."
+}
+Hook and CTA are the ONLY slides allowed to have empty text.
+If a content slide has empty text, the output is invalid.
+
 ARC:
 {carousel_arc}
 
@@ -214,6 +224,10 @@ ERRORS — fix the specific issue before returning:
 - Bad CTA format → "We show you [specific thing] every day."
 - Incomplete sentence → complete it on the same slide
 - Invalid JSON → fix formatting
+
+Before returning JSON, check:
+- No content slide has empty text
+If any slide fails, fix it before returning.
 
 {_word_limits_section(template_style)}
 {_output_format_section(num_slides, template_style)}\
@@ -1179,20 +1193,33 @@ def generate_caption(slides: list[dict], max_retries: int = 2) -> str:
 # Public API
 # ---------------------------------------------------------------------------
 
-def _format_cta(topic: str) -> str:
-    words = topic.split()
-    core = " ".join(words[:3])
-    return f"We show you {core} every day."
+CTA_OPTIONS = [
+    "We show you what <span class=\"serif\">matters</span> in AI every day.",
+    "We show you the best AI <span class=\"serif\">tools</span> every day.",
+    "We show you what’s <span class=\"serif\">new</span> in AI every day.",
+    "We show you what <span class=\"serif\">works</span> in AI every day.",
+    "We show you real AI <span class=\"serif\">insights</span> every day.",
+    "We show you AI that’s <span class=\"serif\">worth</span> it every day.",
+    "We show you the <span class=\"serif\">latest</span> in AI every day.",
+    "We show you <span class=\"serif\">useful</span> AI every day.",
+    "We show you AI without <span class=\"serif\">noise</span> every day.",
+    "We show you AI that <span class=\"serif\">delivers</span> every day.",
+]
+
+def _format_cta() -> str:
+    return random.choice(CTA_OPTIONS)
 
 def _finalise_slides(slides: list[dict], topic: str) -> list[dict]:
     # Strip markdown from hook + CTA
     slides[0]  = {**slides[0],  "heading": _strip_markdown(slides[0]["heading"])}
     slides[-1] = {**slides[-1], "heading": _strip_markdown(slides[-1]["heading"])}
 
-    # Enforce CTA
-    cta = slides[-1]["heading"].strip()
-    if not re.match(r"^We show you .+ every day\.$", cta) or len(cta.split()) > 8:
-        slides[-1] = {**slides[-1], "heading": _format_cta(topic)}
+    # Force CTA (no conditions, no model control)
+    slides[-1] = {
+        **slides[-1],
+        "heading": _format_cta(),
+        "body": ""
+    }
 
     # Apply italics LAST
     for s in slides:
@@ -1209,47 +1236,59 @@ def italicise_one_word(text: str) -> str:
     if len(words) < 3:
         return text
 
-    STOPWORDS = {
-        "the", "a", "an", "that", "this", "these", "those",
-        "is", "are", "was", "were", "be", "to", "of", "and",
-        "in", "on", "for", "with", "at", "by", "from"
-    }
+    max_span_words = 2  # 👈 NEW
 
-    PRIORITY_WORDS = {
-        # outcomes / value
-        "better", "faster", "clearer", "stronger", "simple", "powerful",
-        # contrast
-        "wrong", "right", "mistake", "instead", "actually",
-        # action / core nouns
-        "build", "write", "structure", "system", "prompt", "task",
-        "workflow", "tools", "output"
-    }
+    def clean_word(w):
+        return w.strip(".,!?").lower()
 
-    def score(word, idx):
-        clean = word.strip(".,!?").lower()
-
-        if clean in STOPWORDS:
-            return -10
-
+    def score_span(start, length):
+        span = words[start:start+length]
         score = 0
 
-        # Prefer meaningful words
-        if clean in PRIORITY_WORDS:
-            score += 5
+        for i, w in enumerate(span):
+            clean = clean_word(w)
 
-        # Prefer longer words (but not too long bias)
-        score += min(len(clean), 10) * 0.3
+            if clean in STOPWORDS:
+                return -10  # kill bad spans early
 
-        # Slight preference toward center (but weak)
-        center_bias = 1 - abs(idx - len(words)/2) / len(words)
-        score += center_bias
+            if any(c.isdigit() for c in clean):
+                score += 5
+
+            if clean in PRIORITY_WORDS:
+                score += 4
+
+            if clean in WEAK_WORDS:
+                score -= 4
+
+            if clean.endswith("ly") or clean.endswith("ed"):
+                score -= 2
+
+            score += min(len(clean), 10) * 0.2
+
+        # slight end-weight bias
+        score += start / len(words)
+
+        # small bonus for meaningful 2-word phrases
+        if length == 2:
+            score += 1
 
         return score
 
-    valid_indices = range(1, len(words))  # skip first word
-    best_idx = max(valid_indices, key=lambda i: score(words[i], i))
+    best = (None, -1)  # (start_idx, length)
 
-    words[best_idx] = f'<span class="serif">{words[best_idx]}</span>'
+    for i in range(1, len(words)):
+        for length in range(1, max_span_words + 1):
+            if i + length > len(words):
+                continue
+            s = score_span(i, length)
+            if s > best[1]:
+                best = ((i, length), s)
+
+    (start, length), _ = best
+
+    span = " ".join(words[start:start+length])
+    words[start:start+length] = [f'<span class="serif">{span}</span>']
+
     return " ".join(words)
 
 def generate_slides(
@@ -1396,7 +1435,7 @@ def generate_slides(
         slides = [
             {"type": "hook", "heading": topic, "body": ""},
             {"type": "content", "heading": "Something went wrong", "body": "Please try again."},
-            {"type": "cta", "heading": _format_cta(topic), "body": ""}
+            {"type": "cta", "heading": _format_cta(), "body": ""}
         ]
 
     caption = generate_caption(slides)

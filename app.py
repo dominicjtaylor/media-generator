@@ -88,44 +88,6 @@ def _strip_markdown(text: str) -> str:
 def _strip_newlines(text: str) -> str:
     return _NL_RE.sub(' ', text).strip()
 
-# def enforce_cta(slides, topic):
-#     if not slides:
-#         return slides
-
-#     last = slides[-1]
-
-#     # ALWAYS overwrite — do not trust upstream
-#     last["heading"] = f"We show you {topic} every day."
-#     last["body"] = ""
-#     last["description"] = ""
-
-#     return slides
-
-# CTA_POOL = [
-#     "We show you how AI works every day.",
-#     "We show you better ways to use AI every day.",
-#     "We show you what AI can really do every day.",
-#     "We show you practical AI workflows every day.",
-#     "We show you how to get more from AI every day.",
-# ]
-CTA_POOL = [
-    'We show you how AI <span class="serif">works</span> every day.',
-    'We show you <span class="serif">better</span> ways to use AI every day.',
-    'We show you what AI can <span class="serif">really</span> do every day.',
-    'We show you practical AI <span class="serif">workflows</span> every day.',
-    'We show you how to get <span class="serif">more</span> from AI every day.',
-]
-
-def enforce_cta(slides, topic):
-    if not slides:
-        return slides
-
-    slides[-1]["heading"] = random.choice(CTA_POOL)
-    slides[-1]["body"] = ""
-    slides[-1]["description"] = ""
-
-    return slides
-
 _SENTENCE_TERM_RE = _re.compile(r'[.!?]["\')>]?\s*$')
 _SENTENCE_SPLIT_RE = _re.compile(r'(?<=[.!?])\s+')
 
@@ -597,7 +559,6 @@ def _slides_stream(topic: str, hook: str, num_slides: int, image_filename: Optio
         slides, caption = generate_slides(
             topic, num_slides=num_slides, template_style=style, hook=hook
         )
-        slides = enforce_cta(slides, topic)
 
         # --- NEW: validate + fix ---
         for i in range(len(slides)):
@@ -846,7 +807,6 @@ def _generate_light_stream_full(
         # ONLY apply once, with short_topic
         print("SHORT_TOPIC:", short_topic)
         print("CTA_BEFORE:", slides[-1]["heading"])
-        slides = enforce_cta(slides, short_topic)
         caption = generate_caption(slides)
 
         # cover image (use short_topic here too)

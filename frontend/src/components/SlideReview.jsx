@@ -1,9 +1,10 @@
 import React, { useState } from 'react'
 
-function slideLabel(index, total) {
-  if (index === 0)         return { label: 'Hook',    color: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300' }
-  if (index === total - 1) return { label: 'CTA',     color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' }
-  return                          { label: 'Content', color: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400' }
+function slideLabel(index, total, slide) {
+  if (index === 0)                           return { label: 'Hook',    color: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300' }
+  if (index === total - 1)                   return { label: 'CTA',     color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' }
+  if (slide?.type === 'pattern_break')       return { label: 'Break',   color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' }
+  return                                            { label: 'Content', color: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400' }
 }
 
 function Spinner({ size = 4 }) {
@@ -30,7 +31,7 @@ function RegenIcon() {
 
 function SlideCard({ slide, index, total, flag, onRegenerate, onApplyFix, onDismissFlag }) {
   const [regenBusy, setRegenBusy] = useState(false)
-  const { label, color } = slideLabel(index, total)
+  const { label, color } = slideLabel(index, total, slide)
 
   const handleRegen = async () => {
     if (regenBusy) return

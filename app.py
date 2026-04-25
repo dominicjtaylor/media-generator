@@ -170,6 +170,9 @@ def _arc_position(slide_number: int, total: int) -> str:
     return _ARC[min(idx, len(_ARC) - 1)]
 
 def _validate_slide(slide: dict) -> Optional[str]:
+    if slide.get("type") == "pattern_break":
+        return None if (slide.get("heading") or "").strip() else "Empty"
+
     text = (slide.get("description") or slide.get("body") or "").strip()
 
     if not text:
@@ -384,6 +387,8 @@ def _stream(topic: str, num_slides: int) -> Generator[str, None, None]:
         for i in range(len(slides)):
             if i == 0:
                 continue
+            if slides[i].get("type") == "pattern_break":
+                continue
 
             issue = _validate_slide(slides[i])
             if issue:
@@ -564,6 +569,8 @@ def _slides_stream(topic: str, hook: str, num_slides: int, image_filename: Optio
         for i in range(len(slides)):
             # never touch hook slide
             if i == 0:
+                continue
+            if slides[i].get("type") == "pattern_break":
                 continue
 
             issue = _validate_slide(slides[i])

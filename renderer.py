@@ -67,6 +67,7 @@ def inject_slide(
     template_style: str = "dark_core",
     image_data: Optional[dict] = None,
     slide_image_filename: Optional[str] = None,
+    content_index: Optional[int] = None,
 ) -> str:
     """Inject slide data into the appropriate HTML template.
 
@@ -78,22 +79,24 @@ def inject_slide(
     template_style       : str           "dark_core" or "light_image".
     image_data           : dict | None   For dark_core hook slide: focal_x/focal_y for object-position.
     slide_image_filename : str | None    For light_image content slides: per-slide image filename.
+    content_index        : int | None    0-based index among content slides only (excludes pattern_break).
     """
-    heading = (slide.get("heading") or "").strip()
-    body    = (slide.get("body")    or "").strip()
+    heading    = (slide.get("heading") or "").strip()
+    body       = (slide.get("body")    or "").strip()
+    slide_type = slide.get("type", "")
 
     last_index = total - 1
 
     if index == 0:
         template_name = "slide-first.html"
         number        = None
-    elif index == last_index:
+    elif index == last_index or slide_type == "pattern_break":
         template_name = "slide-last.html"
         number        = None
     else:
         template_name = "slide-content.html"
-        content_index = index - 1
-        number        = _CONTENT_NUMS[content_index]
+        ci     = content_index if content_index is not None else (index - 1)
+        number = _CONTENT_NUMS[ci]
 
     template_dir = _STYLES_DIR / "headings_text_image" / template_style
     template_path = template_dir / template_name
@@ -138,8 +141,8 @@ def inject_slide(
             f'<img src="{slide_image_filename}" alt="visual">',
         )
 
-    # First and last slides: single {{TEXT}} placeholder.
-    if index == 0 or index == last_index:
+    # First, last, and pattern_break slides: single {{TEXT}} placeholder.
+    if index == 0 or index == last_index or slide_type == "pattern_break":
         html = html.replace("{{TEXT}}", _md_bold_to_html(heading))
     else:
         # Content slides: separate {{HEADING}} + {{TEXT}} zones.
@@ -188,8 +191,8 @@ def render_slides(
     from playwright.sync_api import sync_playwright, Error as PlaywrightError
 
     n = len(slides)
-    if not (4 <= n <= 10):
-        raise ValueError(f"Expected 4–10 slides, got {n}")
+    if not (4 <= n <= 11):
+        raise ValueError(f"Expected 4–11 slides, got {n}")
 
     run_id  = uuid.uuid4().hex
     out_dir = Path(renders_base) / run_id
@@ -254,12 +257,18 @@ def render_slides(
 
     # Write HTML files
     html_paths: list[Path] = []
+    content_counter = 0
     for i, slide in enumerate(slides):
+        slide_type = slide.get("type", "")
+        ci = content_counter if slide_type == "content" else None
+        if slide_type == "content":
+            content_counter += 1
         html      = inject_slide(
             i, slide, total=n,
             template_style=template_style,
             image_data=image_data,
             slide_image_filename=slide_image_filenames[i],
+            content_index=ci,
         )
         html_path = out_dir / f"slide-{i + 1}.html"
         html_path.write_text(html, encoding="utf-8")

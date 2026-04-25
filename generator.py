@@ -15,6 +15,7 @@ generate_slides(topic) → (list[dict], str)
 
 import json
 import logging
+import math
 import os
 import random
 import re
@@ -1246,7 +1247,11 @@ def _finalise_slides(slides: list[dict], topic: str) -> list[dict]:
 
     # Apply italics LAST
     for s in slides:
-        if s["type"] != "cta":
+        if s["type"] == "cta":
+            continue
+        if s["type"] == "pattern_break":
+            s["heading"] = f'<span class="serif">{s["heading"]}</span>'
+        else:
             s["heading"] = italicise_one_word(s["heading"])
 
     return slides
@@ -1313,6 +1318,74 @@ def italicise_one_word(text: str) -> str:
     words[start:start+length] = [f'<span class="serif">{span}</span>']
 
     return " ".join(words)
+
+
+def _generate_pattern_break_text(topic: str) -> str:
+    """Generate a short (≤8 word) pattern break phrase via LLM."""
+    provider = os.environ.get("LLM_PROVIDER", "anthropic").lower()
+    prompt = (
+        f"Write exactly ONE short phrase (maximum 8 words) for a social media carousel "
+        f"pattern break slide. The carousel topic is: {topic}\n\n"
+        f"Rules:\n"
+        f"- Exactly one line, no punctuation chains\n"
+        f"- Emotionally or cognitively strong\n"
+        f"- Feels like a realisation, shift, or punchline\n"
+        f"- Examples: 'This is where most people fail', 'Now it actually makes sense', "
+        f"'This changes everything'\n"
+        f"- Output ONLY the phrase, nothing else"
+    )
+    try:
+        if provider == "anthropic":
+            import anthropic as _anthropic
+            client = _anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+            msg = client.messages.create(
+                model=os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"),
+                max_tokens=50,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = msg.content[0].text.strip().strip("\"'")
+        else:
+            import openai as _openai
+            client = _openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+            resp = client.chat.completions.create(
+                model=os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
+                max_tokens=50,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = resp.choices[0].message.content.strip().strip("\"'")
+        words = text.split()
+        if len(words) > 8:
+            text = " ".join(words[:8])
+        return text
+    except Exception as exc:
+        logger.warning("Pattern break LLM call failed (%s) — using fallback", exc)
+        return "This is where it all clicks"
+
+
+def insert_pattern_break(
+    slides: list[dict], topic: str, template_style: str
+) -> list[dict]:
+    """Insert one pattern_break slide at the midpoint of content slides.
+
+    Only runs for dark_core. Position: after hook, before CTA, centred within content.
+    content_count = total_slides - 2
+    insert_index  = 1 + ceil(content_count / 2)
+    """
+    if template_style != "dark_core":
+        return slides
+
+    content_count = len(slides) - 2
+    insert_index = 1 + math.ceil(content_count / 2)
+
+    heading_text = _generate_pattern_break_text(topic)
+    pattern_break = {
+        "type": "pattern_break",
+        "heading": heading_text,
+        "body": "",
+    }
+
+    return slides[:insert_index] + [pattern_break] + slides[insert_index:]
+
 
 def generate_slides(
     topic: str,
@@ -1437,6 +1510,7 @@ def generate_slides(
             if hook:
                 slides[0] = {**slides[0], "heading": hook}
 
+            slides = insert_pattern_break(slides, topic, template_style)
             slides = _finalise_slides(slides, topic)
 
             caption = generate_caption(slides)
@@ -1470,6 +1544,7 @@ def generate_slides(
     if not slides:
         raise RuntimeError("Slide generation failed completely")
 
+    slides = insert_pattern_break(slides, topic, template_style)
     slides = _finalise_slides(slides, topic)
     caption = generate_caption(slides)
     for s in slides:

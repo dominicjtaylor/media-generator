@@ -1250,7 +1250,7 @@ def _finalise_slides(slides: list[dict], topic: str) -> list[dict]:
         if s["type"] == "cta":
             continue
         if s["type"] == "pattern_break":
-            s["heading"] = f'<span class="serif">{s["heading"]}</span>'
+            s["heading"] = italicise_one_word(s["heading"])
         else:
             s["heading"] = italicise_one_word(s["heading"])
 

@@ -90,7 +90,10 @@ def inject_slide(
     if index == 0:
         template_name = "slide-first.html"
         number        = None
-    elif index == last_index or slide_type == "pattern_break":
+    elif slide_type == "pattern_break":
+        template_name = "slide-pattern-break.html"
+        number        = None
+    elif index == last_index:
         template_name = "slide-last.html"
         number        = None
     else:
@@ -141,8 +144,11 @@ def inject_slide(
             f'<img src="{slide_image_filename}" alt="visual">',
         )
 
-    # First, last, and pattern_break slides: single {{TEXT}} placeholder.
-    if index == 0 or index == last_index or slide_type == "pattern_break":
+    # pattern_break: centred heading only — uses {{HEADING}} placeholder.
+    if slide_type == "pattern_break":
+        html = html.replace("{{HEADING}}", _strip_bold(heading))
+    # First and last slides: single {{TEXT}} placeholder.
+    elif index == 0 or index == last_index:
         html = html.replace("{{TEXT}}", _md_bold_to_html(heading))
     else:
         # Content slides: separate {{HEADING}} + {{TEXT}} zones.

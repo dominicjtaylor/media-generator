@@ -1321,17 +1321,18 @@ def italicise_one_word(text: str) -> str:
 
 
 def _generate_pattern_break_text(topic: str) -> str:
-    """Generate a short (≤8 word) pattern break phrase via LLM."""
+    """Generate a short (≤8 word) transition phrase for the pattern break slide."""
     provider = os.environ.get("LLM_PROVIDER", "anthropic").lower()
     prompt = (
-        f"Write exactly ONE short phrase (maximum 8 words) for a social media carousel "
-        f"pattern break slide. The carousel topic is: {topic}\n\n"
+        f"Write exactly ONE short transition phrase (maximum 8 words) for a mid-carousel "
+        f"pattern break slide. Topic: {topic}\n\n"
         f"Rules:\n"
-        f"- Exactly one line, no punctuation chains\n"
-        f"- Emotionally or cognitively strong\n"
-        f"- Feels like a realisation, shift, or punchline\n"
-        f"- Examples: 'This is where most people fail', 'Now it actually makes sense', "
-        f"'This changes everything'\n"
+        f"- Acts as a pivot between the first and second half of the carousel\n"
+        f"- Reinforces the mechanism, not the topic\n"
+        f"- Start with: 'This is where', 'Now', or 'Here is the shift'\n"
+        f"- No punctuation chains, no slogans, no generic motivational phrases\n"
+        f"- Good: 'This is where the approach changes', 'Now the pattern becomes clear'\n"
+        f"- Bad: 'This changes everything', 'Work smarter not harder'\n"
         f"- Output ONLY the phrase, nothing else"
     )
     try:
@@ -1359,7 +1360,7 @@ def _generate_pattern_break_text(topic: str) -> str:
         return text
     except Exception as exc:
         logger.warning("Pattern break LLM call failed (%s) — using fallback", exc)
-        return "This is where it all clicks"
+        return "This is where it becomes clear"
 
 
 def insert_pattern_break(

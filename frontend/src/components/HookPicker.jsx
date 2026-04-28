@@ -1,17 +1,17 @@
 import React, { useState, useRef } from 'react'
 
 const TYPE_LABELS = {
-  specific_promise:  'Specific Promise',
-  pattern_interrupt: 'Pattern Interrupt',
-  contrast:          'Contrast',
-  named_thing:       'Named Thing',
+  curiosity:  'Curiosity',
+  mistake:    'Mistake',
+  contrarian: 'Contrarian',
+  value:      'Value',
 }
 
 const TYPE_COLORS = {
-  specific_promise:  'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300',
-  pattern_interrupt: 'bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300',
-  contrast:          'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300',
-  named_thing:       'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300',
+  curiosity:  'bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300',
+  mistake:    'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300',
+  contrarian: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300',
+  value:      'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300',
 }
 
 const CUSTOM_COLOR = 'bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300'

@@ -465,38 +465,44 @@ def _stream(topic: str, num_slides: int) -> Generator[str, None, None]:
 # API routes  -- registered before static file mounts
 # ---------------------------------------------------------------------------
 
-_HOOK_PROMPT = """\
-Write 4 carousel hooks for {topic} that make my ideal client think: \
-if I don't read this, I'll stay stuck.
+_DARK_HOOK_PROMPT = """\
+Generate 4 hooks for a carousel about: {topic}
 
-Use these 4 formats, one each:
+Each hook should feel minimal, sharp, and intentional — like the opening line \
+of a crisp observation, not ad copy or a headline.
 
-1. Specific promise — a concrete outcome with a number or timeframe
-   e.g. "How I fixed this in 3 days"
+Use these 4 styles, one each:
 
-2. Pattern interrupt — starts mid-thought or breaks an assumption
-   e.g. "Tell me if I'm wrong...", "Stop scrolling if you want to..."
+1. Curiosity — a controlled observation that opens a gap without drama
+   Pattern: "You've been missing this the whole time"
+             "No one explains this part of {topic} properly"
 
-3. Contrast — exposes a gap between what people believe and reality
-   e.g. "You've been lied to about...", "This is the truth about..."
+2. Mistake — names something the reader is doing wrong or the slow way
+   Pattern: "You're approaching this the slow way"
+             "Stop X — do Y instead"
 
-4. Named thing — makes the reader feel like they're missing something \
-specific that already exists
-   e.g. "This feels illegal to know", "This is all over Instagram"
+3. Contrarian — challenges an assumption most people hold
+   Pattern: "Everything you know about X is wrong"
+             "This isn't what actually works"
+
+4. Value — states clearly what works, with no hype
+   Pattern: "This is what actually works"
+             "Here's what makes the real difference"
 
 Rules for every hook:
-- Maximum 8 words
-- No full sentences — fragments and ellipses are fine
-- No generic AI phrasing (unleash, discover, unlock, game-changer)
-- Must create a gap the reader needs to close by swiping
-- Write for someone who is mid-scroll and slightly sceptical
+- 6–12 words, one complete sentence
+- Address the reader as "you" where natural
+- No ellipsis, no sentence fragments, no questions
+- No dramatic phrases ("Stop scrolling", "You won't believe", "This feels illegal")
+- No hype words (game-changer, unlock, unleash, discover)
+- Calm, direct, intentional — premium dark aesthetic
 
 Return as a JSON array of 4 objects:
 [
-  {{"type": "specific_promise", "hook": "..."}},
-  {{"type": "pattern_interrupt", "hook": "..."}},
-  {{"type": "contrast", "hook": "..."}},
-  {{"type": "named_thing", "hook": "..."}}
+  {{"type": "curiosity",   "hook": "..."}},
+  {{"type": "mistake",     "hook": "..."}},
+  {{"type": "contrarian",  "hook": "..."}},
+  {{"type": "value",       "hook": "..."}}
 ]"""
 
 _REGEN_PROMPT = """\
@@ -539,7 +545,7 @@ def hooks_route(req: HookRequest):
     if not topic:
         raise HTTPException(status_code=422, detail="topic must not be empty")
 
-    prompt = _HOOK_PROMPT.format(topic=topic)
+    prompt = _DARK_HOOK_PROMPT.format(topic=topic)
     try:
         raw  = _claude(prompt, max_tokens=512)
         data = _parse_json(raw)

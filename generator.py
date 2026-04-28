@@ -77,28 +77,23 @@ WORD_LIMITS: dict[str, dict[str, int]] = {
 _HOOK_STYLES: list[tuple[str, str, str]] = [
     (
         "CONTRARIAN",
-        "Challenge a belief about this specific topic. Use a keyword from the topic. Make the reader feel they've been doing it wrong.",
-        'Topic "building apps with Claude Code" → "Stop building everything at once in Claude Code"',
+        "Challenge a belief the reader holds about this topic. Call out what they're doing wrong or what doesn't actually work. Direct and calm — no drama.",
+        'Topic "building with Claude Code" → "You\'re building Claude Code projects the slow way"',
     ),
     (
         "CURIOSITY",
-        "Tease a surprising insight tied directly to this topic. Use a keyword from the topic. End with a gap the reader wants to close.",
+        "Surface a surprising gap or insight the reader hasn't considered. Use a keyword from the topic. Create a gap without being dramatic.",
         'Topic "Claude prompting tips" → "Most Claude prompts fail before you even **start**"',
     ),
     (
         "MISTAKE",
-        "Call out a specific mistake the reader is probably making with this topic right now. Use a keyword from the topic.",
+        "Name one specific mistake the reader is making right now with this topic. Be precise — a named error is more credible than a vague warning.",
         'Topic "writing prompts for Claude" → "Your Claude prompts are missing **one** critical thing"',
     ),
     (
-        "OUTCOME",
-        "Lead with the desirable result specific to this topic. Use a keyword from the topic. Make the benefit immediate and concrete.",
-        'Topic "step-by-step projects with Claude" → "Build complete projects step-by-step with Claude"',
-    ),
-    (
-        "SPECIFIC",
-        "Name one precise change or insight about this specific topic. Use a keyword from the topic. Specificity creates credibility.",
-        'Topic "Claude for beginners" → "This one change makes Claude **far** more useful"',
+        "VALUE",
+        "State clearly what works — the real answer, no hype. Use a keyword from the topic. Sounds like a confident insider sharing what others miss.",
+        'Topic "Claude for beginners" → "This is what actually makes Claude useful"',
     ),
 ]
 

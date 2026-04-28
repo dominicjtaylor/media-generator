@@ -754,7 +754,6 @@ def _generate_anthropic(
         max_tokens=1500,
         system=system_prompt,
         messages=[{"role": "user", "content": user_content}],
-        tools=[{"type": "web_search_20250305", "name": "web_search"}],
     )
     logger.info("API call input tokens: %d", message.usage.input_tokens)
 

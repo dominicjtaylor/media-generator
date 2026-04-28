@@ -468,34 +468,42 @@ def _stream(topic: str, num_slides: int) -> Generator[str, None, None]:
 _DARK_HOOK_PROMPT = """\
 Generate 4 hooks for a carousel about: {topic}
 
-Each hook should feel minimal, sharp, and intentional — like the opening line \
-of a crisp observation, not ad copy or a headline.
+Each hook must feel like an interruption — something that stops the reader \
+mid-scroll because it names exactly what they're doing wrong or missing.
 
 Use these 4 styles, one each:
 
-1. Curiosity — a controlled observation that opens a gap without drama
-   Pattern: "You've been missing this the whole time"
-             "No one explains this part of {topic} properly"
+1. Curiosity — implies the reader is missing something specific
+   Pattern: "You're missing the part that actually matters"
+             "No one explains why {topic} keeps failing"
 
-2. Mistake — names something the reader is doing wrong or the slow way
-   Pattern: "You're approaching this the slow way"
-             "Stop X — do Y instead"
+2. Mistake — names something the reader is doing wrong, with strong words
+   Pattern: "You're doing this completely wrong"
+             "This is killing your results without you knowing"
 
-3. Contrarian — challenges an assumption most people hold
+3. Contrarian — challenges an assumption; implies the common approach is broken
    Pattern: "Everything you know about X is wrong"
-             "This isn't what actually works"
+             "The way most people do this doesn't work"
 
-4. Value — states clearly what works, with no hype
+4. Value — states the real answer with confidence, no hype
    Pattern: "This is what actually works"
-             "Here's what makes the real difference"
+             "Most people skip this — and it costs them"
 
-Rules for every hook:
+INTENSITY RULES (follow strictly):
+- Use strong, concrete words: "wrong" not "incorrect", "killing" not "slowing", \
+"wasting" not "inefficient"
+- No vague words: never use "things", "approach", "tools" without specific context
+- Create tension: imply the reader is missing something or doing something wrong
+- Compress: remove every unnecessary word — faster to read = higher impact
+- Prioritise provocation over explanation: the hook should make them curious, \
+not informed
+
+Structural rules:
 - 6–12 words, one complete sentence
 - Address the reader as "you" where natural
-- No ellipsis, no sentence fragments, no questions
-- No dramatic phrases ("Stop scrolling", "You won't believe", "This feels illegal")
+- No ellipsis, no fragments, no questions
+- No dramatic filler ("Stop scrolling", "You won't believe", "This feels illegal")
 - No hype words (game-changer, unlock, unleash, discover)
-- Calm, direct, intentional — premium dark aesthetic
 
 Return as a JSON array of 4 objects:
 [

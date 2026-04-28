@@ -77,23 +77,23 @@ WORD_LIMITS: dict[str, dict[str, int]] = {
 _HOOK_STYLES: list[tuple[str, str, str]] = [
     (
         "CONTRARIAN",
-        "Challenge a belief the reader holds about this topic. Call out what they're doing wrong or what doesn't actually work. Direct and calm — no drama.",
-        'Topic "building with Claude Code" → "You\'re building Claude Code projects the slow way"',
+        "Challenge a belief the reader holds. Call out exactly what they're doing wrong — name it directly. Use strong words: 'wrong', 'broken', 'failing'. No softening.",
+        'Topic "building with Claude Code" → "You\'re building Claude Code projects the wrong way"',
     ),
     (
         "CURIOSITY",
-        "Surface a surprising gap or insight the reader hasn't considered. Use a keyword from the topic. Create a gap without being dramatic.",
-        'Topic "Claude prompting tips" → "Most Claude prompts fail before you even **start**"',
+        "Imply the reader is missing something specific — name the gap precisely. Use a keyword from the topic. Creates tension without being dramatic. Strong, compressed phrasing.",
+        'Topic "Claude prompting tips" → "Your Claude prompts are killing your results"',
     ),
     (
         "MISTAKE",
-        "Name one specific mistake the reader is making right now with this topic. Be precise — a named error is more credible than a vague warning.",
-        'Topic "writing prompts for Claude" → "Your Claude prompts are missing **one** critical thing"',
+        "Name one specific mistake the reader is making right now. Use concrete, strong words — 'wasting', 'wrong', 'broken'. A named error lands harder than a vague warning.",
+        'Topic "writing prompts for Claude" → "You\'re wasting every Claude prompt you write"',
     ),
     (
         "VALUE",
-        "State clearly what works — the real answer, no hype. Use a keyword from the topic. Sounds like a confident insider sharing what others miss.",
-        'Topic "Claude for beginners" → "This is what actually makes Claude useful"',
+        "State the real answer with confidence — no hype, no vague promises. Use a keyword from the topic. Sounds like a confident insider cutting through noise. Compress ruthlessly.",
+        'Topic "Claude for beginners" → "This is what makes Claude actually work"',
     ),
 ]
 

@@ -1,5 +1,25 @@
 import React, { useState } from 'react'
 
+// Strip <span class="serif">...</span> from a string, returning plain text.
+function stripSerif(text) {
+  return text.replace(/<span\s+class=["']serif["']>(.*?)<\/span>/gi, '$1')
+}
+
+// Try to wrap the first occurrence of `phrase` (full-word, case-insensitive)
+// in <span class="serif">...</span>. Returns null if phrase not found.
+function applyEmphasisToHeading(heading, phrase) {
+  const plain = stripSerif(heading)
+  const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const regex = new RegExp(`\\b${escaped}\\b`, 'i')
+  const match = regex.exec(plain)
+  if (!match) return null
+  return (
+    plain.slice(0, match.index) +
+    `<span class="serif">${match[0]}</span>` +
+    plain.slice(match.index + match[0].length)
+  )
+}
+
 function slideLabel(index, total, slide) {
   if (index === 0)                           return { label: 'Hook',    color: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300' }
   if (index === total - 1)                   return { label: 'CTA',     color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' }
@@ -29,9 +49,10 @@ function RegenIcon() {
   )
 }
 
-function SlideCard({ slide, index, total, flag, onRegenerate, onApplyFix, onDismissFlag }) {
+function SlideCard({ slide, index, total, flag, emphasisValue, emphasisError, onEmphasisChange, onRegenerate, onApplyFix, onDismissFlag }) {
   const [regenBusy, setRegenBusy] = useState(false)
   const { label, color } = slideLabel(index, total, slide)
+  const showEmphasisInput = slide.type !== 'cta' && slide.type !== 'pattern_break'
 
   const handleRegen = async () => {
     if (regenBusy) return
@@ -71,11 +92,30 @@ function SlideCard({ slide, index, total, flag, onRegenerate, onApplyFix, onDism
 
       {/* Slide content */}
       <div>
-        <p className="font-semibold text-base leading-snug">{slide.heading}</p>
+        <p className="font-semibold text-base leading-snug">{stripSerif(slide.heading)}</p>
         {slide.description && (
           <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed mt-1.5">{slide.description}</p>
         )}
       </div>
+
+      {/* Emphasis override */}
+      {showEmphasisInput && (
+        <div className="pt-2 border-t border-gray-100 dark:border-gray-800">
+          <label className="block text-[11px] font-medium text-gray-400 dark:text-gray-600 mb-1.5 uppercase tracking-wide">
+            Emphasise word
+          </label>
+          <input
+            type="text"
+            value={emphasisValue || ''}
+            onChange={e => onEmphasisChange(index, e.target.value)}
+            placeholder="e.g. wrong, missing, work"
+            className="w-full bg-transparent text-xs text-gray-700 dark:text-gray-300 placeholder-gray-300 dark:placeholder-gray-700 border-b border-gray-200 dark:border-gray-800 pb-0.5 focus:outline-none focus:border-accent transition-colors"
+          />
+          {emphasisError && (
+            <p className="text-[11px] text-red-500 mt-1.5">{emphasisError}</p>
+          )}
+        </div>
+      )}
 
       {/* QC flag */}
       {flag && (
@@ -133,8 +173,36 @@ export default function SlideReview({
   slides, flags=[], caption,
   onRegenerate, onApplyFix, onDismissFlag, onRerunQc, onRender, onBack, onToast,
 }) {
-  const [qcBusy,  setQcBusy]  = useState(false)
-  const [copied,  setCopied]  = useState(false)
+  const [qcBusy,         setQcBusy]         = useState(false)
+  const [copied,         setCopied]         = useState(false)
+  const [emphasisInputs, setEmphasisInputs] = useState({})
+  const [emphasisErrors, setEmphasisErrors] = useState({})
+
+  const handleEmphasisChange = (index, value) => {
+    setEmphasisInputs(prev => ({ ...prev, [index]: value }))
+    if (emphasisErrors[index]) {
+      setEmphasisErrors(prev => { const n = { ...prev }; delete n[index]; return n })
+    }
+  }
+
+  const handleRenderClick = () => {
+    const errors = {}
+    const modifiedSlides = slides.map((slide, i) => {
+      const phrase = (emphasisInputs[i] || '').trim()
+      if (!phrase) return slide
+      const result = applyEmphasisToHeading(slide.heading, phrase)
+      if (result === null) {
+        errors[i] = `"${phrase}" not found in heading`
+        return slide
+      }
+      return { ...slide, heading: result }
+    })
+    if (Object.keys(errors).length > 0) {
+      setEmphasisErrors(errors)
+      return
+    }
+    onRender(modifiedSlides)
+  }
 
   // QC flags use 1-based slide_number; convert to 0-based for lookup
   const flagMap = Object.fromEntries((flags || []).map(f => [f.slide_number - 1, f]))
@@ -192,6 +260,9 @@ export default function SlideReview({
             index={i}
             total={slides.length}
             flag={flagMap[i] || null}
+            emphasisValue={emphasisInputs[i] || ''}
+            emphasisError={emphasisErrors[i] || null}
+            onEmphasisChange={handleEmphasisChange}
             onRegenerate={onRegenerate}
             onApplyFix={onApplyFix}
             onDismissFlag={onDismissFlag}
@@ -227,7 +298,7 @@ export default function SlideReview({
         </button>
         <button
           type="button"
-          onClick={onRender}
+          onClick={handleRenderClick}
           className="
             flex-1 flex items-center justify-center gap-2
             bg-accent hover:bg-accent-hover

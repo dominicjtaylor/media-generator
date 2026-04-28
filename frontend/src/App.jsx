@@ -516,14 +516,15 @@ export default function App() {
   }, [topic, selectedHook, carouselStyle, showToast])
 
   // ── Dark pipeline: render ──────────────────────────────────────────────
-  const handleRender = useCallback(async () => {
+  const handleRender = useCallback(async (modifiedSlides = null) => {
     setStatus('rendering')
     setStepMsg('Rendering slides…')
+    const slidesToRender = modifiedSlides || slidesRef.current
     try {
       const res = await fetch('/render', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ topic, slides: slidesRef.current, style: carouselStyle, image_filename: selectedImage?.filename || null }),
+        body:    JSON.stringify({ topic, slides: slidesToRender, style: carouselStyle, image_filename: selectedImage?.filename || null }),
       })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))

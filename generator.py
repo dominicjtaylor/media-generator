@@ -148,29 +148,38 @@ def _word_limits_section(template_style: str) -> str:
 
 
 def _tone_override_section(template_style: str) -> str:
-    """Return TONE OVERRIDE RULES block — injected only for dark_core."""
+    """Return TONE + READABILITY + EMPHASIS rules — injected only for dark_core."""
     if template_style != "dark_core":
         return ""
     return """\
 TONE OVERRIDE RULES:
-- Always write in second person. Every slide directly addresses "you", the reader.
-- Do NOT explain ideas in general terms. Address the reader's specific situation.
-- Do NOT start headings with "Why", "How", "What" as a question framing.
-- Avoid neutral or instructional phrasing ("one should", "users can", "this helps").
-- Instead: name what the reader is doing wrong, missing, or misunderstanding — then correct it.
-- Body sentences: first sentence states the reader's reality; second reframes or fixes it.
+- Address the reader as "you" on every content slide.
+- Occasionally use "I" to show how something is done in practice (e.g. "I always do this before…").
+- Avoid neutral or instructional phrasing ("one should", "users can", "this method helps").
+- Each slide should either: call out something the reader is doing wrong or missing, OR show them a better way through a concrete example.
+- Avoid opening headings with "Why", "How", "First", "Finally".
+
+READABILITY RULES:
+- Each content body is 1–2 sentences.
+- Sentences should be slightly expanded for clarity — not compressed to the point of feeling abrupt.
+- Write for fast scanning: the reader should grasp the point in under 3 seconds.
+
+EMPHASIS RULES (for body text only):
+- Wrap at most ONE phrase per sentence in <span class="serif">...</span>.
+- Emphasise meaning over objects: prefer quantities ("only", "double"), contrast ("instead", "before"), or key insight phrases (max 2 words, e.g. "structured content").
+- Do NOT emphasise generic nouns ("tools", "content", "setup", "approach").
+- If nothing earns emphasis, omit the span entirely.
+- Never use more than one span per sentence.
 
 """
 
 
 # ---------------------------------------------------------------------------
-# Post-processing: tone rewrite (applied after validation, before finalise)
+# Post-processing: tone + emphasis refinement (after validation, before finalise)
 # ---------------------------------------------------------------------------
 
-# Ordered substitution pairs applied to body text only.
-# Keys are compiled regex patterns; values are replacement strings.
-# Kept conservative — only pronoun normalisation that cannot corrupt meaning.
-_TONE_SUBS: list[tuple[re.Pattern, str]] = [
+# Safe pronoun normalisations — word-boundary anchored, cannot corrupt meaning.
+_PRONOUN_SUBS: list[tuple[re.Pattern, str]] = [
     (re.compile(r'\bthe user\b',   re.IGNORECASE), 'you'),
     (re.compile(r'\bthe users\b',  re.IGNORECASE), 'you'),
     (re.compile(r'\busers\b',      re.IGNORECASE), 'you'),
@@ -179,12 +188,53 @@ _TONE_SUBS: list[tuple[re.Pattern, str]] = [
     (re.compile(r'\bone must\b',   re.IGNORECASE), 'you must'),
 ]
 
+# Nouns that add no semantic value as emphasis targets.
+_WEAK_EMPHASIS_WORDS: frozenset[str] = frozenset({
+    "tools", "content", "setup", "approach", "system", "process",
+    "method", "way", "thing", "things", "work", "time", "use",
+    "data", "output", "result", "results",
+})
+
+_SPAN_RE = re.compile(r'<span\s+class=["\']serif["\']>(.*?)</span>', re.IGNORECASE)
+
+
+def _clean_emphasis(sentence: str) -> str:
+    """Remove weak or excess emphasis spans from a single sentence.
+
+    Rules enforced:
+    - At most one span per sentence (extras removed).
+    - Spans wrapping generic/weak nouns are stripped.
+    - Spans wrapping more than 2 words are stripped (too broad).
+    """
+    spans = _SPAN_RE.findall(sentence)
+    if not spans:
+        return sentence
+
+    # Strip ALL spans, then decide whether to restore the first valid one.
+    clean = _SPAN_RE.sub(r'\1', sentence)
+
+    for phrase in spans:
+        words = phrase.strip().split()
+        if len(words) > 2:
+            continue  # too broad
+        if all(w.lower().rstrip('.,!?') in _WEAK_EMPHASIS_WORDS for w in words):
+            continue  # all words are generic
+        # First valid span wins — re-insert and stop.
+        clean = clean.replace(phrase, f'<span class="serif">{phrase}</span>', 1)
+        break
+
+    return clean
+
 
 def _apply_tone_rewrites(slides: list[dict], template_style: str) -> list[dict]:
-    """Normalise body text pronouns toward second person for dark_core slides.
+    """Refine body text for dark_core content slides.
 
-    Only touches the "body" field of content slides — leaves headings, hook,
-    CTA, and pattern_break slides untouched so validation is not disturbed.
+    Applies in order:
+    1. Pronoun normalisation (users → you, one can → you can, etc.)
+    2. Emphasis cleanup (remove weak/excess spans per sentence)
+
+    Only touches "body" on content slides — hook, CTA, and pattern_break
+    are left untouched so validation and rendering are not disturbed.
     """
     if template_style != "dark_core":
         return slides
@@ -194,9 +244,17 @@ def _apply_tone_rewrites(slides: list[dict], template_style: str) -> list[dict]:
         if slide.get("type") != "content":
             out.append(slide)
             continue
+
         body = slide.get("body", "")
-        for pattern, replacement in _TONE_SUBS:
+
+        # 1. Pronoun normalisation
+        for pattern, replacement in _PRONOUN_SUBS:
             body = pattern.sub(replacement, body)
+
+        # 2. Per-sentence emphasis cleanup
+        sentences = re.split(r'(?<=[.!?])\s+', body)
+        body = " ".join(_clean_emphasis(s) for s in sentences)
+
         out.append({**slide, "body": body})
     return out
 
@@ -210,7 +268,7 @@ Fields: "heading" (title), "tag" (content only: TIP/FACT/INSIGHT/EXAMPLE/WORKFLO
   "slides": [
     {{"type": "hook",    "heading": "Hook heading here",       "text": ""}},
     {{"type": "content", "heading": "Content heading", "tag": "TIP", "text": "First sentence. Second sentence."}},
-    {{"type": "cta",     "heading": "We show you how to [x] every day.", "text": ""}}
+    {{"type": "cta",     "heading": "I show you how to [x] every day.", "text": ""}}
   ]
 }}
 Array MUST have exactly {num_slides} items. "heading" and "text" required on every slide."""
@@ -289,7 +347,7 @@ EMPHASIS: 1–2 bold words per slide. Bold outcomes/contrasts/actions only. Neve
 
 ERRORS — fix the specific issue before returning:
 - Wrong slide count → exactly {num_slides}
-- Bad CTA format → "We show you [specific thing] every day."
+- Bad CTA format → "I show you [specific thing] every day."
 - Incomplete sentence → complete it on the same slide
 - Invalid JSON → fix formatting
 
@@ -1284,16 +1342,26 @@ WEAK_WORDS = {
 }
 
 CTA_OPTIONS = [
-    "We show you what <span class=\"serif\">matters</span> in AI every day.",
-    "We show you the best AI <span class=\"serif\">tools</span> every day.",
-    "We show you what’s <span class=\"serif\">new</span> in AI every day.",
-    "We show you what <span class=\"serif\">works</span> in AI every day.",
-    "We show you real AI <span class=\"serif\">insights</span> every day.",
-    "We show you AI that’s <span class=\"serif\">worth</span> it every day.",
-    "We show you the <span class=\"serif\">latest</span> in AI every day.",
-    "We show you <span class=\"serif\">useful</span> AI every day.",
-    "We show you AI without <span class=\"serif\">noise</span> every day.",
-    "We show you AI that <span class=\"serif\">delivers</span> every day.",
+    "Build AI that actually <span class=\"serif\">works</span>",
+    "Stop wasting time on <span class=\"serif\">bad</span> workflows",
+    "You don’t need <span class=\"serif\">more</span> tools",
+    "I use this exact <span class=\"serif\">setup</span> daily",
+    "Make AI feel <span class=\"serif\">simple</span> again",
+    "This is what actually <span class=\"serif\">works</span>",
+    "You’re overcomplicating <span class=\"serif\">this</span>",
+    "Start with what actually <span class=\"serif\">matters</span>",
+    "I break this down <span class=\"serif\">daily</span>",
+    "Use AI in a way that <span class=\"serif\">sticks</span>",
+    "You only need a <span class=\"serif\">few</span> tools",
+    "Make your workflow actually <span class=\"serif\">flow</span>",
+    "Stop guessing what <span class=\"serif\">works</span>",
+    "I use this every <span class=\"serif\">day</span>",
+    "Build systems you can <span class=\"serif\">reuse</span>",
+    "You’re closer than you <span class=\"serif\">think</span>",
+    "Focus on what actually <span class=\"serif\">moves</span>",
+    "This removes most of the <span class=\"serif\">friction</span>",
+    "Do less, get <span class=\"serif\">more</span> done",
+    "You don’t need to start <span class=\"serif\">over</span>",
 ]
 
 def _format_cta() -> str:

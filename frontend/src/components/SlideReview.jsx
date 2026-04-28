@@ -57,7 +57,7 @@ function SlideCard({
 }) {
   const [regenBusy, setRegenBusy] = useState(false)
   const { label, color } = slideLabel(index, total, slide)
-  const showEmphasisInput = slide.type !== 'cta' && slide.type !== 'pattern_break'
+  const showEmphasisInput = slide.type !== 'pattern_break'
 
   // Compute the heading to display in real time:
   //   - empty input  → preserve LLM-generated emphasis (raw heading with <span>)

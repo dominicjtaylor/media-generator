@@ -1390,6 +1390,9 @@ def italicise_one_word(text: str) -> str:
     if "<span" in text:
         return text
 
+    # Strip **bold** markers before scoring so they don't interfere with emphasis selection
+    text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
+
     words = text.split()
     if len(words) < 3:
         return text

@@ -496,16 +496,7 @@ export default function App() {
         throw new Error(body.detail || `Regeneration failed (${res.status})`)
       }
       const data = await res.json()
-      let regenerated = data.slide
-      const isLast = index === slidesRef.current.length - 1
-      if (isLast && regenerated) {
-        const h = (regenerated.heading || '').trim().toLowerCase()
-        if (!h.startsWith('we show you')) {
-          regenerated = { ...regenerated, heading: `We show you ${topic} every day.` }
-        } else if (!h.replace(/\.$/, '').endsWith('every day')) {
-          regenerated = { ...regenerated, heading: regenerated.heading.replace(/\.?\s*$/, '') + ' every day.' }
-        }
-      }
+      const regenerated = data.slide
       setSlides(prev => ensureSlides(prev).map((s, i) =>
         i === index ? regenerated : s
       ))
@@ -582,23 +573,7 @@ export default function App() {
       await readSse(res, (event) => {
 
         if (event.step === 'complete') {
-          let fixedSlides = ensureSlides(event.slides)
-
-          if (fixedSlides.length > 0) {
-            fixedSlides = fixedSlides.map((s, i) => {
-              const isLast = i === fixedSlides.length - 1
-
-              if (!isLast) return s
-
-              return {
-                ...s,
-                heading: `We show you ${topic} every day.`,
-                description: '' // enforce empty
-              }
-            })
-          }
-
-          setSlides(fixedSlides)
+          setSlides(ensureSlides(event.slides))
           setImages(event.images || [])
           setCaption(event.caption || '')
           setStatus('done')

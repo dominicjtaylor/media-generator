@@ -56,6 +56,11 @@ def _strip_bold(text: str) -> str:
     return re.sub(r'\*\*(.*?)\*\*', r'\1', text)
 
 
+def _strip_serif_spans(text: str) -> str:
+    """Remove <span class="serif"> tags from body text; only <strong> is allowed there."""
+    return re.sub(r'<span\s+class=["\']serif["\']>(.*?)</span>', r'\1', text, flags=re.IGNORECASE)
+
+
 # ---------------------------------------------------------------------------
 # Step 1: HTML injection
 # ---------------------------------------------------------------------------
@@ -154,7 +159,7 @@ def inject_slide(
         # Content slides: separate {{HEADING}} + {{TEXT}} zones.
         # Anton font is used for headings — strip bold markers to avoid font fallback.
         html = html.replace("{{HEADING}}", _strip_bold(heading))
-        html = html.replace("{{TEXT}}",    _md_bold_to_html(body.replace('\n', '<br>')))
+        html = html.replace("{{TEXT}}",    _md_bold_to_html(_strip_serif_spans(body).replace('\n', '<br>')))
         tag = (slide.get("tag") or "").strip().upper()
         html = html.replace("{{TAG}}", tag)
         slide_counter = f"{str(index + 1).zfill(2)} / {str(total).zfill(2)}"

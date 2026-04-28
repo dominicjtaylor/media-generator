@@ -44,6 +44,7 @@ from generator import (
     _VISUAL_STYLES,
     _finalise_slides,
     _strip_markdown,
+    _generate_pattern_break_text,
     italicise_one_word,
 )
 from renderer import render_slides
@@ -211,6 +212,13 @@ def _regenerate_slide_internal(
     hook: str,
     template_style: str
 ) -> dict:
+    slide_type = slides[idx].get("type", "content")
+
+    # pattern_break: only a heading, no body — regenerate via the dedicated function
+    if slide_type == "pattern_break":
+        heading_text = _generate_pattern_break_text(topic)
+        return {"type": "pattern_break", "heading": heading_text, "body": ""}
+
     total = len(slides)
     arc = _arc_position(idx + 1, total)
 
@@ -249,7 +257,7 @@ def _regenerate_slide_internal(
     )
 
     return {
-        "type": new_slide.get("type", "content"),
+        "type": new_slide.get("type", slide_type),
         "heading": heading,
         "description": description
     }
@@ -764,6 +772,12 @@ def regenerate_route(req: RegenerateRequest):
     arc        = _arc_position(idx + 1, total)
     slide_type = slide.get("type", "content")
 
+    # pattern_break: only a heading, no body text
+    if slide_type == "pattern_break":
+        heading_text = _generate_pattern_break_text(topic)
+        heading_text = italicise_one_word(heading_text)
+        return {"slide": {"type": "pattern_break", "heading": heading_text, "description": ""}}
+
     # Build context list of every OTHER slide with its arc position so the
     # LLM knows exactly what has already been said and won't repeat ideas.
     other_lines: list[str] = []
@@ -819,9 +833,12 @@ def regenerate_route(req: RegenerateRequest):
             heading = heading.rstrip(".").rstrip() + " every day."
             logger.info("Corrected final slide heading after regeneration")
 
-    return {"slide": {"type": new_slide.get("type", slide_type),
-                      "heading": heading,
-                      "description": description}}
+    returned_type = new_slide.get("type", slide_type)
+    return {"slide": {
+        "type": returned_type,
+        "heading": heading,
+        "description": "" if returned_type == "pattern_break" else description,
+    }}
 
 
 def _render_stream(

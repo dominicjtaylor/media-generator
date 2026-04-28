@@ -870,7 +870,9 @@ def _generate_anthropic(
     text_blocks = [b for b in message.content if getattr(b, "type", None) == "text"]
     if not text_blocks:
         raise ValueError("No text content in API response")
-    return text_blocks[-1].text
+    raw = "\n".join(b.text for b in text_blocks)
+    logger.info("RAW LLM OUTPUT (first 2000 chars):\n%s", raw[:2000])
+    return raw
 
 
 # ---------------------------------------------------------------------------
@@ -985,10 +987,9 @@ def _parse_json_slides(
         if not heading_val:
             raise ValueError(f"Slide {i} has empty 'heading'")
 
-        if not body_val and slide_type != "hook":
-            logger.debug(
-                "Slide %d (%s) has empty body — acceptable for hook, warning for others",
-                i, slide_type,
+        if not body_val and slide_type == "content":
+            raise ValueError(
+                f"Slide {i} (content) has empty body text — retrying for complete output"
             )
 
         tag_val = (s.get("tag") or "").strip().upper()

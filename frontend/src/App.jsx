@@ -179,6 +179,133 @@ function LightUpload({ onConfirm, onBack, selectedImage}) {
   )
 }
 
+// ── Light: hook picker (3 options) ────────────────────────────────────────
+const HOOK_TYPE_LABELS = {
+  specific_promise: 'Specific Promise',
+  pattern_interrupt: 'Pattern Interrupt',
+  contrast: 'Contrast',
+}
+
+function LightHookPicker({ hooks, onSelect, onBack }) {
+  const [selected, setSelected] = useState(null)
+
+  return (
+    <div className="space-y-6 animate-slide-up">
+      <div>
+        <h2 className="text-xl font-semibold">Choose your hook</h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          This becomes the heading on slide 1.
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        {hooks.map((h, i) => (
+          <button
+            key={i}
+            type="button"
+            onClick={() => setSelected(h)}
+            className={`
+              w-full text-left rounded-xl border-2 p-4 transition-all
+              ${selected?.hook === h.hook
+                ? 'border-accent bg-accent/5'
+                : 'border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700'
+              }
+            `}
+          >
+            <span className="text-xs font-semibold uppercase tracking-wide text-accent mb-1 block">
+              {HOOK_TYPE_LABELS[h.type] || h.type}
+            </span>
+            <span className="text-sm font-medium leading-snug">{h.hook}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="flex gap-3">
+        <button
+          type="button"
+          onClick={onBack}
+          className="px-4 py-3 rounded-xl text-sm font-medium text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+        >
+          Back
+        </button>
+        <button
+          type="button"
+          onClick={() => selected && onSelect(selected)}
+          disabled={!selected}
+          className="flex-1 rounded-xl bg-accent text-white py-3 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-orange-600 transition-colors"
+        >
+          Use this hook
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Light: manual slide content entry ────────────────────────────────────
+function LightContentEntry({ numSlides, onConfirm, onBack }) {
+  // Content slides only (exclude hook slide 1 and CTA slide N)
+  const contentCount = numSlides - 2
+  const [entries, setEntries] = useState(
+    Array.from({ length: contentCount }, () => ({ heading: '', text: '' }))
+  )
+
+  const update = (i, field, value) =>
+    setEntries(prev => prev.map((e, idx) => idx === i ? { ...e, [field]: value } : e))
+
+  const allFilled = entries.every(e => e.heading.trim() && e.text.trim())
+
+  return (
+    <div className="space-y-6 animate-slide-up">
+      <div>
+        <h2 className="text-xl font-semibold">Enter your slide content</h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          Add a heading and body text for each content slide (slides 2–{numSlides - 1}).
+        </p>
+      </div>
+
+      <div className="space-y-5">
+        {entries.map((entry, i) => (
+          <div key={i} className="rounded-xl border border-gray-200 dark:border-gray-800 p-4 space-y-3">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Slide {i + 2}</p>
+            <input
+              type="text"
+              placeholder="Heading (required)"
+              value={entry.heading}
+              onChange={e => update(i, 'heading', e.target.value)}
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/40"
+            />
+            <textarea
+              rows={2}
+              placeholder="Body text (required)"
+              value={entry.text}
+              onChange={e => update(i, 'text', e.target.value)}
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/40 resize-none"
+            />
+          </div>
+        ))}
+      </div>
+
+      <div className="flex gap-3">
+        <button
+          type="button"
+          onClick={onBack}
+          className="px-4 py-3 rounded-xl text-sm font-medium text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+        >
+          Back
+        </button>
+        <button
+          type="button"
+          onClick={() => allFilled && onConfirm(entries)}
+          disabled={!allFilled}
+          className="flex-1 rounded-xl bg-accent text-white py-3 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-orange-600 transition-colors"
+        >
+          Continue
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── Main App ───────────────────────────────────────────────────────────────
 export default function App() {
   const [dark, setDark]       = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
@@ -188,16 +315,18 @@ export default function App() {
   const [toast, setToast]     = useState(null)
 
   // Pipeline data
-  const [topic,          setTopic]          = useState('')
-  const [numSlides,      setNumSlides]      = useState(5)
-  const [templateType,   setTemplateType]   = useState(null)   // 'dark' | 'light'
-  const [hooks,          setHooks]          = useState([])
-  const [selectedHook,   setSelectedHook]   = useState(null)
-  const [selectedImage,  setSelectedImage]  = useState(null)
-  const [slides,         setSlides]         = useState([])
-  const [caption,        setCaption]        = useState('')
-  const [carouselStyle,  setCarouselStyle]  = useState('dark_core')
-  const [images,         setImages]         = useState([])
+  const [topic,             setTopic]             = useState('')
+  const [numSlides,         setNumSlides]         = useState(5)
+  const [templateType,      setTemplateType]      = useState(null)   // 'dark' | 'light'
+  const [hooks,             setHooks]             = useState([])
+  const [lightHooks,        setLightHooks]        = useState([])
+  const [lightSlideContent, setLightSlideContent] = useState([])  // [{heading, text}] for content slides
+  const [selectedHook,      setSelectedHook]      = useState(null)
+  const [selectedImage,     setSelectedImage]     = useState(null)
+  const [slides,            setSlides]            = useState([])
+  const [caption,           setCaption]           = useState('')
+  const [carouselStyle,     setCarouselStyle]     = useState('dark_core')
+  const [images,            setImages]            = useState([])
 
   const slidesRef = useRef(slides)
   useEffect(() => { slidesRef.current = slides }, [slides])
@@ -223,6 +352,8 @@ export default function App() {
     setStepMsg('')
     setTemplateType(null)
     setHooks([])
+    setLightHooks([])
+    setLightSlideContent([])
     setSelectedHook(null)
     setSelectedImage(null)
     setSlides([])
@@ -240,39 +371,67 @@ export default function App() {
   // ── Stage 2: template selected → load hooks ────────────────────────────
   const handleTemplateSelect = useCallback(async (type) => {
     setTemplateType(type)
-    setStatus('hooks_loading')
-    setStepMsg('Generating hook options…')
-    try {
-      const res = await fetch('/hooks', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ topic, num_slides: numSlides }),
-      })
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        throw new Error(body.detail || `Server error (${res.status})`)
+
+    if (type === 'light') {
+      // Light: call /light-hooks for 3 hook ideas
+      setStatus('light_hooks_loading')
+      setStepMsg('Generating hook options…')
+      try {
+        const res = await fetch('/light-hooks', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ topic, num_slides: numSlides }),
+        })
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          throw new Error(body.detail || `Server error (${res.status})`)
+        }
+        const data = await res.json()
+        setLightHooks(data.hooks || [])
+        setStatus('light_hook_selection')
+      } catch (err) {
+        goError(err.message || 'Failed to generate hooks.')
       }
-      const data = await res.json()
-      setHooks(data.hooks || [])
-      setStatus('hook_selection')
-    } catch (err) {
-      goError(err.message || 'Failed to generate hooks.')
+    } else {
+      // Dark: existing flow
+      setStatus('hooks_loading')
+      setStepMsg('Generating hook options…')
+      try {
+        const res = await fetch('/hooks', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ topic, num_slides: numSlides }),
+        })
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          throw new Error(body.detail || `Server error (${res.status})`)
+        }
+        const data = await res.json()
+        setHooks(data.hooks || [])
+        setStatus('hook_selection')
+      } catch (err) {
+        goError(err.message || 'Failed to generate hooks.')
+      }
     }
   }, [topic, numSlides, goError])
 
-  // ── Stage 3a: hook selected — branch on template type ─────────────────
+  // ── Stage 3a: dark hook selected → image selection ───────────────────
   const handleHookSelect = useCallback((hook) => {
-    console.log('HOOK SELECTED')
-    console.log('templateType:', templateType)
     setSelectedHook(hook)
-    if (templateType === 'light') {
-      console.log('→ going to cover selection')
-      setStatus('light_cover_selection')   // ← change is HERE
-    } else {
-      console.log('→ going to image_selection')
-      setStatus('image_selection')
-    }
-  }, [templateType])
+    setStatus('image_selection')
+  }, [])
+
+  // ── Stage 3b: light hook selected → content entry ─────────────────────
+  const handleLightHookSelect = useCallback((hook) => {
+    setSelectedHook(hook)
+    setStatus('light_content_entry')
+  }, [])
+
+  // ── Stage 3c: light content confirmed → cover image selection ─────────
+  const handleLightContentConfirm = useCallback((contentSlides) => {
+    setLightSlideContent(contentSlides)
+    setStatus('light_cover_selection')
+  }, [])
 
   // ── Dark pipeline: image confirmed → generate slides (SSE) ────────────
   const handleImageConfirm = useCallback(async (image) => {
@@ -393,17 +552,17 @@ export default function App() {
 
   // ── Light pipeline: images uploaded → generate-light (SSE) ───────────
   const handleLightGenerate = useCallback(async (imageFiles) => {
-    console.log('selectedImage at generate:', selectedImage)
     if (!selectedImage) {
       showToast('Please select a cover image for slide 1', 'error')
       return
     }
     setStatus('light_generating')
-    setStepMsg('Analysing images…')
+    setStepMsg('Building slides…')
 
     const formData = new FormData()
     formData.append('topic', topic)
     formData.append('hook', selectedHook.hook)
+    formData.append('slides_content', JSON.stringify(lightSlideContent))
     if (selectedImage?.filename) {
       formData.append('image_filename', selectedImage.filename)
     }
@@ -457,9 +616,9 @@ export default function App() {
     } catch (err) {
       goError(err.message || 'Generation failed.')
     }
-  }, [topic, selectedHook, selectedImage, goError, showToast])
+  }, [topic, selectedHook, selectedImage, lightSlideContent, goError, showToast])
 
-  const LOADING_STAGES = new Set(['hooks_loading', 'slides_loading', 'rendering', 'light_generating'])
+  const LOADING_STAGES = new Set(['hooks_loading', 'light_hooks_loading', 'slides_loading', 'rendering', 'light_generating'])
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -528,13 +687,31 @@ export default function App() {
         {/* ── loading spinner ── */}
         {LOADING_STAGES.has(status) && <LoadingPane message={stepMsg} />}
 
-        {/* ── hook selection ── */}
+        {/* ── dark: hook selection ── */}
         {status === 'hook_selection' && (
           <HookPicker
             hooks={hooks}
             topic={topic}
             onSelect={handleHookSelect}
             onBack={() => setStatus('template_selection')}
+          />
+        )}
+
+        {/* ── light: hook selection (3 hooks) ── */}
+        {status === 'light_hook_selection' && (
+          <LightHookPicker
+            hooks={lightHooks}
+            onSelect={handleLightHookSelect}
+            onBack={() => setStatus('template_selection')}
+          />
+        )}
+
+        {/* ── light: manual slide content entry ── */}
+        {status === 'light_content_entry' && (
+          <LightContentEntry
+            numSlides={numSlides}
+            onConfirm={handleLightContentConfirm}
+            onBack={() => setStatus('light_hook_selection')}
           />
         )}
 
@@ -553,7 +730,7 @@ export default function App() {
               setSelectedImage(img)
               setStatus('light_upload')
             }}
-            onBack={() => setStatus('hook_selection')}
+            onBack={() => setStatus('light_content_entry')}
           />
         )}
 

@@ -26,6 +26,7 @@ from bs4 import BeautifulSoup
 logger = logging.getLogger("carousel.local_image")
 
 LOCAL_IMAGE_DIR: Path = Path(__file__).parent / "assets" / "lummi_images"
+_UPLOADS_DIR: Path = Path("/tmp/uploads")
 
 _IMAGE_EXTENSIONS: frozenset[str] = frozenset({".jpg", ".jpeg", ".png", ".webp"})
 
@@ -300,8 +301,12 @@ def get_image_for_heading_template(topic: str, image_filename: Optional[str] = N
     """
     if image_filename:
         logger.info("Using user-selected image: %s", image_filename)
+        if image_filename.startswith("__uploads__/"):
+            img_path = _UPLOADS_DIR / image_filename[len("__uploads__/"):]
+        else:
+            img_path = LOCAL_IMAGE_DIR / image_filename
         return {
-            "local_path":  str((LOCAL_IMAGE_DIR / image_filename).resolve()),
+            "local_path":  str(img_path.resolve()),
             "author_name": "",
             "author_url":  "",
             "image_page":  "",

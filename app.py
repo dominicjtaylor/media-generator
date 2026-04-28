@@ -21,6 +21,7 @@ import logging
 import os
 import re as _re
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Generator, List, Optional
 from urllib.parse import quote
@@ -38,11 +39,12 @@ load_dotenv()
 from utils import setup_logging
 from generator import (
     generate_slides,
-    generate_light_slides,
     generate_caption,
     _build_system_prompt,
     _VISUAL_STYLES,
-    italicise_one_word,   # ← add this
+    _finalise_slides,
+    _strip_markdown,
+    italicise_one_word,
 )
 from renderer import render_slides
 
@@ -60,6 +62,8 @@ app = FastAPI(title="Carousel Generator API", version="2.0.0")
 DIST        = Path(__file__).parent / "frontend" / "dist"
 RENDERS_DIR = Path("/tmp/renders")
 RENDERS_DIR.mkdir(parents=True, exist_ok=True)
+_UPLOADS_DIR = Path("/tmp/uploads")
+_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Arc labels used to tell Claude where in the narrative each slide sits.
 _ARC = ["Problem", "Cost", "Shift", "System", "Proof", "Decision", "CTA"]
@@ -291,6 +295,11 @@ class RenderRequest(BaseModel):
     slides:         list[dict]
     style:          str = "dark_core"
     image_filename: Optional[str] = None
+
+
+class LightStructureRequest(BaseModel):
+    topic:      str
+    num_slides: int = 5
 
 
 # ---------------------------------------------------------------------------
@@ -547,11 +556,88 @@ def hooks_route(req: HookRequest):
     return {"hooks": hooks}
 
 
+_LIGHT_HOOK_PROMPT = """\
+Write 3 carousel hook options for the topic: {topic}
+
+Use these 3 formats, one each:
+
+1. Specific promise — a concrete outcome or benefit
+   e.g. "How to do X without Y"
+
+2. Pattern interrupt — breaks an assumption or starts mid-thought
+   e.g. "Tell me if I'm wrong...", "Stop scrolling if..."
+
+3. Contrast — exposes a gap between belief and reality
+   e.g. "You've been lied to about...", "The truth about..."
+
+Rules for every hook:
+- Maximum 8 words
+- No full sentences — fragments and ellipses are fine
+- No generic AI phrasing (unleash, discover, unlock, game-changer)
+- Must create curiosity or a gap the reader wants to close
+
+Return as a JSON array of 3 objects:
+[
+  {{"type": "specific_promise", "hook": "..."}},
+  {{"type": "pattern_interrupt", "hook": "..."}},
+  {{"type": "contrast", "hook": "..."}}
+]"""
+
+
+@app.post("/light-hooks", tags=["carousel"])
+def light_hooks_route(req: LightStructureRequest):
+    """Generate 3 hook options for the light template."""
+    topic = _clean_topic(req.topic)
+    if not topic:
+        raise HTTPException(status_code=422, detail="topic must not be empty")
+
+    prompt = _LIGHT_HOOK_PROMPT.format(topic=topic)
+    try:
+        raw  = _claude(prompt, max_tokens=400)
+        data = _parse_json(raw)
+        if not isinstance(data, list):
+            raise ValueError("Expected a JSON array")
+        hooks = [
+            {"hook": str(h.get("hook", "")), "type": str(h.get("type", ""))}
+            for h in data[:3]
+        ]
+    except Exception as exc:
+        logger.error("Light hook generation failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Hook generation failed: {exc}")
+
+    return {"hooks": hooks}
+
+
+@app.post("/upload-cover-image", tags=["assets"])
+async def upload_cover_image_route(file: UploadFile = File(...)):
+    """Save an uploaded cover image and return a reference filename."""
+    data = await file.read()
+    ctype = file.content_type or "image/jpeg"
+    ext = "." + (ctype.split("/")[-1] if "/" in ctype else "jpg")
+    if ext == ".jpeg":
+        ext = ".jpg"
+    fname = uuid.uuid4().hex + ext
+    (_UPLOADS_DIR / fname).write_bytes(data)
+    return {"filename": f"__uploads__/{fname}", "url": f"/uploads/{fname}"}
+
+
+@app.get("/uploads/{filename:path}", tags=["assets"])
+def serve_uploaded_image(filename: str):
+    """Serve a previously uploaded cover image."""
+    img_path = _UPLOADS_DIR / filename
+    if not img_path.exists() or not img_path.is_file():
+        raise HTTPException(status_code=404, detail="Uploaded image not found")
+    return FileResponse(str(img_path))
+
+
 def _slides_stream(topic: str, hook: str, num_slides: int, image_filename: Optional[str] = None, template: str = "dark") -> Generator[str, None, None]:
     """SSE stream: generate slides using the selected hook."""
     # Validate selected image exists before spending time on generation
     if image_filename:
-        _img_path = _LOCAL_IMAGE_DIR / image_filename
+        if image_filename.startswith("__uploads__/"):
+            _img_path = _UPLOADS_DIR / image_filename[len("__uploads__/"):]
+        else:
+            _img_path = _LOCAL_IMAGE_DIR / image_filename
         if not _img_path.exists():
             logger.error("Selected image not found on disk: %s", _img_path)
             yield _sse({"step": "error", "message": f"Image not found: {image_filename}. Please go back and select a different image."})
@@ -786,53 +872,45 @@ def render_route(req: RenderRequest):
 def _generate_light_stream_full(
     idea: str,
     hook: str,
-    image_bytes_list: list[bytes],
-    image_types: list[str],
+    slides_content: list[dict],
     content_temp_paths: list[str],
     image_filename: Optional[str] = None,
-    num_slides: int = 0,
 ):
-    """SSE stream: analyse images, render light carousel, then clean up temp files."""
-    yield _sse({"step": "analysing", "message": "Analysing images…"})
+    """SSE stream: build light carousel from manual slide content, render, clean up."""
+    yield _sse({"step": "building", "message": "Building slides…"})
     try:
-        # result = generate_light_slides(topic, hook, image_bytes_list, image_types)
-        short_topic = _derive_topic_from_idea(idea)
-        # cta_topic   = _derive_cta_topic(short_topic)
+        # Build slides from manual content — no LLM vision analysis
+        content_slides = [
+            {
+                "type":    "content",
+                "heading": _strip_markdown(s.get("heading", "").strip()),
+                "body":    s.get("text", "").strip(),
+                "tag":     "INSIGHT",
+            }
+            for s in slides_content
+        ]
+        slides = [
+            {"type": "hook",    "heading": _strip_markdown(hook), "body": "", "tag": ""},
+            *content_slides,
+            {"type": "cta",     "heading": "", "body": "", "tag": ""},
+        ]
+        slides = _finalise_slides(slides, idea)
 
-        result = generate_light_slides(
-            idea,
-            hook,
-            image_bytes_list,
-            image_types
-        )
-
-        slides = result["slides"]
-
-        if len(slides) != num_slides:
-            logger.error(f"Slide mismatch: expected {num_slides}, got {len(slides)}")
-
-        # ONLY apply once, with short_topic
-        print("SHORT_TOPIC:", short_topic)
-        print("CTA_BEFORE:", slides[-1]["heading"])
         caption = generate_caption(slides)
 
-        # cover image (use short_topic here too)
         first_image_data = None
         if image_filename:
             from local_image import get_image_for_heading_template
+            short_topic = _derive_topic_from_idea(idea)
             first_image_data = get_image_for_heading_template(short_topic, image_filename)
 
     except Exception as exc:
-        logger.error("Light slide generation failed: %s", exc)
-        yield _sse({"step": "error", "message": f"Slide generation failed: {exc}"})
+        logger.error("Light slide build failed: %s", exc)
+        yield _sse({"step": "error", "message": f"Slide build failed: {exc}"})
         for p in content_temp_paths:
             try: os.unlink(p)
             except OSError: pass
         return
-
-    print("\nFINAL LIGHT SLIDES:")
-    for i, s in enumerate(slides):
-        print(i, s.get("type"), s.get("heading"))
 
     yield _sse({"step": "rendering", "message": "Rendering slides…"})
     try:
@@ -861,33 +939,40 @@ def _generate_light_stream_full(
 async def generate_light_route(
     topic: str = Form(...),
     hook: str = Form(...),
+    slides_content: str = Form(...),
     images: List[UploadFile] = File(...),
     image_filename: Optional[str] = Form(None),
 ):
-    """Generate and render a light image carousel (SSE stream).
+    """Generate and render a light image carousel from manual slide content (SSE stream).
 
-    Accepts: topic (str), hook (str), images (1–8 files).
-    Streams SSE events: analysing → rendering → complete | error.
+    Accepts: topic, hook, slides_content (JSON array of {heading, text}), images (1–8 files).
+    Streams SSE events: building → rendering → complete | error.
     """
     topic = _clean_topic(topic)
     hook  = hook.strip()
-    if not image_filename:
-        raise HTTPException(status_code=422, detail="Cover image is required for light template")
     if not topic:
         raise HTTPException(status_code=422, detail="topic must not be empty")
     if not hook:
         raise HTTPException(status_code=422, detail="hook must not be empty")
     if not images:
-        raise HTTPException(status_code=422, detail="at least one image required")
+        raise HTTPException(status_code=422, detail="at least one content image required")
     if len(images) > 8:
         raise HTTPException(status_code=422, detail="maximum 8 images allowed")
 
-    num_slides = len(images) + 2
+    try:
+        parsed_slides = json.loads(slides_content)
+        if not isinstance(parsed_slides, list):
+            raise ValueError("slides_content must be a JSON array")
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid slides_content: {exc}")
 
-    image_bytes_list: list[bytes] = []
-    image_types: list[str] = []
+    if len(images) != len(parsed_slides):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Number of images ({len(images)}) must match slide count ({len(parsed_slides)})"
+        )
+
     content_temp_paths: list[str] = []
-
     for upload in images:
         data  = await upload.read()
         ctype = upload.content_type or "image/jpeg"
@@ -897,19 +982,15 @@ async def generate_light_route(
         tmp = tempfile.NamedTemporaryFile(suffix=ext, delete=False)
         tmp.write(data)
         tmp.close()
-        image_bytes_list.append(data)
-        image_types.append(ctype)
         content_temp_paths.append(tmp.name)
 
     return StreamingResponse(
         _generate_light_stream_full(
             topic,
             hook,
-            image_bytes_list,
-            image_types,
+            parsed_slides,
             content_temp_paths,
             image_filename,
-            num_slides
         ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},

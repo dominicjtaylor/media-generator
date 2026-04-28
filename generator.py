@@ -173,8 +173,21 @@ def _build_system_prompt(num_slides: int, template_style: str = "dark_core") -> 
     hook_name, hook_instruction, hook_example = random.choice(_HOOK_STYLES)
     carousel_arc = _build_carousel_arc(num_slides)
 
+    voice_section = ""
+    if template_style == "dark_core":
+        voice_section = """\
+VOICE — write as if speaking directly to ONE person:
+- Tone: calm, slow, thoughtful. Warm and human. Grounded and clear.
+- Use "you" naturally throughout.
+- Explain what it means for the reader, not just what happened.
+- Simplify complex ideas; add light interpretation — your perspective.
+- Avoid: newsreader tone, corporate phrasing, generic summaries, hype or buzzwords.
+- Each slide should loosely follow: (1) what changed or the key concept, (2) what it means for you.
+
+"""
+
     return f"""\
-Do not invent statistics. Prefer qualitative insights.
+{voice_section}Do not invent statistics. Prefer qualitative insights.
 
 FACTUALITY RULES:
 - Do NOT include statistics, percentages, or numbers unless you can cite a real source.

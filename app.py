@@ -468,35 +468,33 @@ def _stream(topic: str, num_slides: int) -> Generator[str, None, None]:
 _DARK_HOOK_PROMPT = """\
 Generate 4 hooks for a carousel about: {topic}
 
-Each hook must feel like an interruption — something that stops the reader \
-mid-scroll because it names exactly what they're doing wrong or missing.
+Each hook must create curiosity through controlled vagueness — specific about \
+the domain, vague about the insight. The reader should recognise the context \
+immediately but not yet understand the full idea.
 
 Use these 4 styles, one each:
 
-1. Curiosity — implies the reader is missing something specific
-   Pattern: "You're missing the part that actually matters"
-             "No one explains why {topic} keeps failing"
+1. Curiosity — implies the reader is missing a specific step or element
+   Pattern: "You're missing the step that makes [domain keyword] work"
+             "You're skipping the part that actually matters in [domain keyword]"
 
-2. Mistake — names something the reader is doing wrong, with strong words
-   Pattern: "You're doing this completely wrong"
-             "This is killing your results without you knowing"
+2. Mistake — names a wrong approach, anchored to the topic domain
+   Pattern: "You're using [domain keyword] the wrong way"
+             "You're starting [domain keyword] in the wrong place"
 
-3. Contrarian — challenges an assumption; implies the common approach is broken
-   Pattern: "Everything you know about X is wrong"
-             "The way most people do this doesn't work"
+3. Contrarian — challenges how most people approach this topic
+   Pattern: "Most people use [domain keyword] backwards"
+             "The way you're thinking about [domain keyword] is the problem"
 
-4. Value — states the real answer with confidence, no hype
-   Pattern: "This is what actually works"
-             "Most people skip this — and it costs them"
+4. Value — signals a better way exists, without explaining it
+   Pattern: "There's a step in [domain keyword] most people skip"
+             "You're one [domain keyword] change away from better results"
 
-INTENSITY RULES (follow strictly):
-- Use strong, concrete words: "wrong" not "incorrect", "killing" not "slowing", \
-"wasting" not "inefficient"
-- No vague words: never use "things", "approach", "tools" without specific context
-- Create tension: imply the reader is missing something or doing something wrong
-- Compress: remove every unnecessary word — faster to read = higher impact
-- Prioritise provocation over explanation: the hook should make them curious, \
-not informed
+VAGUENESS RULES (follow strictly):
+- Be vague about the insight — do NOT name or explain the actual tip
+- Be specific about the domain — use a keyword from the topic so context is clear
+- The reader should think "this might be about me" but not yet know what's coming
+- Do not over-explain — the hook leads into slide 2 where clarity is introduced
 
 Structural rules:
 - 6–12 words, one complete sentence
@@ -504,6 +502,8 @@ Structural rules:
 - No ellipsis, no fragments, no questions
 - No dramatic filler ("Stop scrolling", "You won't believe", "This feels illegal")
 - No hype words (game-changer, unlock, unleash, discover)
+- No fully generic hooks ("You're doing this wrong", "This changes everything") — \
+  these lack context and reduce relevance
 
 Return as a JSON array of 4 objects:
 [

@@ -77,23 +77,23 @@ WORD_LIMITS: dict[str, dict[str, int]] = {
 _HOOK_STYLES: list[tuple[str, str, str]] = [
     (
         "CONTRARIAN",
-        "Challenge a belief the reader holds. Call out exactly what they're doing wrong — name it directly. Use strong words: 'wrong', 'broken', 'failing'. No softening.",
-        'Topic "building with Claude Code" → "You\'re building Claude Code projects the wrong way"',
+        "Challenge the way most people approach this topic. Use a keyword from the topic so context is clear, but stay vague about the actual insight — imply the common approach is wrong without explaining why.",
+        'Topic "building with Claude Code" → "You\'re using Claude Code the wrong way"',
     ),
     (
         "CURIOSITY",
-        "Imply the reader is missing something specific — name the gap precisely. Use a keyword from the topic. Creates tension without being dramatic. Strong, compressed phrasing.",
-        'Topic "Claude prompting tips" → "Your Claude prompts are killing your results"',
+        "Imply the reader is missing a specific step or element. Anchor to a domain keyword so the context is recognisable. Be vague about what the missing thing is — that comes in slide 2.",
+        'Topic "Claude prompting tips" → "You\'re missing the step that makes Claude prompts work"',
     ),
     (
         "MISTAKE",
-        "Name one specific mistake the reader is making right now. Use concrete, strong words — 'wasting', 'wrong', 'broken'. A named error lands harder than a vague warning.",
-        'Topic "writing prompts for Claude" → "You\'re wasting every Claude prompt you write"',
+        "Name a wrong approach anchored to the topic domain. Use a domain keyword so the reader knows what this is about, but leave the actual mistake implied — not explained.",
+        'Topic "writing prompts for Claude" → "You\'re starting your Claude prompts in the wrong place"',
     ),
     (
         "VALUE",
-        "State the real answer with confidence — no hype, no vague promises. Use a keyword from the topic. Sounds like a confident insider cutting through noise. Compress ruthlessly.",
-        'Topic "Claude for beginners" → "This is what makes Claude actually work"',
+        "Signal that a better way exists without revealing it. Use a keyword from the topic. The reader should feel there's something they're not doing — but not yet know what it is.",
+        'Topic "Claude for beginners" → "There\'s a step in Claude most beginners skip"',
     ),
 ]
 

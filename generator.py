@@ -147,6 +147,60 @@ def _word_limits_section(template_style: str) -> str:
     return "WORD LIMITS: Hook heading ≤12 w | Content heading ≤8 w | Content body ≤20 w | CTA heading ≤14 w\n"
 
 
+def _tone_override_section(template_style: str) -> str:
+    """Return TONE OVERRIDE RULES block — injected only for dark_core."""
+    if template_style != "dark_core":
+        return ""
+    return """\
+TONE OVERRIDE RULES:
+- Always write in second person. Every slide directly addresses "you", the reader.
+- Do NOT explain ideas in general terms. Address the reader's specific situation.
+- Do NOT start headings with "Why", "How", "What" as a question framing.
+- Avoid neutral or instructional phrasing ("one should", "users can", "this helps").
+- Instead: name what the reader is doing wrong, missing, or misunderstanding — then correct it.
+- Body sentences: first sentence states the reader's reality; second reframes or fixes it.
+
+"""
+
+
+# ---------------------------------------------------------------------------
+# Post-processing: tone rewrite (applied after validation, before finalise)
+# ---------------------------------------------------------------------------
+
+# Ordered substitution pairs applied to body text only.
+# Keys are compiled regex patterns; values are replacement strings.
+# Kept conservative — only pronoun normalisation that cannot corrupt meaning.
+_TONE_SUBS: list[tuple[re.Pattern, str]] = [
+    (re.compile(r'\bthe user\b',   re.IGNORECASE), 'you'),
+    (re.compile(r'\bthe users\b',  re.IGNORECASE), 'you'),
+    (re.compile(r'\busers\b',      re.IGNORECASE), 'you'),
+    (re.compile(r'\bone can\b',    re.IGNORECASE), 'you can'),
+    (re.compile(r'\bone should\b', re.IGNORECASE), 'you should'),
+    (re.compile(r'\bone must\b',   re.IGNORECASE), 'you must'),
+]
+
+
+def _apply_tone_rewrites(slides: list[dict], template_style: str) -> list[dict]:
+    """Normalise body text pronouns toward second person for dark_core slides.
+
+    Only touches the "body" field of content slides — leaves headings, hook,
+    CTA, and pattern_break slides untouched so validation is not disturbed.
+    """
+    if template_style != "dark_core":
+        return slides
+
+    out = []
+    for slide in slides:
+        if slide.get("type") != "content":
+            out.append(slide)
+            continue
+        body = slide.get("body", "")
+        for pattern, replacement in _TONE_SUBS:
+            body = pattern.sub(replacement, body)
+        out.append({**slide, "body": body})
+    return out
+
+
 def _output_format_section(num_slides: int, template_style: str) -> str:
     """Return the OUTPUT FORMAT block injected at the end of the system prompt."""
     return f"""\
@@ -244,7 +298,7 @@ Before returning JSON, check:
 If any slide fails, fix it before returning.
 
 {_word_limits_section(template_style)}
-{_output_format_section(num_slides, template_style)}\
+{_tone_override_section(template_style)}{_output_format_section(num_slides, template_style)}\
 """
 
 
@@ -1523,6 +1577,7 @@ def generate_slides(
             if hook:
                 slides[0] = {**slides[0], "heading": hook}
 
+            slides = _apply_tone_rewrites(slides, template_style)
             slides = insert_pattern_break(slides, topic, template_style)
             slides = _finalise_slides(slides, topic)
 

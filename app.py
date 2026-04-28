@@ -939,7 +939,7 @@ def _generate_light_stream_full(
 async def generate_light_route(
     topic: str = Form(...),
     hook: str = Form(...),
-    slides_content: str = Form(...),
+    slides_content: Optional[str] = Form(None),   # optional — empty means no manual content
     images: List[UploadFile] = File(...),
     image_filename: Optional[str] = Form(None),
 ):
@@ -959,14 +959,17 @@ async def generate_light_route(
     if len(images) > 8:
         raise HTTPException(status_code=422, detail="maximum 8 images allowed")
 
-    try:
-        parsed_slides = json.loads(slides_content)
-        if not isinstance(parsed_slides, list):
-            raise ValueError("slides_content must be a JSON array")
-    except Exception as exc:
-        raise HTTPException(status_code=422, detail=f"Invalid slides_content: {exc}")
+    parsed_slides: list[dict] = []
+    if slides_content:
+        try:
+            parsed_slides = json.loads(slides_content)
+            if not isinstance(parsed_slides, list):
+                raise ValueError("slides_content must be a JSON array")
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=f"Invalid slides_content: {exc}")
 
-    if len(images) != len(parsed_slides):
+    # Validate count only when manual content was provided
+    if parsed_slides and len(images) != len(parsed_slides):
         raise HTTPException(
             status_code=422,
             detail=f"Number of images ({len(images)}) must match slide count ({len(parsed_slides)})"
@@ -1105,7 +1108,14 @@ else:
 async def serve_spa(full_path: str):
     index = DIST / "index.html"
     if index.exists():
-        return FileResponse(str(index))
+        # no-cache so browsers always fetch the latest hashed JS/CSS references
+        return FileResponse(
+            str(index),
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+            },
+        )
     return HTMLResponse(
         content=(
             "<h2>Frontend not built</h2>"

@@ -1,12 +1,12 @@
 import React, { useState } from 'react'
 
-// Strip <span class="serif">...</span> from a string, returning plain text.
+// Strip <span class="serif">...</span>, returning plain text.
 function stripSerif(text) {
   return text.replace(/<span\s+class=["']serif["']>(.*?)<\/span>/gi, '$1')
 }
 
-// Try to wrap the first occurrence of `phrase` (full-word, case-insensitive)
-// in <span class="serif">...</span>. Returns null if phrase not found.
+// Wrap the first full-word case-insensitive occurrence of `phrase` in
+// <span class="serif">...</span>. Returns null if phrase is not found.
 function applyEmphasisToHeading(heading, phrase) {
   const plain = stripSerif(heading)
   const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -21,10 +21,10 @@ function applyEmphasisToHeading(heading, phrase) {
 }
 
 function slideLabel(index, total, slide) {
-  if (index === 0)                           return { label: 'Hook',    color: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300' }
-  if (index === total - 1)                   return { label: 'CTA',     color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' }
-  if (slide?.type === 'pattern_break')       return { label: 'Break',   color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' }
-  return                                            { label: 'Content', color: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400' }
+  if (index === 0)                     return { label: 'Hook',    color: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300' }
+  if (index === total - 1)             return { label: 'CTA',     color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' }
+  if (slide?.type === 'pattern_break') return { label: 'Break',   color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' }
+  return                                      { label: 'Content', color: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400' }
 }
 
 function Spinner({ size = 4 }) {
@@ -49,10 +49,28 @@ function RegenIcon() {
   )
 }
 
-function SlideCard({ slide, index, total, flag, emphasisValue, emphasisError, onEmphasisChange, onRegenerate, onApplyFix, onDismissFlag }) {
+function SlideCard({
+  slide, index, total, flag,
+  emphasisValue, emphasisError,
+  onEmphasisChange,
+  onRegenerate, onApplyFix, onDismissFlag,
+}) {
   const [regenBusy, setRegenBusy] = useState(false)
   const { label, color } = slideLabel(index, total, slide)
   const showEmphasisInput = slide.type !== 'cta' && slide.type !== 'pattern_break'
+
+  // Compute the heading to display in real time:
+  //   - empty input  → preserve LLM-generated emphasis (raw heading with <span>)
+  //   - valid input  → apply user's chosen word
+  //   - invalid input → strip emphasis so it's clear the selection is pending
+  let displayHeading
+  if (!emphasisValue) {
+    displayHeading = slide.heading
+  } else if (emphasisError) {
+    displayHeading = stripSerif(slide.heading)
+  } else {
+    displayHeading = applyEmphasisToHeading(slide.heading, emphasisValue) ?? stripSerif(slide.heading)
+  }
 
   const handleRegen = async () => {
     if (regenBusy) return
@@ -78,7 +96,6 @@ function SlideCard({ slide, index, total, flag, emphasisValue, emphasisError, on
         <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wide ${color}`}>
           {label}
         </span>
-
         <button
           type="button"
           onClick={handleRegen}
@@ -90,29 +107,38 @@ function SlideCard({ slide, index, total, flag, emphasisValue, emphasisError, on
         </button>
       </div>
 
-      {/* Slide content */}
+      {/* Slide content — heading rendered as HTML so <span class="serif"> is visible */}
       <div>
-        <p className="font-semibold text-base leading-snug">{stripSerif(slide.heading)}</p>
+        <p
+          className="font-semibold text-base leading-snug"
+          dangerouslySetInnerHTML={{ __html: displayHeading }}
+        />
         {slide.description && (
-          <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed mt-1.5">{slide.description}</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed mt-1.5">
+            {slide.description}
+          </p>
         )}
       </div>
 
-      {/* Emphasis override */}
+      {/* Emphasis input */}
       {showEmphasisInput && (
         <div className="pt-2 border-t border-gray-100 dark:border-gray-800">
           <label className="block text-[11px] font-medium text-gray-400 dark:text-gray-600 mb-1.5 uppercase tracking-wide">
-            Emphasise word
+            Emphasis
           </label>
           <input
             type="text"
             value={emphasisValue || ''}
-            onChange={e => onEmphasisChange(index, e.target.value)}
-            placeholder="e.g. wrong, missing, work"
-            className="w-full bg-transparent text-xs text-gray-700 dark:text-gray-300 placeholder-gray-300 dark:placeholder-gray-700 border-b border-gray-200 dark:border-gray-800 pb-0.5 focus:outline-none focus:border-accent transition-colors"
+            onChange={e => onEmphasisChange(index, e.target.value, slide.heading)}
+            placeholder="Type a word to emphasise"
+            className={`w-full bg-transparent text-xs pb-0.5 border-b focus:outline-none transition-colors
+              ${emphasisError
+                ? 'text-red-600 dark:text-red-400 border-red-400 dark:border-red-600 placeholder-red-300 dark:placeholder-red-800'
+                : 'text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-800 placeholder-gray-300 dark:placeholder-gray-700 focus:border-accent'
+              }`}
           />
           {emphasisError && (
-            <p className="text-[11px] text-red-500 mt-1.5">{emphasisError}</p>
+            <p className="text-[11px] text-red-500 dark:text-red-400 mt-1.5">{emphasisError}</p>
           )}
         </div>
       )}
@@ -120,7 +146,6 @@ function SlideCard({ slide, index, total, flag, emphasisValue, emphasisError, on
       {/* QC flag */}
       {flag && (
         <div className="space-y-2 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2.5">
-          {/* Issue + dismiss */}
           <div className="flex items-start gap-2">
             <svg className="mt-0.5 shrink-0 text-amber-500" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
@@ -140,8 +165,6 @@ function SlideCard({ slide, index, total, flag, emphasisValue, emphasisError, on
               </svg>
             </button>
           </div>
-
-          {/* Suggested replacement */}
           {(flag.replacement_heading || flag.replacement_body) && (
             <div className="rounded-md bg-white dark:bg-gray-900 border border-amber-200 dark:border-amber-800 px-3 py-2 space-y-0.5">
               {flag.replacement_heading && (
@@ -152,8 +175,6 @@ function SlideCard({ slide, index, total, flag, emphasisValue, emphasisError, on
               )}
             </div>
           )}
-
-          {/* Apply fix button */}
           {(flag.replacement_heading || flag.replacement_body) && (
             <button
               type="button"
@@ -178,33 +199,34 @@ export default function SlideReview({
   const [emphasisInputs, setEmphasisInputs] = useState({})
   const [emphasisErrors, setEmphasisErrors] = useState({})
 
-  const handleEmphasisChange = (index, value) => {
+  // Validate on every keystroke — errors are shown immediately.
+  const handleEmphasisChange = (index, value, heading) => {
     setEmphasisInputs(prev => ({ ...prev, [index]: value }))
-    if (emphasisErrors[index]) {
+    if (!value.trim()) {
       setEmphasisErrors(prev => { const n = { ...prev }; delete n[index]; return n })
+      return
     }
+    const valid = applyEmphasisToHeading(heading, value.trim()) !== null
+    setEmphasisErrors(prev =>
+      valid
+        ? (() => { const n = { ...prev }; delete n[index]; return n })()
+        : { ...prev, [index]: 'Word not found in text' }
+    )
   }
 
+  const hasErrors = Object.keys(emphasisErrors).length > 0
+
   const handleRenderClick = () => {
-    const errors = {}
+    if (hasErrors) return
     const modifiedSlides = slides.map((slide, i) => {
       const phrase = (emphasisInputs[i] || '').trim()
       if (!phrase) return slide
       const result = applyEmphasisToHeading(slide.heading, phrase)
-      if (result === null) {
-        errors[i] = `"${phrase}" not found in heading`
-        return slide
-      }
-      return { ...slide, heading: result }
+      return result ? { ...slide, heading: result } : slide
     })
-    if (Object.keys(errors).length > 0) {
-      setEmphasisErrors(errors)
-      return
-    }
     onRender(modifiedSlides)
   }
 
-  // QC flags use 1-based slide_number; convert to 0-based for lookup
   const flagMap = Object.fromEntries((flags || []).map(f => [f.slide_number - 1, f]))
   const flagCount = flags.length
 
@@ -239,7 +261,6 @@ export default function SlideReview({
             }
           </p>
         </div>
-
         <button
           type="button"
           onClick={handleRerunQc}
@@ -299,9 +320,11 @@ export default function SlideReview({
         <button
           type="button"
           onClick={handleRenderClick}
+          disabled={hasErrors}
           className="
             flex-1 flex items-center justify-center gap-2
             bg-accent hover:bg-accent-hover
+            disabled:opacity-40 disabled:cursor-not-allowed
             text-white font-semibold text-sm
             px-5 py-3 rounded-xl
             transition-all active:scale-[0.98]

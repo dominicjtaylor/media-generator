@@ -14,6 +14,12 @@
   }
 }
 
+/* Serif emphasis used in slide headings and review preview */
+span.serif {
+  font-style: italic;
+  font-family: Georgia, 'Times New Roman', serif;
+}
+
 @layer utilities {
   .skeleton {
     background: linear-gradient(

@@ -46,6 +46,7 @@ from generator import (
     _strip_markdown,
     _generate_pattern_break_text,
     italicise_one_word,
+    _format_cta,
 )
 from renderer import render_slides
 
@@ -257,9 +258,9 @@ def _regenerate_slide_internal(
     )
 
     return {
-        "type": new_slide.get("type", slide_type),
+        "type": slide_type,
         "heading": heading,
-        "description": description
+        "body": description,
     }
 
 # ---------------------------------------------------------------------------
@@ -771,12 +772,17 @@ def regenerate_route(req: RegenerateRequest):
     total      = len(req.slides)
     arc        = _arc_position(idx + 1, total)
     slide_type = slide.get("type", "content")
+    is_last    = (idx == total - 1)
 
     # pattern_break: only a heading, no body text
     if slide_type == "pattern_break":
         heading_text = _generate_pattern_break_text(topic)
         heading_text = italicise_one_word(heading_text)
         return {"slide": {"type": "pattern_break", "heading": heading_text, "description": ""}}
+
+    # CTA: pick from predefined short options — never call the LLM
+    if slide_type == "cta" or is_last:
+        return {"slide": {"type": "cta", "heading": _format_cta(), "description": ""}}
 
     # Build context list of every OTHER slide with its arc position so the
     # LLM knows exactly what has already been said and won't repeat ideas.
@@ -813,7 +819,6 @@ def regenerate_route(req: RegenerateRequest):
         new_slide = _parse_json(raw)
         if not isinstance(new_slide, dict):
             raise ValueError("Expected a JSON object")
-        new_slide.setdefault("type", slide_type)
     except Exception as exc:
         logger.error("Regenerate failed: %s", exc)
         raise HTTPException(status_code=500, detail=f"Regeneration failed: {exc}")
@@ -822,22 +827,10 @@ def regenerate_route(req: RegenerateRequest):
     heading = italicise_one_word(heading)
     description = _ensure_complete_sentences(_strip_newlines(_strip_citations(new_slide.get("body", new_slide.get("description", "")))))
 
-    # Enforce "We show you … every day." on the final slide after regeneration
-    is_last = (idx == total - 1)
-    if is_last:
-        h_lower = heading.strip().lower()
-        if not h_lower.startswith("we show you"):
-            heading = f"We show you {topic} every day."
-            logger.info("Corrected final slide heading after regeneration")
-        elif not h_lower.rstrip(".").rstrip().endswith("every day"):
-            heading = heading.rstrip(".").rstrip() + " every day."
-            logger.info("Corrected final slide heading after regeneration")
-
-    returned_type = new_slide.get("type", slide_type)
     return {"slide": {
-        "type": returned_type,
+        "type": slide_type,
         "heading": heading,
-        "description": "" if returned_type == "pattern_break" else description,
+        "description": description,
     }}
 
 
@@ -850,7 +843,7 @@ def _render_stream(
     internal_slides = [
         {"type": s.get("type", "content"),
          "heading": _strip_citations(s.get("heading", "")),
-         "body":    _ensure_complete_sentences(_strip_newlines(_strip_citations(s.get("description", ""))))}
+         "body":    _strip_newlines(_strip_citations(s.get("description", "")))}
         for s in slides
     ]
 

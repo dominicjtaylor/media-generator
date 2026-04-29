@@ -141,14 +141,14 @@ def inject_slide(
     ]:
         html = html.replace(old, new)
 
-    # dark_core: apply focal-point object-position on the featured image for all slides.
+    # dark_core: apply focal-point and switch src to image.jpg (the resized JPEG written by render_slides).
     if template_style == "dark_core" and image_data:
         focal_x = float(image_data.get("focal_x") or 0.5)
         focal_y = float(image_data.get("focal_y") or 0.5)
         obj_pos = f"{focal_x * 100:.1f}% {focal_y * 100:.1f}%"
         html = html.replace(
             '<img src="image.png" alt="visual">',
-            f'<img src="image.png" alt="visual" style="object-position: {obj_pos};">',
+            f'<img src="image.jpg" alt="visual" style="object-position: {obj_pos};">',
         )
         logger.debug("Applied focal-point object-position: %s", obj_pos)
     elif template_style == "dark_core":
@@ -235,17 +235,33 @@ def render_slides(
         else:
             logger.warning("%s not found at %s", logo_name, logo_src)
 
-    # dark_core: copy the featured photo as image.png (shared by all slides in out_dir).
+    # dark_core: resize the featured photo to 2× slide resolution and save as JPEG.
+    # Downscaling large source images here (rather than in-browser) prevents
+    # Playwright timeouts caused by Chromium decoding multi-megapixel files
+    # for every content slide.
     if template_style == "dark_core" and image_data:
         src_image = Path(image_data["local_path"])
+        dest_image = out_dir / "image.jpg"
         if src_image.exists():
-            shutil.copy2(src_image, out_dir / "image.png")
-            logger.info("Copied image %s → %s/image.png", src_image.name, out_dir)
+            try:
+                from PIL import Image as _PILImage
+                with _PILImage.open(src_image) as img:
+                    if img.mode not in ("RGB", "L"):
+                        img = img.convert("RGB")
+                    img.thumbnail((2160, 2700), _PILImage.LANCZOS)
+                    w, h = img.size
+                    img.save(dest_image, "JPEG", quality=85, optimize=True)
+                logger.info(
+                    "Resized image %s → image.jpg (%dx%d)", src_image.name, w, h
+                )
+            except Exception as resize_err:
+                logger.warning(
+                    "Image resize failed (%s); copying original to image.jpg",
+                    resize_err,
+                )
+                shutil.copy2(src_image, dest_image)
         else:
-            logger.error(
-                "Image file not found: %s — slide 1 image will be blank",
-                src_image,
-            )
+            logger.error("Image file not found: %s — slides will have blank image", src_image)
 
     # light_image: copy per-slide content images; build a per-slide filename map.
     slide_image_filenames: list[Optional[str]] = [None] * n
@@ -350,6 +366,32 @@ def render_slides(
                                 "fallback fonts will be used",
                                 i + 1, font_exc,
                             )
+                        # dark_core: wait for the local image to finish decoding,
+                        # but cap at 4 s so a slow disk never blocks the screenshot.
+                        if template_style == "dark_core":
+                            try:
+                                page.evaluate("""async () => {
+                                    const pending = [...document.images].filter(i => !i.complete);
+                                    if (!pending.length) return;
+                                    await Promise.race([
+                                        Promise.all(pending.map(i =>
+                                            new Promise(r => { i.onload = i.onerror = r; })
+                                        )),
+                                        new Promise(r => setTimeout(r, 4000))
+                                    ]);
+                                }""")
+                            except Exception:
+                                pass
+                            # Force a synchronous layout flush: reading getBoundingClientRect
+                            # drains any pending style recalculations and geometry passes
+                            # before the screenshot command is issued.
+                            try:
+                                page.evaluate("document.documentElement.getBoundingClientRect()")
+                            except Exception:
+                                pass
+                            # Short fixed delay so the compositor finishes painting after
+                            # the layout flush.  Bounded and deterministic.
+                            page.wait_for_timeout(250)
                         png_path = out_dir / f"slide-{i + 1}.png"
                         logger.debug("Screenshotting slide %d → %s", i + 1, png_path.name)
                         page.screenshot(path=str(png_path), full_page=False)

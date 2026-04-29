@@ -141,8 +141,8 @@ def inject_slide(
     ]:
         html = html.replace(old, new)
 
-    # dark_core hook slide: apply focal-point object-position on the featured image.
-    if template_style == "dark_core" and index == 0 and image_data:
+    # dark_core: apply focal-point object-position on the featured image for all slides.
+    if template_style == "dark_core" and image_data:
         focal_x = float(image_data.get("focal_x") or 0.5)
         focal_y = float(image_data.get("focal_y") or 0.5)
         obj_pos = f"{focal_x * 100:.1f}% {focal_y * 100:.1f}%"
@@ -151,6 +151,13 @@ def inject_slide(
             f'<img src="image.png" alt="visual" style="object-position: {obj_pos};">',
         )
         logger.debug("Applied focal-point object-position: %s", obj_pos)
+    elif template_style == "dark_core":
+        # No image available — strip the image-box to avoid a broken <img>.
+        html = re.sub(
+            r'\s*<div class="image-box">\s*<img[^>]*alt="visual"[^>]*>\s*</div>',
+            '',
+            html,
+        )
 
     # light_image content slides: substitute per-slide image filename.
     if template_style == "light_image" and slide_image_filename:
@@ -228,7 +235,7 @@ def render_slides(
         else:
             logger.warning("%s not found at %s", logo_name, logo_src)
 
-    # dark_core: copy the featured photo as image.png for the hook slide.
+    # dark_core: copy the featured photo as image.png (shared by all slides in out_dir).
     if template_style == "dark_core" and image_data:
         src_image = Path(image_data["local_path"])
         if src_image.exists():

@@ -544,9 +544,10 @@ Write complete sentences only. Every sentence MUST end with a full stop, exclama
 or question mark. No fragments. No sentences that trail off.
 
 Write a new version of slide {slide_num} only. One idea. Exactly two complete sentences in \
-the body. Each sentence under 12 words. Total body text under 20 words. If a sentence exceeds \
-12 words, split it or cut it — no exceptions. \
-Return as JSON with keys "heading" and "body" — no type, no markdown, just the object:
+the body. Sentence 1 states the key point. Sentence 2 expands or explains it — do not \
+simply restate sentence 1. Each sentence under 15 words. Total body text under 30 words. \
+Bold at most one word per sentence using **word** markdown. \
+Return as JSON with keys "heading" and "body" — no type, no markdown wrappers, just the object:
 {{"heading": "...", "body": "..."}}"""
 
 

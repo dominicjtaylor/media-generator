@@ -56,9 +56,19 @@ def _strip_bold(text: str) -> str:
     return re.sub(r'\*\*(.*?)\*\*', r'\1', text)
 
 
-def _strip_serif_spans(text: str) -> str:
-    """Remove <span class="serif"> tags from body text; only <strong> is allowed there."""
-    return re.sub(r'<span\s+class=["\']serif["\']>(.*?)</span>', r'\1', text, flags=re.IGNORECASE)
+def _serif_to_bold(text: str) -> str:
+    """Convert <span class="serif"> in body text to <strong>.
+
+    Body text must use bold, not italic serif, for emphasis.  The LLM sometimes
+    emits serif spans in the body field; this converts them rather than stripping
+    them so the emphasis is preserved — just rendered correctly.
+    """
+    return re.sub(
+        r'<span\s+class=["\']serif["\']>(.*?)</span>',
+        r'<strong>\1</strong>',
+        text,
+        flags=re.IGNORECASE,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -159,7 +169,7 @@ def inject_slide(
         # Content slides: separate {{HEADING}} + {{TEXT}} zones.
         # Anton font is used for headings — strip bold markers to avoid font fallback.
         html = html.replace("{{HEADING}}", _strip_bold(heading))
-        html = html.replace("{{TEXT}}",    _md_bold_to_html(_strip_serif_spans(body).replace('\n', '<br>')))
+        html = html.replace("{{TEXT}}",    _md_bold_to_html(_serif_to_bold(body).replace('\n', '<br>')))
         tag = (slide.get("tag") or "").strip().upper()
         html = html.replace("{{TAG}}", tag)
         slide_counter = f"{str(index + 1).zfill(2)} / {str(total).zfill(2)}"

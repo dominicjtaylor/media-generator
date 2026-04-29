@@ -55,14 +55,14 @@ WORD_LIMITS: dict[str, dict[str, int]] = {
     "dark_core": {
         "hook_heading":    8,
         "content_heading": 8,
-        "content_body":    20,
+        "content_body":    30,
         "cta_heading":     8,
         "cta_body":        12,
     },
     "light_image": {
         "hook_heading":    8,
         "content_heading": 8,
-        "content_body":    20,
+        "content_body":    30,
         "cta_heading":     8,
         "cta_body":        12,
     },
@@ -139,7 +139,7 @@ def _build_carousel_arc(num_slides: int) -> str:
 
 
 def _word_limits_section(template_style: str) -> str:
-    return "WORD LIMITS: Hook heading ≤12 w | Content heading ≤8 w | Content body ≤20 w | CTA heading ≤14 w\n"
+    return "WORD LIMITS: Hook heading ≤12 w | Content heading ≤8 w | Content body ≤30 w | CTA heading ≤14 w\n"
 
 
 def _tone_override_section(template_style: str) -> str:
@@ -155,16 +155,16 @@ TONE OVERRIDE RULES:
 - Avoid opening headings with "Why", "How", "First", "Finally".
 
 READABILITY RULES:
-- Each content body is 1–2 sentences.
-- Sentences should be slightly expanded for clarity — not compressed to the point of feeling abrupt.
+- Each content body is exactly 2 sentences.
+- Sentence 1 states the key point. Sentence 2 expands or explains it — do not just restate sentence 1.
 - Write for fast scanning: the reader should grasp the point in under 3 seconds.
 
 EMPHASIS RULES (for body text only):
-- Wrap at most ONE phrase per sentence in <span class="serif">...</span>.
+- Bold at most ONE phrase per sentence using **word** markdown.
 - Emphasise meaning over objects: prefer quantities ("only", "double"), contrast ("instead", "before"), or key insight phrases (max 2 words, e.g. "structured content").
-- Do NOT emphasise generic nouns ("tools", "content", "setup", "approach").
-- If nothing earns emphasis, omit the span entirely.
-- Never use more than one span per sentence.
+- Do NOT bold generic nouns ("tools", "content", "setup", "approach").
+- If nothing earns emphasis, omit bold entirely.
+- Never bold more than one phrase per sentence.
 
 """
 
@@ -319,8 +319,9 @@ HEADINGS (all slides):
 - Never end with a preposition or conjunction
 
 CONTENT SLIDES (2–{num_slides - 1}):
-- Body: exactly 2 sentences, each ≤12 words, total ≤20 words.
-- Bold 1 impactful word (prefer numbers, results, contrast words). Skip if nothing earns it.
+- Body: exactly 2 sentences, each ≤15 words, total ≤30 words.
+- Sentence 1 states the key point. Sentence 2 expands or explains it — do not repeat sentence 1.
+- Bold 1 impactful word using **word** markdown (prefer numbers, results, contrast words). Skip if nothing earns it.
 - Include: insight ("because…"), concrete example (real prompt in context), or outcome (specific result).
 - Each slide self-contained — never split a pattern (e.g. "Instead of/Try") across slides.
 - Tag: one of TIP, FACT, INSIGHT, EXAMPLE, WORKFLOW, STAT, TOOL, MISTAKE

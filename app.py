@@ -67,6 +67,8 @@ RENDERS_DIR.mkdir(parents=True, exist_ok=True)
 _UPLOADS_DIR = Path("/tmp/uploads")
 _UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
+_HAS_LUMMI = bool(os.getenv("LUMMI_API_KEY"))
+
 # Arc labels used to tell Claude where in the narrative each slide sits.
 _ARC = ["Problem", "Cost", "Shift", "System", "Proof", "Decision", "CTA"]
 
@@ -393,6 +395,15 @@ def _sse(payload: dict) -> str:
     return f"data: {json.dumps(payload)}\n\n"
 
 
+def _fetch_image_data(topic: str, image_filename: Optional[str] = None) -> Optional[dict]:
+    """Fetch cover image via Lummi API or local library. Returns None on failure."""
+    if _HAS_LUMMI:
+        from image_fetcher import fetch_lummi_image
+        return fetch_lummi_image(topic)
+    from local_image import get_image_for_heading_template
+    return get_image_for_heading_template(topic, image_filename)
+
+
 def _stream(topic: str, num_slides: int) -> Generator[str, None, None]:
     """Sync generator that emits SSE events at each real pipeline stage."""
     print("HTML PIPELINE ACTIVE")
@@ -430,12 +441,7 @@ def _stream(topic: str, num_slides: int) -> Generator[str, None, None]:
     image_data = None
     yield _sse({"step": "fetching_image", "message": "Fetching image..."})
     try:
-        if os.getenv("LUMMI_API_KEY"):
-            from image_fetcher import fetch_lummi_image
-            image_data = fetch_lummi_image(topic)
-        else:
-            from local_image import get_image_for_heading_template
-            image_data = get_image_for_heading_template(topic)
+        image_data = _fetch_image_data(topic)
         if image_data and image_data.get("author_name"):
             author_url = image_data.get("author_url", "")
             credit = image_data["author_name"]
@@ -713,12 +719,7 @@ def _slides_stream(topic: str, hook: str, num_slides: int, image_filename: Optio
     image_data = None
     yield _sse({"step": "fetching_image", "message": "Fetching image..."})
     try:
-        if os.getenv("LUMMI_API_KEY"):
-            from image_fetcher import fetch_lummi_image
-            image_data = fetch_lummi_image(topic)
-        else:
-            from local_image import get_image_for_heading_template
-            image_data = get_image_for_heading_template(topic, image_filename)
+        image_data = _fetch_image_data(topic, image_filename)
         if image_data and image_data.get("author_name"):
             author_url = image_data.get("author_url", "")
             credit = image_data["author_name"]
@@ -859,15 +860,9 @@ def _render_stream(
     image_data = None
     if style == "dark_core":
         try:
-            if os.getenv("LUMMI_API_KEY"):
-                from image_fetcher import fetch_lummi_image
-                image_data = fetch_lummi_image(topic)
-            else:
-                from local_image import get_image_for_heading_template
-                image_data = get_image_for_heading_template(topic, image_filename)
+            image_data = _fetch_image_data(topic, image_filename)
         except Exception as exc:
             logger.warning("Image fetch failed for render (%s) — proceeding without image", exc)
-            image_data = None
 
     try:
         png_paths, run_id = render_slides(
@@ -931,12 +926,7 @@ def _render_manual_stream(
     if style == "dark_core":
         yield _sse({"step": "fetching_image", "message": "Fetching image…"})
         try:
-            if os.getenv("LUMMI_API_KEY"):
-                from image_fetcher import fetch_lummi_image
-                image_data = fetch_lummi_image(topic)
-            else:
-                from local_image import get_image_for_heading_template
-                image_data = get_image_for_heading_template(topic, image_filename)
+            image_data = _fetch_image_data(topic, image_filename)
         except Exception as exc:
             logger.warning("Image fetch failed (%s) — proceeding without image", exc)
 

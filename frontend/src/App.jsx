@@ -5,7 +5,6 @@ import ImagePicker from './components/ImagePicker.jsx'
 import SlideReview from './components/SlideReview.jsx'
 import Output from './components/Output.jsx'
 import Toast from './components/Toast.jsx'
-import { SLIDE_PRESET_CONFIGS } from './slidePresets.js'
 
 // Stage flow:
 // idle → template_selection → hooks_loading → hook_selection
@@ -165,36 +164,257 @@ function ContentModeSelector({ onSelect, onBack }) {
   )
 }
 
-// ── Dark manual: slide count picker ───────────────────────────────────────
-function SlideCountPicker({ presetConfig, value, onChange, onConfirm, onBack }) {
+// ── Dark manual: dynamic slide sequence editor ────────────────────────────
+function DarkManualEditor({ onConfirm, onBack }) {
+  const [hookText,          setHookText]          = useState('')
+  const [hookEmphasis,      setHookEmphasis]      = useState('')
+  const [hookEmphasisError, setHookEmphasisError] = useState('')
+  // Ordered middle slides. Each is { id, type:'content'|'pattern_break', heading, text?, emphasis? }
+  const [slides,            setSlides]            = useState([])
+  const [emphasisErrors,    setEmphasisErrors]    = useState({})  // id → error string
+
+  const inputClass = "w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/40"
+
+  // ── Slide mutations ───────────────────────────────────────────────────────
+
+  const addSlide = (afterIndex, type) => {
+    const id = `${type}_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`
+    const slide = type === 'pattern_break'
+      ? { id, type: 'pattern_break', heading: '' }
+      : { id, type: 'content', heading: '', text: '', emphasis: '' }
+    setSlides(prev => [
+      ...prev.slice(0, afterIndex + 1),
+      slide,
+      ...prev.slice(afterIndex + 1),
+    ])
+  }
+
+  const removeSlide = (id) => {
+    setSlides(prev => prev.filter(s => s.id !== id))
+    setEmphasisErrors(prev => { const next = { ...prev }; delete next[id]; return next })
+  }
+
+  const updateSlide = (id, field, value) =>
+    setSlides(prev => prev.map(s => s.id === id ? { ...s, [field]: value } : s))
+
+  const updateSlideHeading = (id, value) => {
+    const currentEmphasis = slides.find(s => s.id === id)?.emphasis || ''
+    setSlides(prev => prev.map(s => s.id === id ? { ...s, heading: value } : s))
+    if (currentEmphasis.trim()) {
+      const result = applyEmphasisToHeading(value, currentEmphasis)
+      setEmphasisErrors(prev => {
+        if (result === null) return { ...prev, [id]: `"${currentEmphasis}" not found in heading` }
+        const next = { ...prev }; delete next[id]; return next
+      })
+    }
+  }
+
+  const updateSlideEmphasis = (id, value) => {
+    const heading = slides.find(s => s.id === id)?.heading || ''
+    setSlides(prev => prev.map(s => s.id === id ? { ...s, emphasis: value } : s))
+    if (!value.trim()) {
+      setEmphasisErrors(prev => { const next = { ...prev }; delete next[id]; return next })
+      return
+    }
+    const result = applyEmphasisToHeading(heading, value)
+    setEmphasisErrors(prev => {
+      if (result === null) return { ...prev, [id]: `"${value}" not found in heading` }
+      const next = { ...prev }; delete next[id]; return next
+    })
+  }
+
+  // ── Hook mutations ────────────────────────────────────────────────────────
+
+  const updateHookText = (value) => {
+    setHookText(value)
+    if (hookEmphasis.trim()) {
+      const result = applyEmphasisToHeading(value, hookEmphasis)
+      setHookEmphasisError(result === null ? `"${hookEmphasis}" not found in hook` : '')
+    }
+  }
+
+  const updateHookEmphasis = (value) => {
+    setHookEmphasis(value)
+    if (!value.trim()) { setHookEmphasisError(''); return }
+    const result = applyEmphasisToHeading(hookText, value)
+    setHookEmphasisError(result === null ? `"${value}" not found in hook` : '')
+  }
+
+  // ── Validation ────────────────────────────────────────────────────────────
+
+  const hasEmphasisErrors = hookEmphasisError !== '' || Object.keys(emphasisErrors).length > 0
+  const allFilled = hookText.trim()
+    && slides.length >= 1
+    && !hasEmphasisErrors
+    && slides.every(s => s.heading.trim() && (s.type === 'pattern_break' || s.text.trim()))
+
+  // ── Confirm ───────────────────────────────────────────────────────────────
+
+  const handleConfirm = () => {
+    if (!allFilled) return
+    const finalHook = hookEmphasis.trim()
+      ? applyEmphasisToHeading(hookText, hookEmphasis) || hookText
+      : hookText
+    const finalSlides = slides.map(s => ({
+      type:    s.type,
+      heading: (s.type === 'content' && s.emphasis?.trim())
+        ? applyEmphasisToHeading(s.heading, s.emphasis) || s.heading
+        : s.heading,
+      text: s.text || '',
+    }))
+    onConfirm({ hook: finalHook, slidesContent: finalSlides })
+  }
+
+  // ── Add-slide row (rendered between every adjacent pair) ──────────────────
+
+  const addRow = (afterIndex) => (
+    <div className="flex gap-2 justify-center py-0.5">
+      <button
+        type="button"
+        onClick={() => addSlide(afterIndex, 'content')}
+        className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-dashed border-gray-300 dark:border-gray-700 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-400 dark:hover:border-gray-500 transition-colors"
+      >
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <line x1="5" y1="1" x2="5" y2="9"/><line x1="1" y1="5" x2="9" y2="5"/>
+        </svg>
+        Content
+      </button>
+      <button
+        type="button"
+        onClick={() => addSlide(afterIndex, 'pattern_break')}
+        className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-dashed border-amber-400/40 dark:border-amber-600/30 text-amber-500/60 hover:text-amber-600 dark:hover:text-amber-400 hover:border-amber-400/70 transition-colors"
+      >
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <line x1="5" y1="1" x2="5" y2="9"/><line x1="1" y1="5" x2="9" y2="5"/>
+        </svg>
+        Pattern Break
+      </button>
+    </div>
+  )
+
+  // ── Render ────────────────────────────────────────────────────────────────
+
   return (
     <div className="space-y-6 animate-slide-up">
       <div>
-        <h2 className="text-xl font-semibold">How many slides?</h2>
+        <h2 className="text-xl font-semibold">Build your carousel</h2>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-          Hook and CTA are added automatically. Pattern breaks are optional extras on top of this count.
+          Add slides in sequence. Hook is first, CTA is last — both fixed. Add at least one content slide.
         </p>
       </div>
 
-      <div className="grid grid-cols-4 gap-3">
-        {presetConfig.presets.map(n => (
-          <button
-            key={n}
-            type="button"
-            onClick={() => onChange(n)}
-            className={`flex flex-col items-center gap-1 py-5 rounded-xl border-2 transition-all ${
-              value === n
-                ? 'border-accent bg-accent/5 dark:bg-accent/10'
-                : 'border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700'
-            }`}
-          >
-            <span className={`text-2xl font-bold tabular-nums ${value === n ? 'text-accent' : ''}`}>{n}</span>
-            {presetConfig.hint && (
-              <span className="text-xs text-gray-400">{presetConfig.hint(n)}</span>
+      <div className="space-y-2">
+
+        {/* Hook — always first, not removable */}
+        <div className="rounded-xl border border-violet-200 dark:border-violet-900/50 p-4 space-y-3">
+          <p className="text-xs font-semibold text-violet-500 uppercase tracking-wide">Slide 1 — Hook</p>
+          <input
+            type="text"
+            placeholder="Hook heading (required)"
+            value={hookText}
+            onChange={e => updateHookText(e.target.value)}
+            className={inputClass}
+          />
+          {hookText.trim() && (
+            <div className="space-y-1">
+              <input
+                type="text"
+                placeholder="Cursive emphasis word (optional)"
+                value={hookEmphasis}
+                onChange={e => updateHookEmphasis(e.target.value)}
+                className={inputClass}
+              />
+              {hookEmphasisError && (
+                <p className="text-xs text-red-500 dark:text-red-400">{hookEmphasisError}</p>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Add row before first slide (between hook and whatever comes next) */}
+        {addRow(-1)}
+
+        {/* Middle slides — dynamically added */}
+        {slides.map((slide, i) => (
+          <React.Fragment key={slide.id}>
+            {slide.type === 'pattern_break' ? (
+              <div className="rounded-xl border border-amber-400/60 dark:border-amber-600/40 bg-amber-50/30 dark:bg-amber-950/20 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold text-amber-600 dark:text-amber-500 uppercase tracking-wide">
+                    Slide {i + 2} — Pattern Break
+                  </p>
+                  <button type="button" onClick={() => removeSlide(slide.id)} className="text-xs text-gray-400 hover:text-red-500 transition-colors">
+                    ✕ Remove
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  placeholder="Pattern break heading (required)"
+                  value={slide.heading}
+                  onChange={e => updateSlide(slide.id, 'heading', e.target.value)}
+                  className={inputClass}
+                />
+              </div>
+            ) : (
+              <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Slide {i + 2}</p>
+                  <button type="button" onClick={() => removeSlide(slide.id)} className="text-xs text-gray-400 hover:text-red-500 transition-colors">
+                    ✕ Remove
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  placeholder="Heading (required)"
+                  value={slide.heading}
+                  onChange={e => updateSlideHeading(slide.id, e.target.value)}
+                  className={inputClass}
+                />
+                <textarea
+                  rows={2}
+                  placeholder="Body text (required)"
+                  value={slide.text}
+                  onChange={e => updateSlide(slide.id, 'text', e.target.value)}
+                  className={`${inputClass} resize-none`}
+                />
+                {slide.heading.trim() && (
+                  <div className="space-y-1">
+                    <input
+                      type="text"
+                      placeholder="Cursive emphasis word (optional)"
+                      value={slide.emphasis}
+                      onChange={e => updateSlideEmphasis(slide.id, e.target.value)}
+                      className={inputClass}
+                    />
+                    {emphasisErrors[slide.id] && (
+                      <p className="text-xs text-red-500 dark:text-red-400">{emphasisErrors[slide.id]}</p>
+                    )}
+                  </div>
+                )}
+              </div>
             )}
-          </button>
+            {/* Add row after every slide */}
+            {addRow(i)}
+          </React.Fragment>
         ))}
+
+        {/* CTA — always last, read-only */}
+        <div className="rounded-xl border border-gray-200/50 dark:border-gray-800/50 bg-gray-50/40 dark:bg-gray-900/20 p-4">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+              Slide {slides.length + 2} — CTA
+            </p>
+            <span className="text-xs text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full">auto</span>
+          </div>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1.5">Added automatically · always last</p>
+        </div>
       </div>
+
+      {slides.length === 0 && (
+        <p className="text-xs text-center text-gray-400 dark:text-gray-600">
+          Add at least one content slide to continue.
+        </p>
+      )}
 
       <div className="flex gap-3">
         <button
@@ -206,8 +426,9 @@ function SlideCountPicker({ presetConfig, value, onChange, onConfirm, onBack }) 
         </button>
         <button
           type="button"
-          onClick={() => onConfirm(value)}
-          className="flex-1 rounded-xl bg-accent text-white py-3 text-sm font-semibold hover:bg-orange-600 transition-colors"
+          onClick={handleConfirm}
+          disabled={!allFilled}
+          className="flex-1 rounded-xl bg-accent text-white py-3 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-orange-600 transition-colors"
         >
           Continue
         </button>
@@ -729,14 +950,8 @@ export default function App() {
         goError(err.message || 'Failed to generate hooks.')
       }
     } else {
-      // Manual path: show the dark-manual slide count picker first.
-      // Snap numSlides to the dark_manual default if the current value
-      // isn't one of the dark-manual presets.
-      const dmPresets = SLIDE_PRESET_CONFIGS.dark_manual.presets
-      if (!dmPresets.includes(numSlides)) {
-        setNumSlides(SLIDE_PRESET_CONFIGS.dark_manual.default)
-      }
-      setStatus('dark_slide_count')
+      // Manual path: go straight to the dynamic slide editor — no preset count needed.
+      setStatus('dark_manual_entry')
     }
   }, [topic, numSlides, goError])
 
@@ -1049,24 +1264,11 @@ export default function App() {
           />
         )}
 
-        {/* ── dark manual: slide count selection ── */}
-        {status === 'dark_slide_count' && (
-          <SlideCountPicker
-            presetConfig={SLIDE_PRESET_CONFIGS.dark_manual}
-            value={numSlides}
-            onChange={setNumSlides}
-            onConfirm={(n) => { setNumSlides(n); setStatus('dark_manual_entry') }}
-            onBack={() => setStatus('dark_content_mode')}
-          />
-        )}
-
-        {/* ── dark: manual slide content entry ── */}
+        {/* ── dark manual: dynamic slide editor ── */}
         {status === 'dark_manual_entry' && (
-          <ContentEntryForm
-            numSlides={numSlides}
-            includeHook
+          <DarkManualEditor
             onConfirm={handleManualConfirm}
-            onBack={() => setStatus('dark_slide_count')}
+            onBack={() => setStatus('dark_content_mode')}
           />
         )}
 

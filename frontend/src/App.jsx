@@ -88,6 +88,132 @@ function TemplateSelector({ onSelect, onBack }) {
   )
 }
 
+// ── Dark: content mode selector ───────────────────────────────────────────
+function ContentModeSelector({ onSelect, onBack }) {
+  return (
+    <div className="space-y-6 animate-slide-up">
+      <div>
+        <h2 className="text-xl font-semibold">How should content be created?</h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Choose how the slide text will be written.</p>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <button
+          onClick={() => onSelect('llm')}
+          className="rounded-xl border border-gray-200 dark:border-gray-800 p-5 text-left hover:border-accent hover:bg-gray-50 dark:hover:bg-gray-900/60 transition-all group"
+        >
+          <div className="w-full h-20 rounded-lg bg-gradient-to-br from-violet-950 to-violet-900 mb-4 flex items-center justify-center border border-violet-800">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+            </svg>
+          </div>
+          <div className="font-semibold text-sm group-hover:text-accent transition-colors">AI Generated</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Claude writes every slide from your topic</div>
+        </button>
+
+        <button
+          onClick={() => onSelect('manual')}
+          className="rounded-xl border border-gray-200 dark:border-gray-800 p-5 text-left hover:border-accent hover:bg-gray-50 dark:hover:bg-gray-900/60 transition-all group"
+        >
+          <div className="w-full h-20 rounded-lg bg-gradient-to-br from-gray-800 to-gray-900 mb-4 flex items-center justify-center border border-gray-700">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+            </svg>
+          </div>
+          <div className="font-semibold text-sm group-hover:text-accent transition-colors">Manual Input</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">You write every slide heading and body</div>
+        </button>
+      </div>
+
+      <button
+        onClick={onBack}
+        className="text-sm text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+      >
+        ← Back
+      </button>
+    </div>
+  )
+}
+
+// ── Dark: manual slide content entry ──────────────────────────────────────
+function DarkManualEntry({ numSlides, onConfirm, onBack }) {
+  const contentCount = numSlides - 2  // exclude hook slide and CTA slide
+  const [hookText, setHookText] = useState('')
+  const [entries, setEntries] = useState(
+    Array.from({ length: contentCount }, () => ({ heading: '', text: '' }))
+  )
+
+  const update = (i, field, value) =>
+    setEntries(prev => prev.map((e, idx) => idx === i ? { ...e, [field]: value } : e))
+
+  const allFilled = hookText.trim() && entries.every(e => e.heading.trim() && e.text.trim())
+
+  return (
+    <div className="space-y-6 animate-slide-up">
+      <div>
+        <h2 className="text-xl font-semibold">Enter your slide content</h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          Write the hook and body for each slide. The final CTA slide is added automatically.
+        </p>
+      </div>
+
+      <div className="space-y-5">
+        {/* Hook slide */}
+        <div className="rounded-xl border border-violet-200 dark:border-violet-900/50 p-4 space-y-3">
+          <p className="text-xs font-semibold text-violet-500 uppercase tracking-wide">Slide 1 — Hook</p>
+          <input
+            type="text"
+            placeholder="Hook heading (required)"
+            value={hookText}
+            onChange={e => setHookText(e.target.value)}
+            className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/40"
+          />
+        </div>
+
+        {/* Content slides */}
+        {entries.map((entry, i) => (
+          <div key={i} className="rounded-xl border border-gray-200 dark:border-gray-800 p-4 space-y-3">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Slide {i + 2}</p>
+            <input
+              type="text"
+              placeholder="Heading (required)"
+              value={entry.heading}
+              onChange={e => update(i, 'heading', e.target.value)}
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/40"
+            />
+            <textarea
+              rows={2}
+              placeholder="Body text (required)"
+              value={entry.text}
+              onChange={e => update(i, 'text', e.target.value)}
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/40 resize-none"
+            />
+          </div>
+        ))}
+      </div>
+
+      <div className="flex gap-3">
+        <button
+          type="button"
+          onClick={onBack}
+          className="px-4 py-3 rounded-xl text-sm font-medium text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+        >
+          Back
+        </button>
+        <button
+          type="button"
+          onClick={() => allFilled && onConfirm({ hook: hookText, slidesContent: entries })}
+          disabled={!allFilled}
+          className="flex-1 rounded-xl bg-accent text-white py-3 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-orange-600 transition-colors"
+        >
+          Continue
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── Light image upload ─────────────────────────────────────────────────────
 function LightUpload({ onConfirm, onBack, selectedImage}) {
   const [files, setFiles] = useState([])
@@ -318,9 +444,12 @@ export default function App() {
   const [topic,             setTopic]             = useState('')
   const [numSlides,         setNumSlides]         = useState(5)
   const [templateType,      setTemplateType]      = useState(null)   // 'dark' | 'light'
+  const [contentMode,       setContentMode]       = useState(null)   // 'llm' | 'manual'
   const [hooks,             setHooks]             = useState([])
   const [lightHooks,        setLightHooks]        = useState([])
   const [lightSlideContent, setLightSlideContent] = useState([])  // [{heading, text}] for content slides
+  const [manualHook,        setManualHook]        = useState('')
+  const [manualSlides,      setManualSlides]      = useState([])   // [{heading, text}] for manual dark mode
   const [selectedHook,      setSelectedHook]      = useState(null)
   const [selectedImage,     setSelectedImage]     = useState(null)
   const [slides,            setSlides]            = useState([])
@@ -351,9 +480,12 @@ export default function App() {
     setError('')
     setStepMsg('')
     setTemplateType(null)
+    setContentMode(null)
     setHooks([])
     setLightHooks([])
     setLightSlideContent([])
+    setManualHook('')
+    setManualSlides([])
     setSelectedHook(null)
     setSelectedImage(null)
     setSlides([])
@@ -368,7 +500,7 @@ export default function App() {
     setStatus('template_selection')
   }, [])
 
-  // ── Stage 2: template selected → load hooks ────────────────────────────
+  // ── Stage 2: template selected → content mode (dark) or hooks (light) ───
   const handleTemplateSelect = useCallback(async (type) => {
     setTemplateType(type)
 
@@ -393,7 +525,17 @@ export default function App() {
         goError(err.message || 'Failed to generate hooks.')
       }
     } else {
-      // Dark: existing flow
+      // Dark: choose content mode before generating anything
+      setStatus('dark_content_mode')
+    }
+  }, [topic, numSlides, goError])
+
+  // ── Stage 2b: content mode selected ───────────────────────────────────
+  const handleContentModeSelect = useCallback(async (mode) => {
+    setContentMode(mode)
+
+    if (mode === 'llm') {
+      // LLM path: generate hook options via Claude
       setStatus('hooks_loading')
       setStepMsg('Generating hook options…')
       try {
@@ -412,12 +554,22 @@ export default function App() {
       } catch (err) {
         goError(err.message || 'Failed to generate hooks.')
       }
+    } else {
+      // Manual path: user writes content directly
+      setStatus('dark_manual_entry')
     }
   }, [topic, numSlides, goError])
 
   // ── Stage 3a: dark hook selected → image selection ───────────────────
   const handleHookSelect = useCallback((hook) => {
     setSelectedHook(hook)
+    setStatus('image_selection')
+  }, [])
+
+  // ── Stage 3a (manual): manual content confirmed → image selection ─────
+  const handleManualConfirm = useCallback(({ hook, slidesContent }) => {
+    setManualHook(hook)
+    setManualSlides(slidesContent)
     setStatus('image_selection')
   }, [])
 
@@ -433,9 +585,54 @@ export default function App() {
     setStatus('light_cover_selection')
   }, [])
 
-  // ── Dark pipeline: image confirmed → generate slides (SSE) ────────────
+  // ── Dark pipeline: image confirmed → generate (LLM) or render (manual) ─
   const handleImageConfirm = useCallback(async (image) => {
     setSelectedImage(image)
+
+    if (contentMode === 'manual') {
+      // Manual path: send slide data directly to /render-manual (no LLM)
+      setStatus('rendering')
+      setStepMsg('Rendering slides…')
+      try {
+        const res = await fetch('/render-manual', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({
+            topic,
+            hook:           manualHook,
+            slides_content: manualSlides,
+            image_filename: image?.filename || null,
+            style:          'dark_core',
+          }),
+        })
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          throw new Error(body.detail || `Server error (${res.status})`)
+        }
+        let gotComplete = false
+        let gotError = false
+        await readSse(res, (event) => {
+          if (event.step === 'complete') {
+            gotComplete = true
+            setImages(event.images || [])
+            setCaption(event.caption || '')
+            setStatus('done')
+            showToast('Carousel rendered!')
+          } else if (event.step === 'error') {
+            gotError = true
+            goError(event.message || 'Rendering failed.')
+          } else {
+            setStepMsg(event.message || '')
+          }
+        })
+        if (!gotComplete && !gotError) goError('Render did not complete.')
+      } catch (err) {
+        goError(err.message || 'Rendering failed.')
+      }
+      return
+    }
+
+    // LLM path: generate slides via Claude then go to review
     setStatus('slides_loading')
     setStepMsg('Generating slides…')
     try {
@@ -474,7 +671,7 @@ export default function App() {
     } catch (err) {
       goError(err.message || 'Slide generation failed.')
     }
-  }, [topic, numSlides, selectedHook, goError])
+  }, [contentMode, topic, numSlides, selectedHook, manualHook, manualSlides, goError, showToast])
 
   // ── Dark pipeline: per-slide regenerate ───────────────────────────────
   const handleRegenerate = useCallback(async (index) => {
@@ -663,13 +860,30 @@ export default function App() {
         {/* ── loading spinner ── */}
         {LOADING_STAGES.has(status) && <LoadingPane message={stepMsg} />}
 
+        {/* ── dark: content mode selection ── */}
+        {status === 'dark_content_mode' && (
+          <ContentModeSelector
+            onSelect={handleContentModeSelect}
+            onBack={() => setStatus('template_selection')}
+          />
+        )}
+
+        {/* ── dark: manual slide content entry ── */}
+        {status === 'dark_manual_entry' && (
+          <DarkManualEntry
+            numSlides={numSlides}
+            onConfirm={handleManualConfirm}
+            onBack={() => setStatus('dark_content_mode')}
+          />
+        )}
+
         {/* ── dark: hook selection ── */}
         {status === 'hook_selection' && (
           <HookPicker
             hooks={hooks}
             topic={topic}
             onSelect={handleHookSelect}
-            onBack={() => setStatus('template_selection')}
+            onBack={() => setStatus('dark_content_mode')}
           />
         )}
 
@@ -691,11 +905,11 @@ export default function App() {
           />
         )}
 
-        {/* ── dark: image selection ── */}
+        {/* ── dark: image selection (used by both LLM and manual modes) ── */}
         {status === 'image_selection' && (
           <ImagePicker
             onSelect={handleImageConfirm}
-            onBack={() => setStatus('hook_selection')}
+            onBack={() => setStatus(contentMode === 'manual' ? 'dark_manual_entry' : 'hook_selection')}
           />
         )}
 

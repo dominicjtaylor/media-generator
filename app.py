@@ -311,6 +311,14 @@ class LightStructureRequest(BaseModel):
     num_slides: int = 5
 
 
+class ManualRenderRequest(BaseModel):
+    topic:          str
+    hook:           str
+    slides_content: list[dict]   # [{heading: str, text: str}]
+    image_filename: Optional[str] = None
+    style:          str = "dark_core"
+
+
 # ---------------------------------------------------------------------------
 # SSE helpers
 # ---------------------------------------------------------------------------
@@ -889,6 +897,80 @@ def render_route(req: RenderRequest):
 
     return StreamingResponse(
         _render_stream(topic, req.slides, req.style, req.image_filename),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+def _render_manual_stream(
+    topic: str,
+    hook: str,
+    slides_content: list[dict],
+    image_filename: Optional[str] = None,
+    style: str = "dark_core",
+) -> Generator[str, None, None]:
+    """SSE stream: build + render a manually authored carousel with zero LLM calls."""
+    yield _sse({"step": "building", "message": "Building slides…"})
+
+    content_slides = [
+        {
+            "type":    "content",
+            "heading": s.get("heading", "").strip(),
+            "body":    s.get("text", "").strip(),
+            "tag":     "INSIGHT",
+        }
+        for s in slides_content
+    ]
+    slides = [
+        {"type": "hook",    "heading": hook.strip(), "body": "", "tag": ""},
+        *content_slides,
+        {"type": "cta",     "heading": _format_cta(), "body": "", "tag": ""},
+    ]
+
+    image_data = None
+    if style == "dark_core":
+        yield _sse({"step": "fetching_image", "message": "Fetching image…"})
+        try:
+            if os.getenv("LUMMI_API_KEY"):
+                from image_fetcher import fetch_lummi_image
+                image_data = fetch_lummi_image(topic)
+            else:
+                from local_image import get_image_for_heading_template
+                image_data = get_image_for_heading_template(topic, image_filename)
+        except Exception as exc:
+            logger.warning("Image fetch failed (%s) — proceeding without image", exc)
+
+    yield _sse({"step": "rendering", "message": "Rendering slides…"})
+    try:
+        png_paths, run_id = render_slides(
+            slides,
+            renders_base=str(RENDERS_DIR),
+            template_style=style,
+            image_data=image_data,
+        )
+    except Exception as exc:
+        logger.error("Manual render failed: %s", exc)
+        yield _sse({"step": "error", "message": f"Rendering failed: {exc}"})
+        return
+
+    image_urls = [f"/renders/{run_id}/slide-{i + 1}.png" for i in range(len(png_paths))]
+    logger.info("Manual render complete: %d images (run=%s style=%s)", len(image_urls), run_id, style)
+    yield _sse({"step": "complete", "images": image_urls, "caption": ""})
+
+
+@app.post("/render-manual", tags=["carousel"])
+def render_manual_route(req: ManualRenderRequest):
+    """Render a manually authored dark carousel with no LLM calls (SSE stream)."""
+    topic = _clean_topic(req.topic)
+    hook  = req.hook.strip()
+    if not topic:
+        raise HTTPException(status_code=422, detail="topic must not be empty")
+    if not hook:
+        raise HTTPException(status_code=422, detail="hook must not be empty")
+    if not req.slides_content:
+        raise HTTPException(status_code=422, detail="slides_content must not be empty")
+    return StreamingResponse(
+        _render_manual_stream(topic, hook, req.slides_content, req.image_filename, req.style),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

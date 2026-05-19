@@ -14,6 +14,19 @@ import Toast from './components/Toast.jsx'
 
 const ensureSlides = (s) => Array.isArray(s) ? s : []
 
+function stripSerif(text) {
+  return text.replace(/<span\s+class=["']serif["']>(.*?)<\/span>/gi, '$1')
+}
+
+function applyEmphasisToHeading(heading, phrase) {
+  const plain   = stripSerif(heading)
+  const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const regex   = new RegExp(`\\b${escaped}\\b`, 'i')
+  const match   = regex.exec(plain)
+  if (!match) return null
+  return plain.slice(0, match.index) + `<span class="serif">${match[0]}</span>` + plain.slice(match.index + match[0].length)
+}
+
 function LoadingPane({ message }) {
   return (
     <div className="flex flex-col items-center justify-center py-16 gap-4 animate-fade-in">
@@ -154,19 +167,85 @@ function ContentModeSelector({ onSelect, onBack }) {
 // ── Shared: manual slide content entry (dark with hook, light without) ────
 function ContentEntryForm({ numSlides, includeHook = false, onConfirm, onBack }) {
   const contentCount = numSlides - 2
-  const [hookText, setHookText] = useState('')
-  const [entries, setEntries] = useState(
-    Array.from({ length: contentCount }, () => ({ heading: '', text: '' }))
+  const [hookText,         setHookText]         = useState('')
+  const [hookEmphasis,     setHookEmphasis]     = useState('')
+  const [hookEmphasisError, setHookEmphasisError] = useState('')
+  const [entries,          setEntries]          = useState(
+    Array.from({ length: contentCount }, () => ({ heading: '', text: '', type: 'content', emphasis: '' }))
   )
+  const [emphasisErrors, setEmphasisErrors] = useState({})  // index → error string
+
+  const inputClass = "w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/40"
 
   const update = (i, field, value) =>
     setEntries(prev => prev.map((e, idx) => idx === i ? { ...e, [field]: value } : e))
 
-  const allFilled = (!includeHook || hookText.trim()) && entries.every(e => e.heading.trim() && e.text.trim())
+  const toggleType = (i, newType) => {
+    setEntries(prev => prev.map((e, idx) => {
+      if (idx !== i) return e
+      return newType === 'pattern_break'
+        ? { ...e, type: 'pattern_break', text: '', emphasis: '' }
+        : { ...e, type: 'content' }
+    }))
+    setEmphasisErrors(prev => { const next = { ...prev }; delete next[i]; return next })
+  }
+
+  const updateHeading = (i, value) => {
+    const currentEmphasis = entries[i].emphasis
+    setEntries(prev => prev.map((e, idx) => idx === i ? { ...e, heading: value } : e))
+    if (currentEmphasis.trim()) {
+      const result = applyEmphasisToHeading(value, currentEmphasis)
+      setEmphasisErrors(prev => {
+        if (result === null) return { ...prev, [i]: `"${currentEmphasis}" not found in heading` }
+        const next = { ...prev }; delete next[i]; return next
+      })
+    }
+  }
+
+  const updateEmphasis = (i, value) => {
+    setEntries(prev => prev.map((e, idx) => idx === i ? { ...e, emphasis: value } : e))
+    if (!value.trim()) {
+      setEmphasisErrors(prev => { const next = { ...prev }; delete next[i]; return next })
+      return
+    }
+    const result = applyEmphasisToHeading(entries[i].heading, value)
+    setEmphasisErrors(prev => {
+      if (result === null) return { ...prev, [i]: `"${value}" not found in heading` }
+      const next = { ...prev }; delete next[i]; return next
+    })
+  }
+
+  const updateHookText = (value) => {
+    setHookText(value)
+    if (hookEmphasis.trim()) {
+      const result = applyEmphasisToHeading(value, hookEmphasis)
+      setHookEmphasisError(result === null ? `"${hookEmphasis}" not found in hook` : '')
+    }
+  }
+
+  const updateHookEmphasis = (value) => {
+    setHookEmphasis(value)
+    if (!value.trim()) { setHookEmphasisError(''); return }
+    const result = applyEmphasisToHeading(hookText, value)
+    setHookEmphasisError(result === null ? `"${value}" not found in hook` : '')
+  }
+
+  const hasEmphasisErrors = hookEmphasisError !== '' || Object.keys(emphasisErrors).length > 0
+  const allFilled = !hasEmphasisErrors
+    && (!includeHook || hookText.trim())
+    && entries.every(e => e.heading.trim() && (e.type === 'pattern_break' || e.text.trim()))
 
   const handleConfirm = () => {
     if (!allFilled) return
-    onConfirm(includeHook ? { hook: hookText, slidesContent: entries } : entries)
+    const finalHook = includeHook
+      ? (hookEmphasis.trim() ? applyEmphasisToHeading(hookText, hookEmphasis) || hookText : hookText)
+      : null
+    const finalEntries = entries.map(e => ({
+      type:    e.type,
+      heading: e.emphasis.trim() ? applyEmphasisToHeading(e.heading, e.emphasis) || e.heading : e.heading,
+      text:    e.text,
+    }))
+    onConfirm(includeHook ? { hook: finalHook, slidesContent: finalEntries } : finalEntries)
   }
 
   return (
@@ -188,29 +267,97 @@ function ContentEntryForm({ numSlides, includeHook = false, onConfirm, onBack })
               type="text"
               placeholder="Hook heading (required)"
               value={hookText}
-              onChange={e => setHookText(e.target.value)}
-              className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/40"
+              onChange={e => updateHookText(e.target.value)}
+              className={inputClass}
             />
+            {hookText.trim() && (
+              <div className="space-y-1">
+                <input
+                  type="text"
+                  placeholder="Cursive emphasis word (optional)"
+                  value={hookEmphasis}
+                  onChange={e => updateHookEmphasis(e.target.value)}
+                  className={inputClass}
+                />
+                {hookEmphasisError && (
+                  <p className="text-xs text-red-500 dark:text-red-400">{hookEmphasisError}</p>
+                )}
+              </div>
+            )}
           </div>
         )}
 
         {entries.map((entry, i) => (
-          <div key={i} className="rounded-xl border border-gray-200 dark:border-gray-800 p-4 space-y-3">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Slide {i + 2}</p>
+          <div
+            key={i}
+            className={`rounded-xl border p-4 space-y-3 transition-colors ${
+              entry.type === 'pattern_break'
+                ? 'border-amber-400/60 dark:border-amber-600/40 bg-amber-50/30 dark:bg-amber-950/20'
+                : 'border-gray-200 dark:border-gray-800'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Slide {i + 2}</p>
+              {includeHook && (
+                <div className="flex gap-1">
+                  <button
+                    type="button"
+                    onClick={() => toggleType(i, 'content')}
+                    className={`text-xs px-2.5 py-0.5 rounded-full transition-colors ${
+                      entry.type === 'content'
+                        ? 'bg-accent text-white'
+                        : 'text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                    }`}
+                  >
+                    Content
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => toggleType(i, 'pattern_break')}
+                    className={`text-xs px-2.5 py-0.5 rounded-full transition-colors ${
+                      entry.type === 'pattern_break'
+                        ? 'bg-amber-500 text-white'
+                        : 'text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                    }`}
+                  >
+                    Pattern Break
+                  </button>
+                </div>
+              )}
+            </div>
+
             <input
               type="text"
-              placeholder="Heading (required)"
+              placeholder={entry.type === 'pattern_break' ? 'Pattern break heading (required)' : 'Heading (required)'}
               value={entry.heading}
-              onChange={e => update(i, 'heading', e.target.value)}
-              className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/40"
+              onChange={e => updateHeading(i, e.target.value)}
+              className={inputClass}
             />
-            <textarea
-              rows={2}
-              placeholder="Body text (required)"
-              value={entry.text}
-              onChange={e => update(i, 'text', e.target.value)}
-              className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/40 resize-none"
-            />
+
+            {entry.type === 'content' && (
+              <textarea
+                rows={2}
+                placeholder="Body text (required)"
+                value={entry.text}
+                onChange={e => update(i, 'text', e.target.value)}
+                className={`${inputClass} resize-none`}
+              />
+            )}
+
+            {includeHook && entry.type !== 'pattern_break' && entry.heading.trim() && (
+              <div className="space-y-1">
+                <input
+                  type="text"
+                  placeholder="Cursive emphasis word (optional)"
+                  value={entry.emphasis}
+                  onChange={e => updateEmphasis(i, e.target.value)}
+                  className={inputClass}
+                />
+                {emphasisErrors[i] && (
+                  <p className="text-xs text-red-500 dark:text-red-400">{emphasisErrors[i]}</p>
+                )}
+              </div>
+            )}
           </div>
         ))}
       </div>

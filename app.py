@@ -907,15 +907,14 @@ def _render_manual_stream(
     """SSE stream: build + render a manually authored carousel with zero LLM calls."""
     yield _sse({"step": "building", "message": "Building slides…"})
 
-    content_slides = [
-        {
-            "type":    "content",
-            "heading": s.get("heading", "").strip(),
-            "body":    s.get("text", "").strip(),
-            "tag":     "INSIGHT",
-        }
-        for s in slides_content
-    ]
+    content_slides = []
+    for s in slides_content:
+        slide_type = s.get("type", "content")
+        heading    = s.get("heading", "").strip()
+        if slide_type == "pattern_break":
+            content_slides.append({"type": "pattern_break", "heading": heading, "body": "", "tag": ""})
+        else:
+            content_slides.append({"type": "content", "heading": heading, "body": s.get("text", "").strip(), "tag": "INSIGHT"})
     slides = [
         {"type": "hook",    "heading": hook.strip(), "body": "", "tag": ""},
         *content_slides,

@@ -115,6 +115,16 @@
   bottom:var(--bar-height-pos);
   z-index:2;
 }
+
+.slide-counter {
+  position:absolute;
+  right:90px;
+  bottom:calc(var(--bar-height-pos) + 170px);
+  font-size:30px;
+  color:rgba(255,255,255,.3);
+  font-family:'Inter', sans-serif;
+  z-index:3;
+}
 </style>
 </head>
 
@@ -138,6 +148,7 @@
 
   <div class="handle">@focuslabs.ai</div>
   <div class="bar"></div>
+  <div class="slide-counter">{{SLIDE_COUNTER}}</div>
 
 </div>
 </body>

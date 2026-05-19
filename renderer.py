@@ -166,9 +166,11 @@ def inject_slide(
             f'<img src="{slide_image_filename}" alt="visual">',
         )
 
-    # pattern_break: centred heading only — uses {{HEADING}} placeholder.
+    # pattern_break: centred heading + page counter — uses {{HEADING}} and {{SLIDE_COUNTER}}.
     if slide_type == "pattern_break":
         html = html.replace("{{HEADING}}", _strip_bold(heading))
+        slide_counter = f"{str(index + 1).zfill(2)} / {str(total).zfill(2)}"
+        html = html.replace("{{SLIDE_COUNTER}}", slide_counter)
     # First and last slides: single {{TEXT}} placeholder.
     elif index == 0 or index == last_index:
         html = html.replace("{{TEXT}}", _md_bold_to_html(heading))

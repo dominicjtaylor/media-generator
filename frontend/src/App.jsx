@@ -5,6 +5,7 @@ import ImagePicker from './components/ImagePicker.jsx'
 import SlideReview from './components/SlideReview.jsx'
 import Output from './components/Output.jsx'
 import Toast from './components/Toast.jsx'
+import { SLIDE_PRESET_CONFIGS } from './slidePresets.js'
 
 // Stage flow:
 // idle → template_selection → hooks_loading → hook_selection
@@ -161,6 +162,57 @@ function ContentModeSelector({ onSelect, onBack }) {
       onSelect={onSelect}
       onBack={onBack}
     />
+  )
+}
+
+// ── Dark manual: slide count picker ───────────────────────────────────────
+function SlideCountPicker({ presetConfig, value, onChange, onConfirm, onBack }) {
+  return (
+    <div className="space-y-6 animate-slide-up">
+      <div>
+        <h2 className="text-xl font-semibold">How many slides?</h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          Hook and CTA are added automatically. Pattern breaks are optional extras on top of this count.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-4 gap-3">
+        {presetConfig.presets.map(n => (
+          <button
+            key={n}
+            type="button"
+            onClick={() => onChange(n)}
+            className={`flex flex-col items-center gap-1 py-5 rounded-xl border-2 transition-all ${
+              value === n
+                ? 'border-accent bg-accent/5 dark:bg-accent/10'
+                : 'border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700'
+            }`}
+          >
+            <span className={`text-2xl font-bold tabular-nums ${value === n ? 'text-accent' : ''}`}>{n}</span>
+            {presetConfig.hint && (
+              <span className="text-xs text-gray-400">{presetConfig.hint(n)}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex gap-3">
+        <button
+          type="button"
+          onClick={onBack}
+          className="px-4 py-3 rounded-xl text-sm font-medium text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+        >
+          Back
+        </button>
+        <button
+          type="button"
+          onClick={() => onConfirm(value)}
+          className="flex-1 rounded-xl bg-accent text-white py-3 text-sm font-semibold hover:bg-orange-600 transition-colors"
+        >
+          Continue
+        </button>
+      </div>
+    </div>
   )
 }
 
@@ -677,8 +729,14 @@ export default function App() {
         goError(err.message || 'Failed to generate hooks.')
       }
     } else {
-      // Manual path: user writes content directly
-      setStatus('dark_manual_entry')
+      // Manual path: show the dark-manual slide count picker first.
+      // Snap numSlides to the dark_manual default if the current value
+      // isn't one of the dark-manual presets.
+      const dmPresets = SLIDE_PRESET_CONFIGS.dark_manual.presets
+      if (!dmPresets.includes(numSlides)) {
+        setNumSlides(SLIDE_PRESET_CONFIGS.dark_manual.default)
+      }
+      setStatus('dark_slide_count')
     }
   }, [topic, numSlides, goError])
 
@@ -991,13 +1049,24 @@ export default function App() {
           />
         )}
 
+        {/* ── dark manual: slide count selection ── */}
+        {status === 'dark_slide_count' && (
+          <SlideCountPicker
+            presetConfig={SLIDE_PRESET_CONFIGS.dark_manual}
+            value={numSlides}
+            onChange={setNumSlides}
+            onConfirm={(n) => { setNumSlides(n); setStatus('dark_manual_entry') }}
+            onBack={() => setStatus('dark_content_mode')}
+          />
+        )}
+
         {/* ── dark: manual slide content entry ── */}
         {status === 'dark_manual_entry' && (
           <ContentEntryForm
             numSlides={numSlides}
             includeHook
             onConfirm={handleManualConfirm}
-            onBack={() => setStatus('dark_content_mode')}
+            onBack={() => setStatus('dark_slide_count')}
           />
         )}
 

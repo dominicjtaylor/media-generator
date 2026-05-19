@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react'
+import { SLIDE_PRESET_CONFIGS } from '../slidePresets.js'
 
-const SLIDES = [4, 5, 7, 10]
+const { presets: SLIDES, default: DEFAULT_SLIDES } = SLIDE_PRESET_CONFIGS.default
 
 export default function Form({ onGenerate, loading, onReset }) {
   const [topic,    setTopic]    = useState('')
-  const [slides,   setSlides]   = useState(7)
+  const [slides,   setSlides]   = useState(DEFAULT_SLIDES)
   const [expanded, setExpanded] = useState(false)
   const inputRef = useRef(null)
 

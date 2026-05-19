@@ -167,51 +167,63 @@ function ContentModeSelector({ onSelect, onBack }) {
 // ── Shared: manual slide content entry (dark with hook, light without) ────
 function ContentEntryForm({ numSlides, includeHook = false, onConfirm, onBack }) {
   const contentCount = numSlides - 2
-  const [hookText,         setHookText]         = useState('')
-  const [hookEmphasis,     setHookEmphasis]     = useState('')
+  const [hookText,          setHookText]          = useState('')
+  const [hookEmphasis,      setHookEmphasis]      = useState('')
   const [hookEmphasisError, setHookEmphasisError] = useState('')
-  const [entries,          setEntries]          = useState(
-    Array.from({ length: contentCount }, () => ({ heading: '', text: '', type: 'content', emphasis: '' }))
+  // Flat ordered list: fixed content entries + insertable pattern break entries.
+  // Content entries (id: 'c0'..'cN') are permanent. Pattern break entries
+  // (id: 'pb_<timestamp>') are optional extras inserted between them.
+  const [entries, setEntries] = useState(() =>
+    Array.from({ length: contentCount }, (_, i) => ({
+      id: `c${i}`, type: 'content', heading: '', text: '', emphasis: '',
+    }))
   )
-  const [emphasisErrors, setEmphasisErrors] = useState({})  // index → error string
+  const [emphasisErrors, setEmphasisErrors] = useState({})  // entry.id → error string
 
   const inputClass = "w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/40"
 
-  const update = (i, field, value) =>
-    setEntries(prev => prev.map((e, idx) => idx === i ? { ...e, [field]: value } : e))
-
-  const toggleType = (i, newType) => {
-    setEntries(prev => prev.map((e, idx) => {
-      if (idx !== i) return e
-      return newType === 'pattern_break'
-        ? { ...e, type: 'pattern_break', text: '', emphasis: '' }
-        : { ...e, type: 'content' }
-    }))
-    setEmphasisErrors(prev => { const next = { ...prev }; delete next[i]; return next })
+  // Insert a new (empty) pattern break entry at `position` in the entries array.
+  const insertAt = (position) => {
+    const id = `pb_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`
+    setEntries(prev => [
+      ...prev.slice(0, position),
+      { id, type: 'pattern_break', heading: '', text: '', emphasis: '' },
+      ...prev.slice(position),
+    ])
   }
 
-  const updateHeading = (i, value) => {
-    const currentEmphasis = entries[i].emphasis
-    setEntries(prev => prev.map((e, idx) => idx === i ? { ...e, heading: value } : e))
+  // Remove a pattern break entry by id (content entries cannot be removed).
+  const removeEntry = (id) => {
+    setEntries(prev => prev.filter(e => e.id !== id))
+    setEmphasisErrors(prev => { const next = { ...prev }; delete next[id]; return next })
+  }
+
+  const updateEntry = (id, field, value) =>
+    setEntries(prev => prev.map(e => e.id === id ? { ...e, [field]: value } : e))
+
+  const updateHeadingEntry = (id, value) => {
+    const currentEmphasis = entries.find(e => e.id === id)?.emphasis || ''
+    setEntries(prev => prev.map(e => e.id === id ? { ...e, heading: value } : e))
     if (currentEmphasis.trim()) {
       const result = applyEmphasisToHeading(value, currentEmphasis)
       setEmphasisErrors(prev => {
-        if (result === null) return { ...prev, [i]: `"${currentEmphasis}" not found in heading` }
-        const next = { ...prev }; delete next[i]; return next
+        if (result === null) return { ...prev, [id]: `"${currentEmphasis}" not found in heading` }
+        const next = { ...prev }; delete next[id]; return next
       })
     }
   }
 
-  const updateEmphasis = (i, value) => {
-    setEntries(prev => prev.map((e, idx) => idx === i ? { ...e, emphasis: value } : e))
+  const updateEmphasisEntry = (id, value) => {
+    const heading = entries.find(e => e.id === id)?.heading || ''
+    setEntries(prev => prev.map(e => e.id === id ? { ...e, emphasis: value } : e))
     if (!value.trim()) {
-      setEmphasisErrors(prev => { const next = { ...prev }; delete next[i]; return next })
+      setEmphasisErrors(prev => { const next = { ...prev }; delete next[id]; return next })
       return
     }
-    const result = applyEmphasisToHeading(entries[i].heading, value)
+    const result = applyEmphasisToHeading(heading, value)
     setEmphasisErrors(prev => {
-      if (result === null) return { ...prev, [i]: `"${value}" not found in heading` }
-      const next = { ...prev }; delete next[i]; return next
+      if (result === null) return { ...prev, [id]: `"${value}" not found in heading` }
+      const next = { ...prev }; delete next[id]; return next
     })
   }
 
@@ -242,11 +254,23 @@ function ContentEntryForm({ numSlides, includeHook = false, onConfirm, onBack })
       : null
     const finalEntries = entries.map(e => ({
       type:    e.type,
-      heading: e.emphasis.trim() ? applyEmphasisToHeading(e.heading, e.emphasis) || e.heading : e.heading,
-      text:    e.text,
+      heading: (includeHook && e.type === 'content' && e.emphasis.trim())
+        ? applyEmphasisToHeading(e.heading, e.emphasis) || e.heading
+        : e.heading,
+      text: e.text,
     }))
     onConfirm(includeHook ? { hook: finalHook, slidesContent: finalEntries } : finalEntries)
   }
+
+  const insertBtn = (position) => includeHook && (
+    <button
+      type="button"
+      onClick={() => insertAt(position)}
+      className="w-full py-1.5 text-xs text-amber-500/50 hover:text-amber-500 border border-dashed border-amber-400/20 hover:border-amber-400/50 rounded-lg transition-colors"
+    >
+      + Insert pattern break
+    </button>
+  )
 
   return (
     <div className="space-y-6 animate-slide-up">
@@ -254,12 +278,12 @@ function ContentEntryForm({ numSlides, includeHook = false, onConfirm, onBack })
         <h2 className="text-xl font-semibold">Enter your slide content</h2>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
           {includeHook
-            ? 'Write the hook and body for each slide. The final CTA slide is added automatically.'
+            ? "Write the hook and body for each slide. Pattern breaks are optional extras — they don't replace content slots."
             : `Add a heading and body text for each content slide (slides 2–${numSlides - 1}).`}
         </p>
       </div>
 
-      <div className="space-y-5">
+      <div className="space-y-3">
         {includeHook && (
           <div className="rounded-xl border border-violet-200 dark:border-violet-900/50 p-4 space-y-3">
             <p className="text-xs font-semibold text-violet-500 uppercase tracking-wide">Slide 1 — Hook</p>
@@ -287,78 +311,70 @@ function ContentEntryForm({ numSlides, includeHook = false, onConfirm, onBack })
           </div>
         )}
 
+        {/* Insert button before first entry */}
+        {insertBtn(0)}
+
         {entries.map((entry, i) => (
-          <div
-            key={i}
-            className={`rounded-xl border p-4 space-y-3 transition-colors ${
-              entry.type === 'pattern_break'
-                ? 'border-amber-400/60 dark:border-amber-600/40 bg-amber-50/30 dark:bg-amber-950/20'
-                : 'border-gray-200 dark:border-gray-800'
-            }`}
-          >
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Slide {i + 2}</p>
-              {includeHook && (
-                <div className="flex gap-1">
+          <React.Fragment key={entry.id}>
+            {entry.type === 'pattern_break' ? (
+              <div className="rounded-xl border border-amber-400/60 dark:border-amber-600/40 bg-amber-50/30 dark:bg-amber-950/20 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold text-amber-600 dark:text-amber-500 uppercase tracking-wide">
+                    Slide {i + 2} — Pattern Break
+                  </p>
                   <button
                     type="button"
-                    onClick={() => toggleType(i, 'content')}
-                    className={`text-xs px-2.5 py-0.5 rounded-full transition-colors ${
-                      entry.type === 'content'
-                        ? 'bg-accent text-white'
-                        : 'text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-                    }`}
+                    onClick={() => removeEntry(entry.id)}
+                    className="text-xs text-gray-400 hover:text-red-500 transition-colors"
                   >
-                    Content
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => toggleType(i, 'pattern_break')}
-                    className={`text-xs px-2.5 py-0.5 rounded-full transition-colors ${
-                      entry.type === 'pattern_break'
-                        ? 'bg-amber-500 text-white'
-                        : 'text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-                    }`}
-                  >
-                    Pattern Break
+                    ✕ Remove
                   </button>
                 </div>
-              )}
-            </div>
-
-            <input
-              type="text"
-              placeholder={entry.type === 'pattern_break' ? 'Pattern break heading (required)' : 'Heading (required)'}
-              value={entry.heading}
-              onChange={e => updateHeading(i, e.target.value)}
-              className={inputClass}
-            />
-
-            {entry.type === 'content' && (
-              <textarea
-                rows={2}
-                placeholder="Body text (required)"
-                value={entry.text}
-                onChange={e => update(i, 'text', e.target.value)}
-                className={`${inputClass} resize-none`}
-              />
-            )}
-
-            {includeHook && entry.type !== 'pattern_break' && entry.heading.trim() && (
-              <div className="space-y-1">
                 <input
                   type="text"
-                  placeholder="Cursive emphasis word (optional)"
-                  value={entry.emphasis}
-                  onChange={e => updateEmphasis(i, e.target.value)}
+                  placeholder="Pattern break heading (required)"
+                  value={entry.heading}
+                  onChange={e => updateEntry(entry.id, 'heading', e.target.value)}
                   className={inputClass}
                 />
-                {emphasisErrors[i] && (
-                  <p className="text-xs text-red-500 dark:text-red-400">{emphasisErrors[i]}</p>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-4 space-y-3">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Slide {i + 2}</p>
+                <input
+                  type="text"
+                  placeholder="Heading (required)"
+                  value={entry.heading}
+                  onChange={e => updateHeadingEntry(entry.id, e.target.value)}
+                  className={inputClass}
+                />
+                <textarea
+                  rows={2}
+                  placeholder="Body text (required)"
+                  value={entry.text}
+                  onChange={e => updateEntry(entry.id, 'text', e.target.value)}
+                  className={`${inputClass} resize-none`}
+                />
+                {includeHook && entry.heading.trim() && (
+                  <div className="space-y-1">
+                    <input
+                      type="text"
+                      placeholder="Cursive emphasis word (optional)"
+                      value={entry.emphasis}
+                      onChange={e => updateEmphasisEntry(entry.id, e.target.value)}
+                      className={inputClass}
+                    />
+                    {emphasisErrors[entry.id] && (
+                      <p className="text-xs text-red-500 dark:text-red-400">{emphasisErrors[entry.id]}</p>
+                    )}
+                  </div>
                 )}
               </div>
             )}
-          </div>
+
+            {/* Insert button after every entry */}
+            {insertBtn(i + 1)}
+          </React.Fragment>
         ))}
       </div>
 
